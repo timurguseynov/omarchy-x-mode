@@ -387,12 +387,21 @@ local function window_class(w)
 end
 
 local function chrome_h(window)
+  if window ~= nil then
+    local e = apps_cfg and apps_cfg[window_class(window)]
+    -- chrome=false → no titlebar/tabbar at all (mirrors Snap::chromeH's
+    -- no_bar check in hyprbars/snap.cpp). Without this the Lua cycle branch
+    -- of snap_or_expand added the bar height to a window that has no bar.
+    if e and e.chrome == false then
+      return 0
+    end
+  end
   local h = TITLEBAR
   if window ~= nil and window.group ~= nil then
     h = h + GROUPBAR
   elseif window ~= nil then
     local e = apps_cfg and apps_cfg[window_class(window)]
-    if e and e.always_tabbar and e.chrome ~= false then
+    if e and e.always_tabbar then
       h = h + GROUPBAR
     end
   end
