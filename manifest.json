@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "omarchy-x-mode",
+  "name": "X Mode",
+  "version": "0.1.0",
+  "description": "A macOS-like desktop layer for Omarchy: floating windows, a Mac titlebar with per-tab close buttons (patched hyprbars), Rectangle-style edge snapping with a snap preview, and a right-edge app dock.",
+  "license": "MIT",
+  "author": "Timur Guseynov",
+  "requires": {
+    "omarchy": ">=4"
+  },
+  "components": {
+    "shellPlugins": [
+      "x-mode"
+    ],
+    "hyprModules": [
+      "x-mode.lua"
+    ],
+    "hyprbars": {
+      "patched": true,
+      "upstream": "https://github.com/hyprwm/hyprland-plugins",
+      "pin": "7644cec"
+    }
+  }
+}

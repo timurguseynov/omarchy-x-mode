@@ -1,0 +1,152 @@
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+import Quickshell.Hyprland
+import QtQuick
+import qs.Commons
+
+// Rectangle-style footprint preview: a border-only layer-shell overlay that
+// tracks the snap target while a floating window is dragged to a screen edge.
+// Driven by hyprbars (cmd file + xmodesnap IPC event), absolute logical pixels:
+//   show <x> <y> <w> <h>
+//   hide
+Item {
+  id: root
+
+  property string omarchyPath: Quickshell.env("OMARCHY_PATH")
+  property var shell: null
+  property var manifest: null
+
+  readonly property string cmdPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-snap-preview.cmd"
+
+  property bool shown: false
+  property bool xModeOn: true
+  property real rx: 0
+  property real ry: 0
+  property real rw: 0
+  property real rh: 0
+  // Geometry follows the snap zones smoothly while visible, but must not animate
+  // on the frame the preview appears (it would fly in from the previous snap).
+  property bool geomAnim: false
+
+  property color lineColor: Color.accent
+  property color fillColor: Util.alpha(Color.accent, 0.12)
+  property real lineWidth: Math.max(2, Math.round(Style.space(2)))
+  property real cornerRadius: Style.cornerRadius
+  readonly property int animMs: 90
+
+  function intersects(s) {
+    return root.shown
+      && root.rx < s.x + s.width
+      && root.rx + root.rw > s.x
+      && root.ry < s.y + s.height
+      && root.ry + root.rh > s.y
+  }
+
+  function applyXModeLine(raw) {
+    var s = String(raw || "").trim().toLowerCase()
+    if (s === "off" || s === "0" || s === "false") {
+      root.xModeOn = false
+      root.shown = false
+    } else if (s === "on" || s === "1" || s === "true" || s === "") {
+      root.xModeOn = true
+    }
+  }
+
+  function applyCmd(raw) {
+    if (!root.xModeOn) {
+      root.shown = false
+      return
+    }
+    var parts = String(raw || "").trim().split(/\s+/)
+    if (parts.length >= 5 && parts[0] === "show") {
+      var x = Number(parts[1])
+      var y = Number(parts[2])
+      var w = Number(parts[3])
+      var h = Number(parts[4])
+      if (isFinite(x) && isFinite(y) && isFinite(w) && isFinite(h) && w > 0 && h > 0) {
+        // Place without animating on the frame it appears (no fly-in from the
+        // previous snap), then animate while it follows the zones.
+        if (!root.shown)
+          root.geomAnim = false
+        root.rx = x
+        root.ry = y
+        root.rw = w
+        root.rh = h
+        root.shown = true
+        if (!root.geomAnim)
+          Qt.callLater(function() { root.geomAnim = true })
+        return
+      }
+    }
+    root.shown = false
+  }
+
+  FileView {
+    id: cmdView
+    path: root.cmdPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.applyCmd(text())
+  }
+
+  // hyprbars also posts an IPC event on every preview change. Prefer it when
+  // present so the overlay does not depend on inotify catching the file write.
+  Connections {
+    target: Hyprland
+    function onRawEvent(event) {
+      if (!event)
+        return
+      if (event.name === "xmode")
+        root.applyXModeLine(event.data)
+      else if (event.name === "xmodesnap")
+        root.applyCmd(event.data)
+    }
+  }
+
+  Variants {
+    model: Quickshell.screens
+
+    delegate: Component {
+      PanelWindow {
+        id: panel
+        required property var modelData
+
+        screen: modelData
+        visible: root.intersects(modelData)
+        anchors {
+          top: true
+          bottom: true
+          left: true
+          right: true
+        }
+        color: "transparent"
+        WlrLayershell.namespace: "omarchy-snap-preview"
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        exclusionMode: ExclusionMode.Ignore
+        // Visual-only surface: never swallow pointer input during the drag.
+        mask: Region {}
+
+        Rectangle {
+          x: root.rx - modelData.x
+          y: root.ry - modelData.y
+          width: root.rw
+          height: root.rh
+          radius: root.cornerRadius
+          color: root.fillColor
+          border.color: root.lineColor
+          border.width: root.lineWidth
+          opacity: root.shown ? 1 : 0
+
+          Behavior on x { enabled: root.geomAnim; NumberAnimation { duration: root.animMs; easing.type: Easing.OutCubic } }
+          Behavior on y { enabled: root.geomAnim; NumberAnimation { duration: root.animMs; easing.type: Easing.OutCubic } }
+          Behavior on width { enabled: root.geomAnim; NumberAnimation { duration: root.animMs; easing.type: Easing.OutCubic } }
+          Behavior on height { enabled: root.geomAnim; NumberAnimation { duration: root.animMs; easing.type: Easing.OutCubic } }
+          Behavior on opacity { NumberAnimation { duration: root.animMs } }
+        }
+      }
+    }
+  }
+}

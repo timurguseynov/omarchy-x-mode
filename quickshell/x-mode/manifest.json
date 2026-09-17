@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "x-mode",
+  "name": "X Mode",
+  "version": "0.1.0",
+  "author": "tim",
+  "license": "MIT",
+  "description": "macOS-like desktop: dock, snap preview, and a bar toggle.",
+  "kinds": [
+    "overlay",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Dock.qml",
+    "barWidget": "Toggle.qml"
+  },
+  "barWidget": {
+    "displayName": "X Mode",
+    "description": "Turns titlebars, snap, grouping and the dock on or off",
+    "category": "Compositor",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
