@@ -2,6 +2,8 @@
 
 A macOS-like desktop layer for [Omarchy](https://omarchy.org) — floating windows, app tabs, Rectangle-style window snapping, a right-edge dock, and macOS application switcher.
 
+https://github.com/user-attachments/assets/f4b7c208-6e6c-4880-a805-128d79c872e7
+
 It is **100% additive**. The installer never overwrites your existing setup or custom configs. Uninstalling cleanly removes only what was added.
 
 **Floating windows · Mac titlebars · App tabs · Window snapping · Dock · App switcher**
