@@ -14,9 +14,10 @@ Item {
   property var shell: null
   property var manifest: null
 
-  // Overlays (own files, same plugin).
+  // Overlays (own files, same plugin). The switcher reuses the dock's icon
+  // resolution so its row shows real app icons (it has no index of its own).
   SnapPreview {}
-  Switcher {}
+  Switcher { dock: root }
 
   property var clients: []
   property var pinned: []
@@ -27,6 +28,22 @@ Item {
   property var launching: ({})
   property var iconIndex: ({})
   property var pendingIconIndex: ({})
+  // Maps a window class / app id to the icon name from its .desktop entry
+  // (e.g. "dev.zed.Zed" -> "zed", "com.discordapp.Discord" -> its own icon).
+  // Needed because the window class often only matches the desktop file id, not
+  // the themed icon name.
+  property var desktopIconMap: ({})
+  // Chromium web apps (omarchy-launch-webapp / --app=URL) report a class like
+  // "chrome-<host>__...-Default", which matches neither the desktop file id nor
+  // its Icon= name. This maps the URL host to the entry's icon so those windows
+  // get their launcher icon.
+  property var desktopHostIcons: []
+  // Chromium extension windows (MetaMask, Bitwarden, ...) report a class like
+  // "chrome-<extension-id>-Default". There is no desktop entry for those, so
+  // map the extension id to the largest icon declared by the extension's
+  // manifest in the browser profile.
+  property var extensionIcons: ({})
+  property var pendingExtensionIcons: ({})
   property bool menuOpen: false
   property var menuApp: null
   property bool xModeOn: true
@@ -143,7 +160,7 @@ Item {
 
   function iconScanCommand() {
     return [
-      'dirs="$HOME/.icons $HOME/.local/share/icons";',
+      'dirs="$HOME/.icons $HOME/.local/share/icons $HOME/.local/share/flatpak/exports/share/icons /var/lib/flatpak/exports/share/icons";',
       'IFS=":"; for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do dirs="$dirs $d/icons"; done; unset IFS;',
       'for ext in svg png; do',
       '  for base in $dirs; do',
@@ -157,22 +174,165 @@ Item {
   function cleanName(cls) {
     return String(cls || "").toLowerCase().trim()
       .replace(/^org\./, "").replace(/^com\./, "").replace(/^io\./, "")
+      .replace(/^dev\./, "").replace(/^net\./, "").replace(/^me\./, "")
       .replace(/\.desktop$/, "")
   }
 
-  function iconFor(cls) {
-    var candidates = [String(cls || ""), cleanName(cls)]
-    for (var i = 0; i < candidates.length; i++) {
-      var c = candidates[i]
-      if (c === "")
-        continue
-      var p = root.iconIndex[c]
-      if (p)
-        return Util.fileUrl(p)
-      var themed = Quickshell.iconPath(c, true)
-      if (themed && themed.length > 0)
-        return themed
+  // Last reverse-DNS segment: "dev.zed.Zed" -> "zed", "org.gnome.Nautilus" ->
+  // "Nautilus". Used as the loosest icon-name candidate.
+  function lastSegment(name) {
+    var parts = String(name || "").split(".")
+    return parts.length > 1 ? parts[parts.length - 1] : String(name || "")
+  }
+
+  // Resolve an icon *name* (desktop entry Icon= value) to a loadable URL, going
+  // through the on-disk index first: Qt's themed lookup misses icons installed
+  // after the shell started (its theme cache never rescans).
+  function resolveIconName(name) {
+    var n = String(name || "").trim()
+    if (n === "")
+      return ""
+    if (n.charAt(0) === "/")
+      return Util.fileUrl(n)
+    var p = root.iconIndex[n]
+    if (p)
+      return Util.fileUrl(p)
+    var themed = Quickshell.iconPath(n, true)
+    if (themed && themed.length > 0)
+      return themed
+    return ""
+  }
+
+  function addDesktopIconKey(map, key, icon) {
+    var k = String(key || "").toLowerCase().trim()
+    if (k.slice(-8) === ".desktop")
+      k = k.slice(0, -8)
+    if (k === "")
+      return
+    if (map[k] === undefined)
+      map[k] = icon
+    var seg = k.split(".").pop()
+    if (seg !== "" && seg !== k && map[seg] === undefined)
+      map[seg] = icon
+  }
+
+  // Host of a web app's start URL, from the Exec of its desktop entry. Only
+  // entries that actually launch a web app (omarchy-launch-webapp or --app=) are
+  // considered, so a regular app with a URL argument cannot match.
+  function webappHostFromExec(execString) {
+    var s = String(execString || "")
+    if (s.indexOf("--app=") === -1 && s.indexOf("omarchy-launch-webapp") === -1)
+      return ""
+    var m = s.match(/https?:\/\/[^\s"']+/)
+    if (!m)
+      return ""
+    var host = m[0].replace(/^https?:\/\//, "").split("/")[0].split(":")[0].toLowerCase()
+    if (host.indexOf("www.") === 0)
+      host = host.slice(4)
+    return host
+  }
+
+  function hostIconFor(cls) {
+    var c = String(cls || "").toLowerCase()
+    if (c === "")
+      return ""
+    var hosts = root.desktopHostIcons
+    // Longest host first: "app.zoom.us" must win over a shorter suffix.
+    for (var i = 0; i < hosts.length; i++) {
+      if (c.indexOf(hosts[i].host) !== -1)
+        return root.resolveIconName(hosts[i].icon)
     }
+    return ""
+  }
+
+  // Find the largest icon declared in every Chromium extension manifest under
+  // the browser profiles and key it by the 32-char extension id ("a".."p").
+  function extensionScanCommand() {
+    return [
+      "for base in $(find \"$HOME/.config\" -maxdepth 4 -type d -name Extensions 2>/dev/null); do",
+      "  for mf in $(find \"$base\" -mindepth 3 -maxdepth 3 -name manifest.json 2>/dev/null); do",
+      "    id=$(basename \"$(dirname \"$(dirname \"$mf\")\")\")",
+      "    [[ $id =~ ^[a-p]{32}$ ]] || continue",
+      "    vdir=$(dirname \"$mf\")",
+      "    icon=$(jq -r '.icons // {} | to_entries | max_by(.key | tonumber) | .value // empty' \"$mf\" 2>/dev/null)",
+      "    [ -n \"$icon\" ] || continue",
+      "    case $icon in /*) p=$icon ;; *) p=$vdir/$icon ;; esac",
+      "    [ -f \"$p\" ] && printf '%s\\t%s\\n' \"$id\" \"$p\"",
+      "  done",
+      "done"
+    ].join("\n")
+  }
+
+  function extensionIconFor(cls) {
+    var m = String(cls || "").toLowerCase().match(/^chrome-([a-p]{32})(-|$)/)
+    if (!m)
+      return ""
+    var p = root.extensionIcons[m[1]]
+    if (!p)
+      return ""
+    return Util.fileUrl(p)
+  }
+
+  function rebuildDesktopIcons() {
+    var map = {}
+    var hosts = []
+    var values = []
+    try {
+      values = DesktopEntries.applications.values || []
+    } catch (e) {
+      values = []
+    }
+    for (var i = 0; i < values.length; i++) {
+      var e = values[i]
+      var icon = String((e && e.icon) || "")
+      if (icon === "")
+        continue
+      root.addDesktopIconKey(map, e.id, icon)
+      root.addDesktopIconKey(map, e.startupClass, icon)
+      var host = root.webappHostFromExec(e.execString)
+      if (host !== "")
+        hosts.push({ host: host, icon: icon })
+    }
+    hosts.sort(function(a, b) { return b.host.length - a.host.length })
+    root.desktopIconMap = map
+    root.desktopHostIcons = hosts
+  }
+
+  function desktopIconFor(cls) {
+    var c = String(cls || "").toLowerCase().trim()
+    if (c.slice(-8) === ".desktop")
+      c = c.slice(0, -8)
+    if (c === "")
+      return ""
+    var name = root.desktopIconMap[c]
+    if (name === undefined) {
+      var seg = c.split(".").pop()
+      if (seg !== c)
+        name = root.desktopIconMap[seg]
+    }
+    if (name === undefined) {
+      var h = root.hostIconFor(c)
+      if (h !== "")
+        return h
+      return root.extensionIconFor(c)
+    }
+    return root.resolveIconName(name)
+  }
+
+  function iconFor(cls) {
+    var raw = String(cls || "")
+    var cleaned = root.cleanName(raw)
+    // Direct candidates first (a class that already is the icon name), then the
+    // desktop entry's Icon= value, then the loose last segment.
+    var candidates = [raw, cleaned, root.lastSegment(cleaned)]
+    for (var i = 0; i < candidates.length; i++) {
+      var p = root.resolveIconName(candidates[i])
+      if (p !== "")
+        return p
+    }
+    var de = root.desktopIconFor(raw)
+    if (de !== "")
+      return de
     var fb = Quickshell.iconPath("application-x-executable", true)
     return fb && fb.length > 0 ? fb : ""
   }
@@ -388,6 +548,24 @@ Item {
     onExited: root.iconIndex = root.pendingIconIndex
   }
 
+  Process {
+    id: extensionScan
+    command: ["bash", "-c", root.extensionScanCommand()]
+    stdout: SplitParser {
+      onRead: function(line) {
+        var t = String(line || "").split("\t")
+        if (t.length < 2)
+          return
+        var id = t[0].trim()
+        var path = t.slice(1).join("\t").trim()
+        if (id !== "" && path !== "" && root.pendingExtensionIcons[id] === undefined)
+          root.pendingExtensionIcons[id] = path
+      }
+    }
+    onStarted: root.pendingExtensionIcons = ({})
+    onExited: root.extensionIcons = root.pendingExtensionIcons
+  }
+
   // Refresh the client list on Hyprland events instead of polling every 500ms:
   // a burst of events (e.g. a drag) triggers one query 120ms after it settles,
   // plus a slow safety poll for changes that do not emit an event. Idle costs
@@ -423,9 +601,16 @@ Item {
     onTriggered: root.launching = ({})
   }
 
+  Connections {
+    target: DesktopEntries.applications
+    function onValuesChanged() { root.rebuildDesktopIcons() }
+  }
+
   Component.onCompleted: {
     clientsProc.running = true
     iconScan.running = true
+    extensionScan.running = true
+    root.rebuildDesktopIcons()
   }
 
   function applyXModeLine(raw) {

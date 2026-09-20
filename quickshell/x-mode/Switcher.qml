@@ -15,6 +15,9 @@ Item {
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var shell: null
   property var manifest: null
+  // The dock owns the icon index / desktop-entry lookup; the switcher reuses it
+  // so its row shows real icons instead of blanks.
+  property var dock: null
 
   readonly property string cmdPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-switcher.cmd"
 
@@ -30,6 +33,8 @@ Item {
   }
 
   function iconFor(cls) {
+    if (root.dock)
+      return root.dock.iconFor(cls)
     var candidates = [String(cls || ""), cleanName(cls)]
     for (var i = 0; i < candidates.length; i++) {
       if (candidates[i] === "")
