@@ -665,6 +665,12 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
     if (W < 1)
         return;
     const double TABW = N > 0 ? (W - TAB_PLUS_W) / N : 0;
+    // The title texture is cached per bar (only the current member draws the
+    // tabbar), so the key must include the geometry that decides the ellipsis:
+    // each window's bar would otherwise keep the truncation of an older N/width
+    // and switching tabs changed how short every tab's text looked.
+    const int TAB_FONT = (int)std::round(11 * scale);
+    const int TAB_MAXW = (int)(TABW * scale) - (int)(28 * scale);
 
     CBox rowBox = {barBox->x, barBox->y + (int)(HEIGHT * scale), (int)(W * scale), (int)(tabHeight() * scale)};
     g_pHyprOpenGL->renderRect(rowBox, CHyprColor(ROW.r, ROW.g, ROW.b, ROW.a * a), {});
@@ -679,37 +685,41 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
         g_pHyprOpenGL->renderRect(tabBox, ISACTIVE ? CHyprColor(BASE.r, BASE.g, BASE.b, BASE.a * a) : CHyprColor(TABIN.r, TABIN.g, TABIN.b, TABIN.a * a), {});
 
         const std::string title = m->m_title;
-        const std::string key   = std::string(ISACTIVE ? "1:" : "0:") + title;
+        const std::string key   = std::to_string(TAB_MAXW) + ":" + std::to_string(TAB_FONT) + ":" + (ISACTIVE ? "1:" : "0:") + title;
         auto              it    = m_tabTexs.find(key);
         if (it == m_tabTexs.end()) {
-            auto tex = g_pHyprRenderer->renderText(title, ISACTIVE ? TEXT : TXTIN, (int)std::round(11 * scale), false, FONT, (int)(TABW * scale) - (int)(28 * scale));
+            auto tex = g_pHyprRenderer->renderText(title, ISACTIVE ? TEXT : TXTIN, TAB_FONT, false, FONT, TAB_MAXW);
             it       = m_tabTexs.emplace(key, tex).first;
         }
         if (it->second && it->second->m_texID != 0) {
-            CBox titleBox = {tabBox.x + (int)(8 * scale), tabBox.y + (tabBox.h - it->second->m_size.y) / 2.0, it->second->m_size.x, it->second->m_size.y};
+            // Integer device-pixel position: a half-pixel offset makes the
+            // GL_LINEAR texture sample between texels and the text looks blurred.
+            CBox titleBox = {tabBox.x + (int)(8 * scale), tabBox.y + (int)std::round((tabBox.h - it->second->m_size.y) / 2.0), it->second->m_size.x, it->second->m_size.y};
             g_pHyprOpenGL->renderTexture(it->second, titleBox, {.a = a});
         }
 
-        auto xit = m_tabTexs.find("x");
+        const std::string xkey = "x:" + std::to_string(TAB_FONT) + ":" + std::to_string((int)(16 * scale));
+        auto              xit  = m_tabTexs.find(xkey);
         if (xit == m_tabTexs.end()) {
-            auto tex = g_pHyprRenderer->renderText("✕", CLOSE, (int)std::round(11 * scale), false, FONT, (int)(16 * scale));
-            xit      = m_tabTexs.emplace("x", tex).first;
+            auto tex = g_pHyprRenderer->renderText("✕", CLOSE, TAB_FONT, false, FONT, (int)(16 * scale));
+            xit      = m_tabTexs.emplace(xkey, tex).first;
         }
         if (xit->second && xit->second->m_texID != 0) {
-            CBox xBox = {tabBox.x + tabBox.w - (int)(18 * scale), tabBox.y + (tabBox.h - xit->second->m_size.y) / 2.0, xit->second->m_size.x, xit->second->m_size.y};
+            CBox xBox = {tabBox.x + tabBox.w - (int)(18 * scale), tabBox.y + (int)std::round((tabBox.h - xit->second->m_size.y) / 2.0), xit->second->m_size.x, xit->second->m_size.y};
             g_pHyprOpenGL->renderTexture(xit->second, xBox, {.a = a});
         }
     }
 
     CBox plusBox = {barBox->x + (int)((W - TAB_PLUS_W) * scale), barBox->y + (int)(HEIGHT * scale), (int)(TAB_PLUS_W * scale), (int)(tabHeight() * scale)};
     g_pHyprOpenGL->renderRect(plusBox, CHyprColor(TABIN.r, TABIN.g, TABIN.b, TABIN.a * a), {});
-    const double arm   = 8.0 * scale;
-    const double thick = 1.5 * scale;
-    const double cx    = plusBox.x + plusBox.w / 2.0 + TAB_PLUS_NUDGE * scale;
-    const double cy    = plusBox.y + plusBox.h / 2.0;
+    const double arm    = std::round(8.0 * scale);
+    const double thick  = std::max(1.0, std::round(1.5 * scale));
+    const double cx     = plusBox.x + plusBox.w / 2.0 + TAB_PLUS_NUDGE * scale;
+    const double cy     = plusBox.y + plusBox.h / 2.0;
     const CHyprColor plusCol{TEXT.r, TEXT.g, TEXT.b, TEXT.a * a};
-    g_pHyprOpenGL->renderRect(CBox{cx - arm / 2.0, cy - thick / 2.0, arm, thick}, plusCol, {});
-    g_pHyprOpenGL->renderRect(CBox{cx - thick / 2.0, cy - arm / 2.0, thick, arm}, plusCol, {});
+    // Snap the bars to whole pixels so the thin strokes stay crisp.
+    g_pHyprOpenGL->renderRect(CBox{std::round(cx - arm / 2.0), std::round(cy - thick / 2.0), arm, thick}, plusCol, {});
+    g_pHyprOpenGL->renderRect(CBox{std::round(cx - thick / 2.0), std::round(cy - arm / 2.0), thick, arm}, plusCol, {});
 }
 
 void CHyprBar::applyEnabled() {
