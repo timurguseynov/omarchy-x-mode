@@ -603,7 +603,34 @@ Item {
 
   Connections {
     target: DesktopEntries.applications
-    function onValuesChanged() { root.rebuildDesktopIcons() }
+    function onValuesChanged() {
+      root.rebuildDesktopIcons()
+      // A new app installs an icon next to its .desktop entry; rescan the
+      // on-disk icon index so it appears without a shell restart. Debounced
+      // because a package install touches many entries at once.
+      iconRescan.restart()
+    }
+  }
+
+  Timer {
+    id: iconRescan
+    interval: 750
+    repeat: false
+    onTriggered: if (!iconScan.running) iconScan.running = true
+  }
+
+  // Catch icon-only changes (an app updating its icon) and newly installed
+  // browser extensions, which do not touch a .desktop entry.
+  Timer {
+    interval: 300000
+    running: true
+    repeat: true
+    onTriggered: {
+      if (!iconScan.running)
+        iconScan.running = true
+      if (!extensionScan.running)
+        extensionScan.running = true
+    }
   }
 
   Component.onCompleted: {

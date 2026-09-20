@@ -208,6 +208,12 @@ for c in json.load(sys.stdin):
 ')
   fi
 
+  # `rescanPlugins` + `plugin enable` only update the registry: a plugin that is
+  # already loaded keeps the QML instance it was created with, so updated files
+  # (and a stale icon index) would not take effect until a manual restart.
+  log "restarting the shell to load the updated plugins"
+  OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}" omarchy-restart-shell >/dev/null 2>&1 || warn "could not restart the shell; run 'omarchy-restart-shell' to load the plugins"
+
   log "installed omarchy-x-mode"
 }
 
