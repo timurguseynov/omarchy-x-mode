@@ -875,30 +875,23 @@ hl.unbind("SUPER + CTRL + code:21")
 hl.unbind("SUPER + CTRL + SHIFT + code:20")
 hl.unbind("SUPER + CTRL + SHIFT + code:21")
 
--- Cmd+W closes the active window (Omarchy's killactive). In a group, first move
--- the group's current to the next tab and then close the (now non-current)
--- window: closing the current tab makes Hyprland focus the next window in the
--- stack instead, which jumps out of the group.
+-- Cmd+W closes the active window (Omarchy's killactive). Closing the current
+-- tab of a group makes Hyprland focus/raise a window outside the group, so the
+-- plugin's close_window switches to the previous tab and raises it first. It is
+-- the same helper the tabbar close button uses (hyprbars closeTabWindow), so the
+-- two paths cannot drift apart.
 hl.unbind("SUPER + W")
 o.bind("SUPER + W", "Close window", function()
   local w = hl.get_active_window()
   if w == nil then
     return
   end
-  local group = w.group
-  if group ~= nil and group.size > 1 then
-    -- Move to the previous tab, raise it, then close the (now non-current)
-    -- window: closing the current tab makes Hyprland focus the next window in
-    -- the stack and reorder it, so the group would end up behind another window.
-    -- `prev` (not `next`) so closing the last tab lands on the previous one
-    -- instead of wrapping to the first.
-    hl.dispatch(hl.dsp.group.prev({ window = w }))
-    local cur = group.current
-    if cur ~= nil then
-      hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = cur }))
-    end
+  local p = bars()
+  if p and p.close_window then
+    p.close_window(w)
+  else
+    hl.dispatch(hl.dsp.window.close({ window = w }))
   end
-  hl.dispatch(hl.dsp.window.close({ window = w }))
 end)
 
 -- Cmd+Q closes the whole app: all tabs of the group (like the titlebar close
@@ -1511,32 +1504,39 @@ hl.on("window.close", function(w)
 end)
 
 -- hyprbars.drag(active, window): save restore-geometry at press; grouping
--- waits while the drag is in progress, then joins after the snap. The plugin
--- is loaded from exec_on_start, so the event may not exist the first time the
--- config runs; retry on start and shortly after.
+-- waits while the drag is in progress, then joins after the snap.
+--
+-- The plugin is loaded from exec_on_start, so on the very first parse of this
+-- config hl.plugin.hyprbars (and its "hyprbars.drag" event) does not exist yet;
+-- loading the plugin then triggers a Hyprland reload that re-runs this file, by
+-- which point it does. Guard on the plugin namespace and retry until it loads.
+--
+-- hl.on() reports an unknown event through Hyprland's config-error path: it
+-- returns nothing and does *not* raise, so pcall() alone cannot detect the
+-- failure. Check the returned subscription instead, otherwise drag_bound latches
+-- on a failed registration and the callback never gets bound.
 local drag_bound = false
+local drag_timer = nil
 local function bind_drag()
-  if drag_bound then
+  if drag_bound or not bars() then
     return
   end
-  local ok = pcall(function()
-    hl.on("hyprbars.drag", function(active, w)
-      if active then
-        save(w)
-      else
-        flush_pending_joins()
-      end
-    end)
+  local ok, sub = pcall(hl.on, "hyprbars.drag", function(active, w)
+    if active then
+      save(w)
+    else
+      flush_pending_joins()
+    end
   end)
-  if ok then
+  if ok and sub ~= nil then
     drag_bound = true
+    if drag_timer then
+      drag_timer:set_enabled(false)
+    end
   end
 end
 bind_drag()
-pcall(function()
-  hl.on("hyprland.start", bind_drag)
-end)
-hl.timer(bind_drag, { timeout = 800, type = "oneshot" })
+drag_timer = hl.timer(bind_drag, { timeout = 250, type = "repeat" })
 
 -- Group every same-app window on a workspace into one group. Runs once after
 -- the config loads: after an install/reload re-floats windows, or when several

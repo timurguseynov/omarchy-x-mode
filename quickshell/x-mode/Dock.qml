@@ -361,6 +361,16 @@ Item {
     focusAddr(addr)
   }
 
+  // Desktop-entry file name for a window class. gtk-launch only resolves the
+  // literal file name, so the ".desktop" suffix must always be appended, even
+  // when the class itself already ends in it: the class `org.telegram.desktop`
+  // belongs to the file `org.telegram.desktop.desktop`. Passing the bare class
+  // (or treating a trailing ".desktop" as the file name) makes gtk-launch look
+  // for a file that does not exist and fail with "no such application".
+  function desktopIdFor(cls) {
+    return String(cls || "") + ".desktop"
+  }
+
   function activate(app) {
     if (app.running) {
       focusGroup(app)
@@ -371,7 +381,10 @@ Item {
       return
     root.launching[app.cls] = true
     launchClearTimer.restart()
-    Quickshell.execDetached(["gtk-launch", app.cls])
+    // Same launch path as the Omarchy launcher: run gtk-launch inside a systemd
+    // scope via uwsm-app, so the app does not become a child of the shell
+    // (it would die on a shell restart) and does not inherit wayland-wm@.service.
+    Quickshell.execDetached(["uwsm-app", "--", "gtk-launch", root.desktopIdFor(app.cls)])
   }
 
   function togglePin(cls) {

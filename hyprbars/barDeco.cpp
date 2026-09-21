@@ -44,6 +44,24 @@ static uint32_t g_lastPressButton = 0;
 
 using namespace Render::GL;
 
+void closeTabWindow(PHLWINDOW w) {
+    if (!w)
+        return;
+
+    const auto GROUP = w->m_group;
+    if (GROUP && GROUP->size() > 1 && GROUP->current() == w) {
+        GROUP->moveCurrent(false); // previous tab
+        if (const auto CUR = GROUP->current(); CUR) {
+            if (CUR->m_isFloating)
+                Desktop::windowState()->raise(CUR);
+            if (Desktop::focusState()->window() != CUR)
+                Desktop::focusState()->rawWindowFocus(CUR, Desktop::FOCUS_REASON_CLICK);
+        }
+    }
+
+    g_pXWaylandManager->sendCloseWindow(w);
+}
+
 static CHyprColor configColor(Config::INTEGER color) {
     return CHyprColor{static_cast<uint64_t>(color)};
 }
@@ -333,7 +351,9 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
             target = PWINDOW;
         if (target) {
             if (closeHit) {
-                g_pXWaylandManager->sendCloseWindow(target);
+                // Keep focus (and stacking) in the group when the current tab is
+                // closed; see closeTabWindow().
+                closeTabWindow(target);
             } else if (PWINDOW->m_group) {
                 if (target != PWINDOW)
                     PWINDOW->m_group->setCurrent(target);

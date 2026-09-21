@@ -24,6 +24,14 @@ namespace Event {
     struct SCallbackInfo;
 }
 
+// Close a window the way a tab close should: if it is the *current* tab of a
+// group, switch to the previous tab and raise it first, then close. Closing the
+// current tab otherwise makes Hyprland focus/raise a window outside the group
+// (the floating app behind), because a group does not raise itself on focus.
+// Shared by the tabbar close button and Lua's hl.plugin.hyprbars.close_window
+// (the Super+W binding), so both stay in sync. Defined in barDeco.cpp.
+void closeTabWindow(PHLWINDOW w);
+
 class CHyprBar : public IHyprWindowDecoration {
   public:
     CHyprBar(PHLWINDOW);

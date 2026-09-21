@@ -67,6 +67,23 @@ static void onConfigReloaded() {
     }
 }
 
+// (tim) Hyprland recreates its Lua event handler on every config reload, which
+// drops the listener it had installed for our custom events. Without that
+// listener the events no longer reach Lua's hl.on("hyprbars.drag") after the
+// reload the plugin itself triggers at load -- the subscription silently
+// registers but never fires. Re-register the events on each reload so the new
+// handler subscribes again: removePluginEvent/addPluginEvent make the bus emit
+// pluginEventRemoved / pluginEventAdded, which is what (re)binds the listener.
+static void reRegisterEvents() {
+    if (!g_pGlobalState || !g_pGlobalState->dragEvent || !g_pGlobalState->xModeEvent)
+        return;
+
+    HyprlandAPI::removeEvent(PHANDLE, "hyprbars.drag");
+    HyprlandAPI::removeEvent(PHANDLE, "hyprbars.x_mode");
+    HyprlandAPI::addEvent(PHANDLE, g_pGlobalState->dragEvent);
+    HyprlandAPI::addEvent(PHANDLE, g_pGlobalState->xModeEvent);
+}
+
 static void onUpdateWindowRules(PHLWINDOW window) {
     const auto BARIT = std::find_if(g_pGlobalState->bars.begin(), g_pGlobalState->bars.end(), [window](const auto& bar) { return bar->getOwner() == window; });
 
@@ -343,6 +360,20 @@ static int luaXMode(lua_State* L) {
     return 1;
 }
 
+// hyprbars.close_window(window?): close a window, keeping focus and stacking in
+// its tab group when the closed window is the group's current tab. Used by the
+// Super+W binding, shared with the tabbar close button (see closeTabWindow).
+static int luaCloseWindow(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.close_window");
+    else
+        w = Desktop::focusState()->window();
+
+    closeTabWindow(w);
+    return 0;
+}
+
 APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     PHANDLE = handle;
 
@@ -450,6 +481,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_owns", ::luaDragOwns);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "groupable", ::luaGroupable);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "x_mode", ::luaXMode);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "close_window", ::luaCloseWindow);
     }
 
     g_pGlobalState->dragEvent = makeShared<Event::CEventBus::CCustomEvent>(
@@ -465,7 +497,10 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addEvent(PHANDLE, g_pGlobalState->xModeEvent);
     g_pDragSession = makeUnique<CDragSession>();
     static auto P4 = Event::bus()->m_events.config.preReload.listen([&] { onPreConfigReload(); });
-    static auto P5 = Event::bus()->m_events.config.reloaded.listen([&] { onConfigReloaded(); });
+    static auto P5 = Event::bus()->m_events.config.reloaded.listen([&] {
+        reRegisterEvents();
+        onConfigReloaded();
+    });
 
     // add deco to existing windows
     for (auto& w : Desktop::windowState()->windows()) {
