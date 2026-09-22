@@ -5,8 +5,9 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// X Mode settings: global on/off, then a list of apps. Opening an app shows
-// two toggles: chrome (titlebar/tabbar/grouping) and always-show tabbar.
+// X Mode settings, laid out like the Omarchy Bluetooth panel: a hero header
+// with the on/off switch, settings rows, then the app list. Opening an app
+// shows its two chrome toggles.
 Panel {
   id: root
   moduleName: "x-mode.toggle"
@@ -23,24 +24,22 @@ Panel {
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
-  // Height of everything except the scrolling app list. The panel card is
-  // capped (see contentHeight), so the list must be sized to the space that is
-  // actually left under the fixed content -- otherwise a long list overflows
-  // the card, which does not clip its children.
+  // Height of every element except the scrolling app list, so the list can be
+  // sized to the space actually left in the capped card. Excludes `listFlick`
+  // itself -- referencing its height here would be circular.
   readonly property real listFixedHeight: {
-    var items = []
-    if (toggleX.visible) items.push(toggleX)
-    if (toggleScroll.visible) items.push(toggleScroll)
-    if (sepRow.visible) items.push(sepRow)
-    if (sectionHeader.visible) items.push(sectionHeader)
-    if (searchField.visible) items.push(searchField)
-    if (detailColumn.visible) items.push(detailColumn)
+    var items = [hero, sepTop, scrollRow, sepMid, backRow, sectionHeader, searchField, detailColumn]
     var h = 0
+    var n = 0
     for (var i = 0; i < items.length; i++) {
-      h += items[i].implicitHeight
-      if (i > 0)
-        h += column.spacing
+      var it = items[i]
+      if (!it || it.visible === false)
+        continue
+      h += it.implicitHeight
+      n++
     }
+    if (n > 1)
+      h += (n - 1) * column.spacing
     return h
   }
 
@@ -69,6 +68,24 @@ Panel {
         return running[i]
     }
     return { cls: openCls, title: "" }
+  }
+
+  // Best-effort themed icon for an app class (the dock has a richer resolver,
+  // but the panel does not see it). Empty when nothing matches; the row then
+  // falls back to the class initial.
+  function appIcon(cls) {
+    var c = String(cls || "").trim()
+    if (c === "")
+      return ""
+    var cands = [c, c.toLowerCase(), c.split(".").pop()]
+    for (var i = 0; i < cands.length; i++) {
+      if (!cands[i])
+        continue
+      var p = Quickshell.iconPath(cands[i], true)
+      if (p && p.length > 0)
+        return p
+    }
+    return ""
   }
 
   function cfgFor(cls) {
@@ -235,6 +252,160 @@ Panel {
     }
   }
 
+  // Two-line settings row with a trailing switch, the same shape as the
+  // Bluetooth device rows. The whole row toggles; the switch is not interactive.
+  component SwitchRow: CursorSurface {
+    id: srow
+    property string label: ""
+    property string description: ""
+    property bool checked: false
+    property bool rowEnabled: true
+    signal toggled()
+
+    implicitHeight: srowContent.implicitHeight + Style.spacing.rowPaddingX
+    foreground: root.contentForeground
+    hasCursor: srowMouse.containsMouse && srow.rowEnabled
+    opacity: srow.rowEnabled ? 1 : 0.5
+
+    MouseArea {
+      id: srowMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: srow.rowEnabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+      onClicked: if (srow.rowEnabled) srow.toggled()
+    }
+
+    Item {
+      id: srowContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(10)
+      implicitHeight: Math.max(srowLabels.implicitHeight, srowSwitch.implicitHeight)
+
+      Column {
+        id: srowLabels
+        spacing: Style.space(1)
+        anchors.left: parent.left
+        anchors.right: srowSwitch.left
+        anchors.rightMargin: Style.space(10)
+        anchors.verticalCenter: parent.verticalCenter
+
+        Text {
+          text: srow.label
+          color: root.contentForeground
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideRight
+          width: parent.width
+        }
+        Text {
+          visible: srow.description !== ""
+          text: srow.description
+          color: Qt.darker(root.contentForeground, 1.5)
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+          width: parent.width
+        }
+      }
+
+      ToggleSwitch {
+        id: srowSwitch
+        checked: srow.checked
+        interactive: false
+        foreground: root.contentForeground
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+      }
+    }
+  }
+
+  // App list row: icon + class name + the focused window's title, like the
+  // Bluetooth paired-device rows.
+  component AppRow: CursorSurface {
+    id: arow
+    required property var modelData
+
+    implicitHeight: arowContent.implicitHeight + Style.spacing.rowPaddingX
+    foreground: root.contentForeground
+    hasCursor: arowMouse.containsMouse
+
+    MouseArea {
+      id: arowMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: root.openCls = String(arow.modelData.cls).toLowerCase()
+    }
+
+    Item {
+      id: arowContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(10)
+      implicitHeight: Math.max(Style.font.iconLarge, arowInfo.implicitHeight)
+
+      Image {
+        id: arowIcon
+        width: Style.font.iconLarge
+        height: Style.font.iconLarge
+        source: root.appIcon(arow.modelData.cls)
+        sourceSize.width: width
+        sourceSize.height: height
+        fillMode: Image.PreserveAspectFit
+        asynchronous: false
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        visible: status === Image.Ready
+      }
+
+      Text {
+        visible: !arowIcon.visible
+        text: String(arow.modelData.cls).charAt(0).toUpperCase()
+        color: root.contentForeground
+        font.family: root.contentFontFamily
+        font.pixelSize: Style.font.body
+        width: Style.font.iconLarge
+        height: Style.font.iconLarge
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+      }
+
+      Column {
+        id: arowInfo
+        spacing: Style.space(1)
+        anchors.left: parent.left
+        anchors.leftMargin: Style.font.iconLarge + Style.space(10)
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+
+        Text {
+          text: arow.modelData.cls
+          color: root.contentForeground
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideRight
+          width: parent.width
+        }
+        Text {
+          visible: text !== ""
+          text: String(arow.modelData.title || "").trim()
+          color: Qt.darker(root.contentForeground, 1.5)
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+          width: parent.width
+        }
+      }
+    }
+  }
+
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -253,64 +424,97 @@ Panel {
       // paint content over the popup border.
       height: parent.height
       clip: true
-      spacing: Style.spacing.md
+      spacing: Style.space(14)
 
-      Toggle {
-        id: toggleX
+      // Hero: X Mode icon, name and status, with the on/off switch on the
+      // trailing edge — same layout as the Bluetooth header.
+      Item {
+        id: hero
         width: parent.width
-        visible: root.openCls === ""
-        label: "X Mode"
-        description: "Titlebars, snap, grouping, dock"
-        checked: root.xModeOn
-        foreground: root.contentForeground
-        onClicked: {
-          if (root.hostWidget && root.hostWidget.setOn)
-            root.hostWidget.setOn(!root.xModeOn)
+        implicitHeight: Math.max(heroIcon.implicitHeight, heroLabels.implicitHeight, powerSwitch.implicitHeight)
+
+        Text {
+          id: heroIcon
+          textFormat: Text.PlainText
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
+          text: "󰀵"
+          color: root.contentForeground
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.display
+          opacity: root.xModeOn ? 1.0 : 0.5
+        }
+
+        ToggleSwitch {
+          id: powerSwitch
+          checked: root.xModeOn
+          foreground: root.contentForeground
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          onToggled: {
+            if (root.hostWidget && root.hostWidget.setOn)
+              root.hostWidget.setOn(!root.xModeOn)
+          }
+        }
+
+        Column {
+          id: heroLabels
+          anchors.left: heroIcon.right
+          anchors.leftMargin: Style.space(14)
+          anchors.right: parent.right
+          anchors.rightMargin: powerSwitch.width + Style.space(12)
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: Style.space(2)
+
+          Text {
+            text: "X Mode"
+            color: root.contentForeground
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.title
+            font.bold: true
+            elide: Text.ElideRight
+            width: parent.width
+          }
+          Text {
+            textFormat: Text.PlainText
+            text: (root.xModeOn ? "On" : "Off").toUpperCase()
+            color: Qt.darker(root.contentForeground, 1.4)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+            font.letterSpacing: 1.2
+            elide: Text.ElideRight
+            width: parent.width
+          }
         }
       }
 
-      Toggle {
-        id: toggleScroll
+      PanelSeparator { id: sepTop; foreground: root.contentForeground }
+
+      SwitchRow {
+        id: scrollRow
         width: parent.width
         visible: root.openCls === ""
-        enabled: root.xModeOn
-        opacity: root.xModeOn ? 1 : 0.45
         label: "Native scroll"
         description: "Natural (reversed) touchpad scrolling"
         checked: root.nativeScroll
-        foreground: root.contentForeground
-        onClicked: {
-          if (!root.xModeOn)
-            return
-          root.setOptions(!root.nativeScroll)
-        }
+        rowEnabled: root.xModeOn
+        onToggled: root.setOptions(!root.nativeScroll)
       }
 
-      PanelSeparator { id: sepRow; width: parent.width; visible: root.openCls === "" }
+      PanelSeparator {
+        id: sepMid
+        visible: root.openCls === ""
+        foreground: root.contentForeground
+      }
 
-      BorderSurface {
+      CursorSurface {
         id: backRow
+        width: parent.width
         visible: root.openCls !== ""
-        implicitHeight: backText.implicitHeight + Style.spacing.sm * 2
-        implicitWidth: backText.implicitWidth + Style.spacing.rowPaddingX * 2 + borderLeft + borderRight
-        radius: Style.cornerRadius
-        readonly property bool _hot: backMouse.containsMouse
-        color: Style.controlFill(false, _hot, root.contentForeground, Color.accent)
-        borderSpec: Border.controlSpec(_hot ? "hover-cursor" : "normal", root.contentForeground, Color.accent)
-        Behavior on color { ColorAnimation { duration: 100 } }
-
-        Text {
-          id: backText
-          anchors.verticalCenter: parent.verticalCenter
-          anchors.left: parent.left
-          anchors.leftMargin: parent.borderLeft + Style.spacing.rowPaddingX
-          textFormat: Text.PlainText
-          text: "Back"
-          color: root.contentForeground
-          font.family: root.contentFontFamily
-          font.pixelSize: Style.font.subtitle
-          font.bold: true
-        }
+        implicitHeight: backText.implicitHeight + Style.spacing.rowPaddingX
+        foreground: root.contentForeground
+        hasCursor: backMouse.containsMouse
 
         MouseArea {
           id: backMouse
@@ -318,6 +522,19 @@ Panel {
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
           onClicked: root.openCls = ""
+        }
+
+        Text {
+          id: backText
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.left: parent.left
+          anchors.leftMargin: Style.space(10)
+          textFormat: Text.PlainText
+          text: "Back"
+          color: root.contentForeground
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.body
+          font.bold: true
         }
       }
 
@@ -341,35 +558,27 @@ Panel {
       Column {
         id: detailColumn
         width: parent.width
-        spacing: Style.spacing.sm
+        spacing: Style.space(4)
         visible: root.openCls !== ""
 
-        Toggle {
+        SwitchRow {
           width: parent.width
           label: "Titlebar and grouping"
           description: "Mac titlebar, tabs, same-app groups"
           checked: root.cfgFor(root.openCls).chrome
-          foreground: root.contentForeground
-          onClicked: {
+          onToggled: {
             var c = root.cfgFor(root.openCls)
             root.setCfg(root.openCls, !c.chrome, c.alwaysTabbar)
           }
         }
 
-        Toggle {
+        SwitchRow {
           width: parent.width
-          enabled: root.cfgFor(root.openCls).chrome
-          opacity: enabled ? 1 : 0.45
           label: "Always show tabbar"
           description: "Tab strip with + even for a single window"
           checked: root.cfgFor(root.openCls).alwaysTabbar
-          foreground: root.contentForeground
-          onClicked: {
-            var c = root.cfgFor(root.openCls)
-            if (!c.chrome)
-              return
-            root.setCfg(root.openCls, true, !c.alwaysTabbar)
-          }
+          rowEnabled: root.cfgFor(root.openCls).chrome
+          onToggled: root.setCfg(root.openCls, true, !root.cfgFor(root.openCls).alwaysTabbar)
         }
       }
 
@@ -395,44 +604,12 @@ Panel {
         Column {
           id: appColumn
           width: listFlick.width
-          spacing: Style.spacing.xs
+          spacing: Style.space(4)
 
           Repeater {
             model: root.filtered
-            BorderSurface {
-              required property var modelData
-              id: appRow
+            AppRow {
               width: appColumn.width
-              implicitHeight: Math.max(48, appRowText.implicitHeight + Style.spacing.huge)
-              radius: Style.cornerRadius
-              readonly property bool _hot: appRowMouse.containsMouse
-              color: Style.controlFill(false, _hot, root.contentForeground, Color.accent)
-              borderSpec: Border.controlSpec(_hot ? "hover-cursor" : "normal", root.contentForeground, Color.accent)
-              Behavior on color { ColorAnimation { duration: 100 } }
-
-              Text {
-                id: appRowText
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: parent.borderLeft + Style.spacing.rowPaddingX
-                anchors.rightMargin: parent.borderRight + Style.spacing.rowPaddingX
-                textFormat: Text.PlainText
-                text: appRow.modelData.cls
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.subtitle
-                font.bold: true
-                elide: Text.ElideRight
-              }
-
-              MouseArea {
-                id: appRowMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.openCls = String(appRow.modelData.cls).toLowerCase()
-              }
             }
           }
 
