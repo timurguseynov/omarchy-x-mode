@@ -70,22 +70,10 @@ Panel {
     return { cls: openCls, title: "" }
   }
 
-  // Best-effort themed icon for an app class (the dock has a richer resolver,
-  // but the panel does not see it). Empty when nothing matches; the row then
-  // falls back to the class initial.
+  // Same resolution the dock uses (desktop entry Icon=, web-app URL host,
+  // chromium extension manifest, on-disk icon index, then Qt themed lookup).
   function appIcon(cls) {
-    var c = String(cls || "").trim()
-    if (c === "")
-      return ""
-    var cands = [c, c.toLowerCase(), c.split(".").pop()]
-    for (var i = 0; i < cands.length; i++) {
-      if (!cands[i])
-        continue
-      var p = Quickshell.iconPath(cands[i], true)
-      if (p && p.length > 0)
-        return p
-    }
-    return ""
+    return iconResolver.iconFor(cls)
   }
 
   function cfgFor(cls) {
@@ -251,6 +239,8 @@ Panel {
       }
     }
   }
+
+  IconResolver { id: iconResolver }
 
   // Two-line settings row with a trailing switch, the same shape as the
   // Bluetooth device rows. The whole row toggles; the switch is not interactive.
