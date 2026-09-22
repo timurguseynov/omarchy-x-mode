@@ -620,12 +620,10 @@ Item {
       for (var i = 0; i < wins.length; i++) {
         var win = wins[i]
         var title = String(win.title || "").trim()
-        if (title.length > 28)
-          title = title.slice(0, 27) + "…"
-        var ws = win.ws ? "WS" + win.ws : ""
         a.push({
           id: "win:" + win.addr,
-          label: title ? (ws ? title + "  " + ws : title) : (ws || "Window"),
+          label: title || "Window",
+          wsLabel: win.ws ? String(win.ws) : "",
           enabled: true,
           addr: win.addr
         })
@@ -1211,13 +1209,30 @@ Item {
                     color: Util.alpha(Color.foreground, 0.2)
                   }
 
+                  // Title on the left, elided so it always fits; workspace
+                  // number right-aligned with the same 8px margin.
                   Text {
+                    id: menuRowLabel
                     visible: modelData.id !== "sep" && modelData.id !== "sep2"
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
                     anchors.leftMargin: 8
+                    anchors.right: menuRowWs.visible ? menuRowWs.left : parent.right
+                    anchors.rightMargin: 8
                     text: modelData.label
+                    elide: Text.ElideRight
                     color: modelData.enabled ? Color.foreground : Util.alpha(Color.foreground, 0.4)
+                    font.pixelSize: 12
+                  }
+
+                  Text {
+                    id: menuRowWs
+                    visible: menuRowLabel.visible && !!modelData.wsLabel
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.right: parent.right
+                    anchors.rightMargin: 8
+                    text: modelData.wsLabel || ""
+                    color: Util.alpha(Color.foreground, 0.55)
                     font.pixelSize: 12
                   }
 
