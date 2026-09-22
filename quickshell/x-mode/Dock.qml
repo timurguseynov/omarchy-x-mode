@@ -33,9 +33,10 @@ Item {
   // Needed because the window class often only matches the desktop file id, not
   // the themed icon name.
   property var desktopIconMap: ({})
-  // Maps the same window class / app id keys to the human-readable desktop
-  // entry Name= (e.g. "dev.zed.Zed" -> "Zed"), for the "New …" menu item.
-  property var desktopNameMap: ({})
+  // Launch metadata keyed the same way as the icon map (desktop-entry id and
+  // startup class, plus the last dotted segment): { id, name, cmd }. `cmd` is a
+  // "New Window" desktop action's command when the entry declares one, else null.
+  property var desktopAppMap: ({})
   // Chromium web apps (omarchy-launch-webapp / --app=URL) report a class like
   // "chrome-<host>__...-Default", which matches neither the desktop file id nor
   // its Icon= name. This maps the URL host to the entry's icon so those windows
@@ -305,9 +306,34 @@ Item {
     return Util.fileUrl(p)
   }
 
+  // Command of the desktop entry's "New Window" action, when it has one (e.g.
+  // Sublime Text's `subl --launch-or-new-window`). Launching the bare entry
+  // would just focus the running instance for such apps.
+  function newWindowActionCommand(e) {
+    var acts = (e && e.actions) || []
+    for (var j = 0; j < acts.length; j++) {
+      var a = acts[j]
+      if (!a)
+        continue
+      var id = String(a.id || "").toLowerCase().replace(/[\s_]+/g, "-")
+      var name = String(a.name || "").toLowerCase()
+      if (id.indexOf("new") === -1)
+        continue
+      if (id.indexOf("window") === -1 && name.indexOf("window") === -1)
+        continue
+      // Skip private / incognito variants — we want a plain new window.
+      if (id.indexOf("private") !== -1 || id.indexOf("incognito") !== -1)
+        continue
+      if (name.indexOf("private") !== -1 || name.indexOf("incognito") !== -1)
+        continue
+      return a.command
+    }
+    return null
+  }
+
   function rebuildDesktopIcons() {
     var map = {}
-    var names = {}
+    var apps = {}
     var hosts = []
     var values = []
     try {
@@ -319,9 +345,10 @@ Item {
       var e = values[i]
       var icon = String((e && e.icon) || "")
       var name = String((e && e.name) || "")
-      if (name !== "") {
-        root.addDesktopIconKey(names, e.id, name)
-        root.addDesktopIconKey(names, e.startupClass, name)
+      var entry = { id: String((e && e.id) || ""), name: name, cmd: root.newWindowActionCommand(e) }
+      if (entry.id !== "") {
+        root.addDesktopIconKey(apps, entry.id, entry)
+        root.addDesktopIconKey(apps, e.startupClass, entry)
       }
       if (icon === "")
         continue
@@ -329,11 +356,11 @@ Item {
       root.addDesktopIconKey(map, e.startupClass, icon)
       var host = root.webappHostFromExec(e.execString)
       if (host !== "")
-        hosts.push({ host: host, icon: icon })
+        hosts.push({ host: host, icon: icon, id: entry.id, name: name, cmd: entry.cmd })
     }
     hosts.sort(function(a, b) { return b.host.length - a.host.length })
     root.desktopIconMap = map
-    root.desktopNameMap = names
+    root.desktopAppMap = apps
     root.desktopHostIcons = hosts
   }
 
@@ -400,25 +427,42 @@ Item {
     focusAddr(addr)
   }
 
+  // Desktop entry matching a window class: the key map first, then the URL host
+  // for Chromium web apps (whose class embeds it). Returns { id, name, cmd }.
+  function appEntryFor(cls) {
+    var c = String(cls || "").toLowerCase().trim()
+    if (c.slice(-8) === ".desktop")
+      c = c.slice(0, -8)
+    if (c === "")
+      return null
+    var e = root.desktopAppMap[c]
+    if (e === undefined) {
+      var seg = c.split(".").pop()
+      if (seg !== c)
+        e = root.desktopAppMap[seg]
+    }
+    if (e !== undefined)
+      return e
+    var hs = root.desktopHostIcons
+    for (var i = 0; i < hs.length; i++) {
+      if (c.indexOf(hs[i].host) !== -1)
+        return hs[i]
+    }
+    return null
+  }
+
   // Human-readable app name for the "New …" menu item, from the desktop entry
   // keys used for icons; falls back to the last dotted class segment.
   function appDisplayName(cls) {
+    var e = root.appEntryFor(cls)
+    if (e && e.name)
+      return e.name
     var raw = String(cls || "").trim()
     var c = raw.toLowerCase()
     if (c.slice(-8) === ".desktop") {
       c = c.slice(0, -8)
       raw = raw.slice(0, -8)
     }
-    if (c === "")
-      return ""
-    var n = root.desktopNameMap[c]
-    if (n === undefined) {
-      var seg = c.split(".").pop()
-      if (seg !== c)
-        n = root.desktopNameMap[seg]
-    }
-    if (n !== undefined && n !== "")
-      return n
     return root.lastSegment(raw) || c
   }
 
@@ -467,10 +511,24 @@ Item {
       return
     root.launching[app.cls] = true
     launchClearTimer.restart()
-    // Same launch path as the Omarchy launcher: run gtk-launch inside a systemd
-    // scope via uwsm-app, so the app does not become a child of the shell
-    // (it would die on a shell restart) and does not inherit wayland-wm@.service.
-    Quickshell.execDetached(["uwsm-app", "--", "gtk-launch", root.desktopIdFor(app.cls)])
+    // Same launch path as the Omarchy launcher: run inside a systemd scope via
+    // uwsm-app, so the app does not become a child of the shell (it would die on
+    // a shell restart) and does not inherit wayland-wm@.service.
+    var e = root.appEntryFor(app.cls)
+    var cmd = (e && e.cmd) ? e.cmd : null
+    if (cmd && cmd.length > 0) {
+      // Entry has a dedicated "New Window" action (e.g. Sublime Text).
+      var parts = ["uwsm-app", "--"]
+      for (var i = 0; i < cmd.length; i++)
+        parts.push(String(cmd[i]))
+      Quickshell.execDetached(parts)
+    } else if (e && e.id) {
+      // gtk-launch the matched entry: correct for web apps (runs
+      // omarchy-launch-webapp) and for classes that differ from the file name.
+      Quickshell.execDetached(["uwsm-app", "--", "gtk-launch", e.id])
+    } else {
+      Quickshell.execDetached(["uwsm-app", "--", "gtk-launch", root.desktopIdFor(app.cls)])
+    }
   }
 
   function togglePin(cls) {
