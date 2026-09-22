@@ -33,11 +33,19 @@ Item {
   // Needed because the window class often only matches the desktop file id, not
   // the themed icon name.
   property var desktopIconMap: ({})
+  // Maps the same window class / app id keys to the human-readable desktop
+  // entry Name= (e.g. "dev.zed.Zed" -> "Zed"), for the "New …" menu item.
+  property var desktopNameMap: ({})
   // Chromium web apps (omarchy-launch-webapp / --app=URL) report a class like
   // "chrome-<host>__...-Default", which matches neither the desktop file id nor
   // its Icon= name. This maps the URL host to the entry's icon so those windows
   // get their launcher icon.
   property var desktopHostIcons: []
+  // Classes whose desktop entry declares a single-instance app (so launching
+  // it would only focus the running window, not open a new tab). Used to hide
+  // the "New …" menu item for those.
+  property var singleInstanceApps: ({})
+  property var pendingSingleInstance: ({})
   // Chromium extension windows (MetaMask, Bitwarden, ...) report a class like
   // "chrome-<extension-id>-Default". There is no desktop entry for those, so
   // map the extension id to the largest icon declared by the extension's
@@ -46,6 +54,12 @@ Item {
   property var pendingExtensionIcons: ({})
   property bool menuOpen: false
   property var menuApp: null
+  // Screen Y of the icon the menu was opened from, so the popup lines up with
+  // the button instead of sitting in the middle of the dock.
+  property real menuY: 0
+  // Screen Y of the dock panel's top edge (its layer-shell top margin), needed
+  // to turn an icon's window-local Y into a screen Y for the menu.
+  property real dockPanelTop: 0
   property bool xModeOn: true
   // Pinned-icon drag reorder (Mac dock style). Track by class so Repeater
   // reshuffles do not flash the icon back to its old slot on drop.
@@ -171,6 +185,24 @@ Item {
     ].join(' ')
   }
 
+  // One id/StartupWMClass per desktop entry that declares it opens a single
+  // main window: launching such an app activates the existing instance instead
+  // of creating a new window, so there is no tab to open.
+  function singleInstanceScanCommand() {
+    return [
+      'for d in "$HOME/.local/share/applications" /usr/local/share/applications /usr/share/applications /var/lib/flatpak/exports/share/applications "$HOME/.local/share/flatpak/exports/share/applications" /var/lib/snapd/desktop/applications; do',
+      '  [[ -d $d ]] || continue;',
+      '  for f in "$d"/*.desktop; do',
+      '    [[ -f $f ]] || continue;',
+      '    grep -qiE "^(SingleMainWindow|X-GNOME-SingleWindow|X-KDE-SingleMainWindow)=true" "$f" || continue;',
+      '    id=$(basename "$f" .desktop);',
+      '    wm=$(grep -i "^StartupWMClass=" "$f" | head -1 | cut -d= -f2-);',
+      '    printf "%s\\t%s\\n" "$id" "$wm";',
+      '  done;',
+      'done'
+    ].join(' ')
+  }
+
   function cleanName(cls) {
     return String(cls || "").toLowerCase().trim()
       .replace(/^org\./, "").replace(/^com\./, "").replace(/^io\./, "")
@@ -275,6 +307,7 @@ Item {
 
   function rebuildDesktopIcons() {
     var map = {}
+    var names = {}
     var hosts = []
     var values = []
     try {
@@ -285,6 +318,11 @@ Item {
     for (var i = 0; i < values.length; i++) {
       var e = values[i]
       var icon = String((e && e.icon) || "")
+      var name = String((e && e.name) || "")
+      if (name !== "") {
+        root.addDesktopIconKey(names, e.id, name)
+        root.addDesktopIconKey(names, e.startupClass, name)
+      }
       if (icon === "")
         continue
       root.addDesktopIconKey(map, e.id, icon)
@@ -295,6 +333,7 @@ Item {
     }
     hosts.sort(function(a, b) { return b.host.length - a.host.length })
     root.desktopIconMap = map
+    root.desktopNameMap = names
     root.desktopHostIcons = hosts
   }
 
@@ -361,6 +400,42 @@ Item {
     focusAddr(addr)
   }
 
+  // Human-readable app name for the "New …" menu item, from the desktop entry
+  // keys used for icons; falls back to the last dotted class segment.
+  function appDisplayName(cls) {
+    var raw = String(cls || "").trim()
+    var c = raw.toLowerCase()
+    if (c.slice(-8) === ".desktop") {
+      c = c.slice(0, -8)
+      raw = raw.slice(0, -8)
+    }
+    if (c === "")
+      return ""
+    var n = root.desktopNameMap[c]
+    if (n === undefined) {
+      var seg = c.split(".").pop()
+      if (seg !== c)
+        n = root.desktopNameMap[seg]
+    }
+    if (n !== undefined && n !== "")
+      return n
+    return root.lastSegment(raw) || c
+  }
+
+  // True when the app's desktop entry declares it single-instance, so a launch
+  // would only focus the running window (nothing new to open as a tab).
+  function isSingleInstance(cls) {
+    var c = String(cls || "").toLowerCase().trim()
+    if (c.slice(-8) === ".desktop")
+      c = c.slice(0, -8)
+    if (c === "")
+      return false
+    if (root.singleInstanceApps[c])
+      return true
+    var seg = c.split(".").pop()
+    return seg !== c && !!root.singleInstanceApps[seg]
+  }
+
   // Desktop-entry file name for a window class. gtk-launch only resolves the
   // literal file name, so the ".desktop" suffix must always be appended, even
   // when the class itself already ends in it: the class `org.telegram.desktop`
@@ -372,11 +447,22 @@ Item {
   }
 
   function activate(app) {
+    // A left-click on the dock (now reachable while the menu is open, since
+    // the overlay no longer covers it) dismisses any open menu.
+    root.closeMenu()
     if (app.running) {
       focusGroup(app)
       return
     }
-    // Ignore repeated clicks while the app is still starting up.
+    root.launchApp(app)
+  }
+
+  // Launch a new instance of an app. Shared by the dock icon and the "New …"
+  // context-menu item; x-mode.lua groups same-app windows into one tab group.
+  function launchApp(app) {
+    if (!app)
+      return
+    // Ignore repeated launches while the app is still starting up.
     if (root.launching[app.cls])
       return
     root.launching[app.cls] = true
@@ -446,8 +532,10 @@ Item {
       Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.window.close({ window = 'address:" + app.addrs[i] + "' })"])
   }
 
-  function openMenu(app) {
+  function openMenu(app, screenY) {
     menuApp = app
+    if (typeof screenY === "number")
+      menuY = screenY
     menuOpen = true
   }
 
@@ -458,6 +546,11 @@ Item {
 
   function menuActions() {
     var a = []
+    if (menuApp && !root.isSingleInstance(menuApp.cls)) {
+      a.push({ id: "new", label: "New " + root.appDisplayName(menuApp.cls), enabled: true })
+      if (menuApp.wins && menuApp.wins.length > 0)
+        a.push({ id: "sep", label: "", enabled: false })
+    }
     var wins = (menuApp && menuApp.wins) ? menuApp.wins.slice() : []
     wins.sort(function(x, y) {
       var dx = Number(x.ws) - Number(y.ws)
@@ -498,7 +591,9 @@ Item {
       var entry = app && app.ws ? app.ws[wid] : null
       var addr = entry && typeof entry === "object" ? entry.addr : entry
       focusAddr(addr)
-    } else if (id === "pin" || id === "unpin")
+    } else if (id === "new")
+      launchApp(app)
+    else if (id === "pin" || id === "unpin")
       togglePin(app.cls)
     else if (id === "close")
       closeApp(app)
@@ -562,6 +657,28 @@ Item {
   }
 
   Process {
+    id: singleInstanceScan
+    command: ["bash", "-c", root.singleInstanceScanCommand()]
+    stdout: SplitParser {
+      onRead: function(line) {
+        var t = String(line || "").split("\t")
+        var id = String(t[0] || "").toLowerCase().trim()
+        if (id.slice(-8) === ".desktop")
+          id = id.slice(0, -8)
+        var wm = String(t.length > 1 ? t[1] : "").toLowerCase().trim()
+        if (wm.slice(-8) === ".desktop")
+          wm = wm.slice(0, -8)
+        if (id !== "")
+          root.pendingSingleInstance[id] = true
+        if (wm !== "")
+          root.pendingSingleInstance[wm] = true
+      }
+    }
+    onStarted: root.pendingSingleInstance = ({})
+    onExited: root.singleInstanceApps = root.pendingSingleInstance
+  }
+
+  Process {
     id: extensionScan
     command: ["bash", "-c", root.extensionScanCommand()]
     stdout: SplitParser {
@@ -622,6 +739,8 @@ Item {
       // on-disk icon index so it appears without a shell restart. Debounced
       // because a package install touches many entries at once.
       iconRescan.restart()
+      if (!singleInstanceScan.running)
+        singleInstanceScan.running = true
     }
   }
 
@@ -643,6 +762,8 @@ Item {
         iconScan.running = true
       if (!extensionScan.running)
         extensionScan.running = true
+      if (!singleInstanceScan.running)
+        singleInstanceScan.running = true
     }
   }
 
@@ -650,6 +771,7 @@ Item {
     clientsProc.running = true
     iconScan.running = true
     extensionScan.running = true
+    singleInstanceScan.running = true
     root.rebuildDesktopIcons()
   }
 
@@ -720,6 +842,14 @@ Item {
             border.color: Util.alpha(Color.foreground, 0.15)
             border.width: 1
 
+            // `panel` is only in scope here (a direct child), not in the nested
+            // icon delegate Component, so publish its top edge for menuScreenY.
+            Binding {
+              target: root
+              property: "dockPanelTop"
+              value: panel.margins.top
+            }
+
             Component {
               id: appIconDelegate
 
@@ -729,6 +859,10 @@ Item {
                 required property int index
                 property bool pinnedItem: !!item.modelData.pinned
                 property bool isDragSource: item.pinnedItem && root.dragCls === String(item.modelData.cls)
+                // Screen Y of this icon, for aligning the context menu.
+                function menuScreenY() {
+                  return root.dockPanelTop + item.mapToItem(null, 0, 0).y
+                }
                 width: root.iconSize
                 height: root.iconSize
                 // Neighbors slide aside while a pinned icon is dragged.
@@ -837,7 +971,7 @@ Item {
                     }
                     dragArmed = false
                     if (mouse.button === Qt.RightButton)
-                      root.openMenu(item.modelData)
+                      root.openMenu(item.modelData, item.menuScreenY())
                     else if (mouse.button === Qt.LeftButton)
                       root.activate(item.modelData)
                   }
@@ -847,7 +981,7 @@ Item {
                   }
                   onClicked: function(mouse) {
                     if (mouse.button === Qt.RightButton && !dragArmed)
-                      root.openMenu(item.modelData)
+                      root.openMenu(item.modelData, item.menuScreenY())
                   }
                 }
               }
@@ -955,6 +1089,21 @@ Item {
           WlrLayershell.layer: WlrLayer.Overlay
           WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
           exclusionMode: ExclusionMode.Ignore
+          // Take pointer input everywhere except the dock strip, so a
+          // right-click on another icon reaches the dock and swaps the menu in
+          // one click (instead of the overlay swallowing it to close first).
+          mask: Region {
+            width: modelData.width
+            height: modelData.height
+
+            Region {
+              intersection: Intersection.Subtract
+              x: modelData.width - (root.iconSize + root.pad * 2 + 12)
+              y: 0
+              width: root.iconSize + root.pad * 2 + 12
+              height: modelData.height
+            }
+          }
 
           MouseArea {
             anchors.fill: parent
@@ -966,7 +1115,9 @@ Item {
             width: 240
             height: menuCol.implicitHeight + 12
             x: modelData.width - 6 - (root.iconSize + root.pad * 2) - width - (Style.gapsOut * 2)
-            y: Math.max(8, Math.min(modelData.height - height - 8, modelData.height / 2 - height / 2))
+            // Align the popup with the icon it was opened from (the card's 6px
+            // inner margin puts the first row at the icon's top).
+            y: Math.max(8, Math.min(modelData.height - height - 8, root.menuY - 6))
             radius: root.dockRadius
             color: Util.alpha(Color.background, 0.97)
             border.color: Util.alpha(Color.foreground, 0.2)

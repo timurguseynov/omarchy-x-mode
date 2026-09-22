@@ -225,6 +225,9 @@ pcall(function()
         bar_padding = 10,
         bar_button_padding = 6,
         icon_on_hover = false,
+        -- The ✕ shows and closes only on the current tab, and only while the
+        -- group has focus; anywhere else clicking a tab focuses/switches instead.
+        tab_close_active_only = true,
       },
     },
   })
@@ -748,6 +751,28 @@ local switcher_order = {}
 local switcher_tokens = {}
 local switcher_index = 0
 
+-- macOS-like MRU order, tracked per class and most recent first. Hyprland's
+-- focus_history_id is per window and is rewritten every time the switcher
+-- focuses an app while cycling, so tabbing across the row would scramble the
+-- order (apps passed over became "most recent", pushing the apps the user
+-- actually used apart). Instead record only real focus changes, and while the
+-- switcher is held record nothing: the one app left focused on release is the
+-- only one that moves to the front.
+local switcher_mru = {}
+
+local function switcher_touch(cls)
+  cls = tostring(cls or "")
+  if cls == "" then
+    return
+  end
+  for i = #switcher_mru, 1, -1 do
+    if switcher_mru[i] == cls then
+      table.remove(switcher_mru, i)
+    end
+  end
+  table.insert(switcher_mru, 1, cls)
+end
+
 -- Raise + focus the most recently focused window of a class (any workspace;
 -- focusing it also switches to its workspace).
 local function switcher_focus(cls)
@@ -792,8 +817,24 @@ local function switcher_step(step)
     for cls, e in pairs(by_class) do
       table.insert(entries, { cls = cls, focus = e.focus, addr = e.addr })
     end
-    -- Most recently focused first (like macOS Cmd+Tab).
+    -- Most recently used first (like macOS Cmd+Tab): the remembered MRU order
+    -- ranks the classes we have seen, and focus_history_id only breaks ties for
+    -- classes that have not been used yet (e.g. right after a config reload).
+    local mru_rank = {}
+    for i, cls in ipairs(switcher_mru) do
+      mru_rank[cls] = i
+    end
     table.sort(entries, function(a, b)
+      local ra, rb = mru_rank[a.cls], mru_rank[b.cls]
+      if ra ~= nil or rb ~= nil then
+        if ra == nil then
+          return false
+        end
+        if rb == nil then
+          return true
+        end
+        return ra < rb
+      end
       return a.focus < b.focus
     end)
     local classes = {}
@@ -827,11 +868,27 @@ local function switcher_hide()
   if not switcher_active then
     return
   end
+  -- The app left focused (keyboard cycle or a click in the overlay) is the one
+  -- that moves to the front of the MRU order. Read it from the live focus
+  -- rather than switcher_index so a mouse pick is recorded correctly too.
+  local active = hl.get_active_window()
+  if active ~= nil then
+    switcher_touch(active.class)
+  end
   switcher_active = false
   switcher_order = {}
   switcher_index = 0
   switcher_write("hide")
 end
+
+-- A real focus change updates the MRU order. While the switcher is held the
+-- focus moves through every app tabbed over, so those are ignored here.
+hl.on("window.active", function(w)
+  if switcher_active or w == nil then
+    return
+  end
+  switcher_touch(w.class)
+end)
 
 -- Super (keycode 133/134 + 8) released: hide the switcher.
 hl.on("input.keyboard.key", function(keycode, _, state)
@@ -875,23 +932,17 @@ hl.unbind("SUPER + CTRL + code:21")
 hl.unbind("SUPER + CTRL + SHIFT + code:20")
 hl.unbind("SUPER + CTRL + SHIFT + code:21")
 
--- Cmd+W closes the active window (Omarchy's killactive). Closing the current
--- tab of a group makes Hyprland focus/raise a window outside the group, so the
--- plugin's close_window switches to the previous tab and raises it first. It is
--- the same helper the tabbar close button uses (hyprbars closeTabWindow), so the
--- two paths cannot drift apart.
+-- Cmd+W closes the active window (Omarchy's killactive). Just close it: the
+-- patched hyprbars keeps the group focused on the previous tab and raises it
+-- from its single window.close listener, which Cmd+W, the tabbar close button
+-- and apps closing their own window all share.
 hl.unbind("SUPER + W")
 o.bind("SUPER + W", "Close window", function()
   local w = hl.get_active_window()
   if w == nil then
     return
   end
-  local p = bars()
-  if p and p.close_window then
-    p.close_window(w)
-  else
-    hl.dispatch(hl.dsp.window.close({ window = w }))
-  end
+  hl.dispatch(hl.dsp.window.close({ window = w }))
 end)
 
 -- Cmd+Q closes the whole app: all tabs of the group (like the titlebar close

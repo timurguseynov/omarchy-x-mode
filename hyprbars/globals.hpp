@@ -47,6 +47,7 @@ struct SGlobalState {
         // config keys (plugin:hyprbars:*) so they are edited in the config, not
         // in code; the C++ snap engine and Lua grouping read the same value.
         SP<Config::Values::CIntValue>        tabHeight;
+        SP<Config::Values::CBoolValue>       tabCloseActiveOnly;
         SP<Config::Values::CIntValue>        xModeDockInset;
         SP<Config::Values::CIntValue>        xModeSnapMargin;
         SP<Config::Values::CIntValue>        xModeSnapCorner;

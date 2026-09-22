@@ -360,20 +360,6 @@ static int luaXMode(lua_State* L) {
     return 1;
 }
 
-// hyprbars.close_window(window?): close a window, keeping focus and stacking in
-// its tab group when the closed window is the group's current tab. Used by the
-// Super+W binding, shared with the tabbar close button (see closeTabWindow).
-static int luaCloseWindow(lua_State* L) {
-    PHLWINDOW w = nullptr;
-    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
-        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.close_window");
-    else
-        w = Desktop::focusState()->window();
-
-    closeTabWindow(w);
-    return 0;
-}
-
 APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     PHANDLE = handle;
 
@@ -394,6 +380,32 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
     static auto P  = Event::bus()->m_events.window.open.listen([&](PHLWINDOW w) { onNewWindow(w); });
     static auto P3 = Event::bus()->m_events.window.updateRules.listen([&](PHLWINDOW w) { onUpdateWindowRules(w); });
+    // Single close path for the whole pack: Hyprland's unmap refocus picks a
+    // group sibling but never raises the group, so the previously active app
+    // stays on top. Cmd+W, the tabbar close button and an app closing its own
+    // window all end up here. Keep the group focused on its previous tab.
+    // Only for the focused window: a background app closing a background
+    // window must not steal focus. The window.close event is emitted before
+    // Hyprland resets focus, so the closing window is still the focused one.
+    static auto PClose = Event::bus()->m_events.window.close.listen([&](PHLWINDOW w) {
+        if (!xModeEnabled() || !w || w != Desktop::focusState()->window())
+            return;
+        keepGroupFocusOnClose(w);
+    });
+    // plugin:hyprbars:tab_close_active_only gates the tabbar ✕ on focus, but
+    // renderPass is only reached when the deco is redrawn, so a focus change
+    // must damage the bars itself or the ✕ would linger.
+    static auto PFocus = Event::bus()->m_events.window.active.listen([&](PHLWINDOW w, Desktop::eFocusReason r) {
+        if (!xModeEnabled() || !g_pGlobalState->config.tabCloseActiveOnly || !g_pGlobalState->config.tabCloseActiveOnly->value())
+            return;
+        // The bars are owned by unique_ptrs (see onNewWindow), so the weak
+        // pointers must not be lock()ed -- that asserts. Use operator-> like the
+        // other loops do.
+        for (auto& bar : g_pGlobalState->bars) {
+            if (bar)
+                bar->damageEntire();
+        }
+    });
 
     g_pGlobalState->config.barColor            = makeShared<Config::Values::CColorValue>("plugin:hyprbars:bar_color", "Change the bar color", 0x88333333);
     g_pGlobalState->config.textColor           = makeShared<Config::Values::CColorValue>("plugin:hyprbars:col.text", "Change the text color", 0xffffffff);
@@ -420,6 +432,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     // (tim) x-mode: the tabbar height and the tunables of the Lua snap/grouping
     // engine, as real Hyprland config keys so they are edited in the config.
     g_pGlobalState->config.tabHeight = makeShared<Config::Values::CIntValue>("plugin:hyprbars:tab_height", "Height of the group tabbar", 24);
+    g_pGlobalState->config.tabCloseActiveOnly =
+        makeShared<Config::Values::CBoolValue>("plugin:hyprbars:tab_close_active_only", "Only show and act on the close button of the current tab, and only while the group has focus", false);
     g_pGlobalState->config.xModeDockInset =
         makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_dock_inset", "Right dock inset used by the snap zones", 46);
     g_pGlobalState->config.xModeSnapMargin =
@@ -460,6 +474,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.iconOnHover);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.onDoubleClick);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.tabHeight);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.tabCloseActiveOnly);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeDockInset);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapMargin);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapCorner);
@@ -481,7 +496,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_owns", ::luaDragOwns);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "groupable", ::luaGroupable);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "x_mode", ::luaXMode);
-        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "close_window", ::luaCloseWindow);
     }
 
     g_pGlobalState->dragEvent = makeShared<Event::CEventBus::CCustomEvent>(

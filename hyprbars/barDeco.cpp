@@ -44,22 +44,21 @@ static uint32_t g_lastPressButton = 0;
 
 using namespace Render::GL;
 
-void closeTabWindow(PHLWINDOW w) {
+void keepGroupFocusOnClose(PHLWINDOW w) {
     if (!w)
         return;
 
     const auto GROUP = w->m_group;
-    if (GROUP && GROUP->size() > 1 && GROUP->current() == w) {
-        GROUP->moveCurrent(false); // previous tab
-        if (const auto CUR = GROUP->current(); CUR) {
-            if (CUR->m_isFloating)
-                Desktop::windowState()->raise(CUR);
-            if (Desktop::focusState()->window() != CUR)
-                Desktop::focusState()->rawWindowFocus(CUR, Desktop::FOCUS_REASON_CLICK);
-        }
-    }
+    if (!GROUP || GROUP->size() <= 1 || GROUP->current() != w)
+        return;
 
-    g_pXWaylandManager->sendCloseWindow(w);
+    GROUP->moveCurrent(false); // previous tab
+    if (const auto CUR = GROUP->current(); CUR) {
+        if (CUR->m_isFloating)
+            Desktop::windowState()->raise(CUR);
+        if (Desktop::focusState()->window() != CUR)
+            Desktop::focusState()->rawWindowFocus(CUR, Desktop::FOCUS_REASON_CLICK);
+    }
 }
 
 static CHyprColor configColor(Config::INTEGER color) {
@@ -351,9 +350,9 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
             target = PWINDOW;
         if (target) {
             if (closeHit) {
-                // Keep focus (and stacking) in the group when the current tab is
-                // closed; see closeTabWindow().
-                closeTabWindow(target);
+                // Just close: the window.close listener keeps focus and stacking
+                // in the group (keepGroupFocusOnClose).
+                g_pXWaylandManager->sendCloseWindow(target);
             } else if (PWINDOW->m_group) {
                 if (target != PWINDOW)
                     PWINDOW->m_group->setCurrent(target);
@@ -649,8 +648,26 @@ int CHyprBar::tabAt(const Vector2D& coords, bool& closeHit) {
     if (idx >= N)
         idx = N - 1;
 
-    if (coords.x >= idx * TABW + TABW - 24)
-        closeHit = true;
+    if (coords.x >= idx * TABW + TABW - 24) {
+        // With tab_close_active_only the ✕ only acts on the current tab of a
+        // focused group; anywhere else the click focuses/switches instead, so it
+        // cannot close a tab the user was not looking at.
+        if (!g_pGlobalState->config.tabCloseActiveOnly->value()) {
+            closeHit = true;
+        } else if (PWINDOW == Desktop::focusState()->window()) {
+            PHLWINDOW  target;
+            if (PWINDOW->m_group) {
+                const auto MEMBERS = PWINDOW->m_group->windows();
+                if (idx < (int)MEMBERS.size())
+                    target = MEMBERS[idx].lock();
+            } else if (idx == 0) {
+                target = PWINDOW;
+            }
+            const auto CURRENT = PWINDOW->m_group ? PWINDOW->m_group->current() : PWINDOW;
+            if (target && target == CURRENT)
+                closeHit = true;
+        }
+    }
     return idx;
 }
 
@@ -678,8 +695,16 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
     const CHyprColor TEXT  = configColor(g_pGlobalState->config.textColor->value());
     const CHyprColor ROW   = CHyprColor(BASE.r * 0.60, BASE.g * 0.60, BASE.b * 0.60, BASE.a);
     const CHyprColor TABIN = CHyprColor(BASE.r * 0.78, BASE.g * 0.78, BASE.b * 0.78, BASE.a);
-    const CHyprColor TXTIN = CHyprColor(TEXT.r, TEXT.g, TEXT.b, 0.78);
-    const CHyprColor CLOSE = CHyprColor(TEXT.r, TEXT.g, TEXT.b, 0.88);
+    // Contrast between the current tab and the rest comes from the text color,
+    // not the weight: lift the current tab toward white, pull the others toward
+    // the tab background so they read dimmer.
+    const CHyprColor TXTACT = CHyprColor(TEXT.r + (1.F - TEXT.r) * 0.35F, TEXT.g + (1.F - TEXT.g) * 0.35F, TEXT.b + (1.F - TEXT.b) * 0.35F, 1.F);
+    const CHyprColor TXTIN  = CHyprColor(TEXT.r + (BASE.r - TEXT.r) * 0.45F, TEXT.g + (BASE.g - TEXT.g) * 0.45F, TEXT.b + (BASE.b - TEXT.b) * 0.45F, 1.F);
+    const CHyprColor CLOSE  = CHyprColor(TXTACT.r, TXTACT.g, TXTACT.b, 0.9F);
+    // tab_close_active_only: draw the ✕ only on the current tab, and only while
+    // the group has focus. Without it every tab keeps its ✕ as before.
+    const bool CLOSEACTIVEONLY = g_pGlobalState->config.tabCloseActiveOnly->value();
+    const bool WINDOWFOCUSED   = PWINDOW == Desktop::focusState()->window();
 
     const double W = assignedBoxGlobal().w;
     if (W < 1)
@@ -691,6 +716,8 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
     // and switching tabs changed how short every tab's text looked.
     const int TAB_FONT = (int)std::round(11 * scale);
     const int TAB_MAXW = (int)(TABW * scale) - (int)(28 * scale);
+    // Tabs follow the titlebar weight; the same weight for every tab.
+    const int TAB_WEIGHT = g_pGlobalState->config.barTextWeight->value().m_value;
 
     CBox rowBox = {barBox->x, barBox->y + (int)(HEIGHT * scale), (int)(W * scale), (int)(tabHeight() * scale)};
     g_pHyprOpenGL->renderRect(rowBox, CHyprColor(ROW.r, ROW.g, ROW.b, ROW.a * a), {});
@@ -708,7 +735,7 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
         const std::string key   = std::to_string(TAB_MAXW) + ":" + std::to_string(TAB_FONT) + ":" + (ISACTIVE ? "1:" : "0:") + title;
         auto              it    = m_tabTexs.find(key);
         if (it == m_tabTexs.end()) {
-            auto tex = g_pHyprRenderer->renderText(title, ISACTIVE ? TEXT : TXTIN, TAB_FONT, false, FONT, TAB_MAXW);
+            auto tex = g_pHyprRenderer->renderText(title, ISACTIVE ? TXTACT : TXTIN, TAB_FONT, false, FONT, TAB_MAXW, TAB_WEIGHT);
             it       = m_tabTexs.emplace(key, tex).first;
         }
         if (it->second && it->second->m_texID != 0) {
@@ -718,15 +745,17 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
             g_pHyprOpenGL->renderTexture(it->second, titleBox, {.a = a});
         }
 
-        const std::string xkey = "x:" + std::to_string(TAB_FONT) + ":" + std::to_string((int)(16 * scale));
-        auto              xit  = m_tabTexs.find(xkey);
-        if (xit == m_tabTexs.end()) {
-            auto tex = g_pHyprRenderer->renderText("✕", CLOSE, TAB_FONT, false, FONT, (int)(16 * scale));
-            xit      = m_tabTexs.emplace(xkey, tex).first;
-        }
-        if (xit->second && xit->second->m_texID != 0) {
-            CBox xBox = {tabBox.x + tabBox.w - (int)(18 * scale), tabBox.y + (int)std::round((tabBox.h - xit->second->m_size.y) / 2.0), xit->second->m_size.x, xit->second->m_size.y};
-            g_pHyprOpenGL->renderTexture(xit->second, xBox, {.a = a});
+        if (!CLOSEACTIVEONLY || (WINDOWFOCUSED && ISACTIVE)) {
+            const std::string xkey = "x:" + std::to_string(TAB_FONT) + ":" + std::to_string((int)(16 * scale));
+            auto              xit  = m_tabTexs.find(xkey);
+            if (xit == m_tabTexs.end()) {
+                auto tex = g_pHyprRenderer->renderText("✕", CLOSE, TAB_FONT, false, FONT, (int)(16 * scale));
+                xit      = m_tabTexs.emplace(xkey, tex).first;
+            }
+            if (xit->second && xit->second->m_texID != 0) {
+                CBox xBox = {tabBox.x + tabBox.w - (int)(18 * scale), tabBox.y + (int)std::round((tabBox.h - xit->second->m_size.y) / 2.0), xit->second->m_size.x, xit->second->m_size.y};
+                g_pHyprOpenGL->renderTexture(xit->second, xBox, {.a = a});
+            }
         }
     }
 
@@ -787,11 +816,15 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     const auto  ENABLEBLUR        = g_pGlobalState->config.barBlur->value();
     const auto  INACTIVECOLOR     = g_pGlobalState->config.inactiveButtonColor->value();
 
-    if (INACTIVECOLOR > 0) {
+    const auto TABCLOSEACTIVEONLY = g_pGlobalState->config.tabCloseActiveOnly->value();
+
+    if (INACTIVECOLOR > 0 || TABCLOSEACTIVEONLY) {
         bool currentWindowFocus = PWINDOW == Desktop::focusState()->window();
         if (currentWindowFocus != m_bWindowHasFocus) {
             m_bWindowHasFocus = currentWindowFocus;
             m_bButtonsDirty   = true;
+            if (TABCLOSEACTIVEONLY)
+                damageEntire();
         }
     }
 
