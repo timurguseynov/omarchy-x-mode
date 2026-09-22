@@ -23,6 +23,27 @@ Panel {
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
+  // Height of everything except the scrolling app list. The panel card is
+  // capped (see contentHeight), so the list must be sized to the space that is
+  // actually left under the fixed content -- otherwise a long list overflows
+  // the card, which does not clip its children.
+  readonly property real listFixedHeight: {
+    var items = []
+    if (toggleX.visible) items.push(toggleX)
+    if (toggleScroll.visible) items.push(toggleScroll)
+    if (sepRow.visible) items.push(sepRow)
+    if (sectionHeader.visible) items.push(sectionHeader)
+    if (searchField.visible) items.push(searchField)
+    if (detailColumn.visible) items.push(detailColumn)
+    var h = 0
+    for (var i = 0; i < items.length; i++) {
+      h += items[i].implicitHeight
+      if (i > 0)
+        h += column.spacing
+    }
+    return h
+  }
+
   property bool nativeScroll: false
   property var appsCfg: ({})
   property var running: []
@@ -228,9 +249,14 @@ Panel {
     Column {
       id: column
       width: parent.width
+      // Match the card's inner height and clip, so a miscalculation can never
+      // paint content over the popup border.
+      height: parent.height
+      clip: true
       spacing: Style.spacing.md
 
       Toggle {
+        id: toggleX
         width: parent.width
         visible: root.openCls === ""
         label: "X Mode"
@@ -244,6 +270,7 @@ Panel {
       }
 
       Toggle {
+        id: toggleScroll
         width: parent.width
         visible: root.openCls === ""
         enabled: root.xModeOn
@@ -259,7 +286,7 @@ Panel {
         }
       }
 
-      PanelSeparator { width: parent.width; visible: root.openCls === "" }
+      PanelSeparator { id: sepRow; width: parent.width; visible: root.openCls === "" }
 
       BorderSurface {
         id: backRow
@@ -295,6 +322,7 @@ Panel {
       }
 
       PanelSectionHeader {
+        id: sectionHeader
         text: root.openCls === "" ? "APPS" : String(root.openApp ? root.openApp.cls : root.openCls).toUpperCase()
         foreground: root.contentForeground
         fontFamily: root.contentFontFamily
@@ -311,6 +339,7 @@ Panel {
       }
 
       Column {
+        id: detailColumn
         width: parent.width
         spacing: Style.spacing.sm
         visible: root.openCls !== ""
@@ -348,7 +377,17 @@ Panel {
         id: listFlick
         width: parent.width
         visible: root.openCls === ""
-        height: Math.min(Style.space(280), Math.max(Style.space(80), appColumn.implicitHeight))
+        // Fill only the space left under the fixed content inside the capped
+        // card, so a long list scrolls in place instead of spilling past the
+        // popup. `listFixedHeight` excludes this list, so this is not circular.
+        height: {
+          var cap = Style.space(480)
+          var avail = panel.availableCardHeight > 0 ? panel.availableCardHeight : cap
+          var cardContent = Math.max(0, Math.min(cap, avail) - panel.verticalContentInset)
+          var room = cardContent - root.listFixedHeight - column.spacing
+          var wanted = Math.max(Style.space(80), appColumn.implicitHeight)
+          return Math.max(Style.space(80), Math.min(Style.space(280), wanted, room))
+        }
         contentHeight: appColumn.implicitHeight
         clip: true
         boundsBehavior: Flickable.StopAtBounds
