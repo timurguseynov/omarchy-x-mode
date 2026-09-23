@@ -78,6 +78,17 @@ local function restore_desktop()
 end
 
 if not x_mode_wanted() then
+  -- Remember that the desktop was switched off, so the next time it comes on
+  -- (the bar panel writes "on" and reloads) the windows get spread across the
+  -- halves again, the same as a fresh install. Only the off path writes it:
+  -- the on path consumes it, so a reload while already on does nothing.
+  pcall(function()
+    local marker = io.open(X_MODE_STATE .. "/arrange", "w")
+    if marker then
+      marker:write("on")
+      marker:close()
+    end
+  end)
   -- Keep the plugin around so the bar toggle still works after a reload.
   o.exec_on_start("hyprpm reload -n")
   o.exec_on_start("sh -c 'hyprctl plugin unload \"$HOME/.local/share/hyprbars/hyprbars.so\" >/dev/null 2>&1; hyprctl plugin list 2>/dev/null | grep -q hyprbars || hyprctl plugin load \"$HOME/.local/share/hyprbars/x-mode-hyprbars.so\"'")
@@ -1671,13 +1682,15 @@ local function clear_bars()
   end
 end
 
--- install.sh drops this marker right before its reload. Spread the windows
--- that were already open across the left and right halves, one side per app,
--- alternating in a shuffled order so the two sides come out roughly even.
--- The marker is removed on sight: the plugin load reloads Hyprland a second
--- time, and an ordinary reload must never reshuffle windows the user has
--- since moved. One window per class, because consolidate() has already folded
--- same-app windows into a single group.
+-- The marker comes from install.sh (a fresh install) or from the off path
+-- above (the desktop was just switched back on from the bar panel). Spread
+-- the windows that were already open across the left and right halves, one
+-- side per app, alternating in a shuffled order so the two sides come out
+-- roughly even. Per workspace: each space is shuffled and split on its own,
+-- and a window is never moved to another space. The marker is removed on
+-- sight, so the second reload and every reload while already on leave windows
+-- where the user put them. One window per class, because consolidate() has
+-- already folded same-app windows into a single group.
 local ARRANGE_MARKER = X_MODE_STATE .. "/arrange"
 
 local function take_arrange_marker()
@@ -1696,25 +1709,31 @@ local function arrange_halves()
     return
   end
   local seen = {}
-  local leaders = {}
+  local by_space = {}
   for _, w in ipairs(windows) do
     w = refresh_window(w) or w
     if w.mapped and not w.hidden and (not w.fullscreen or w.fullscreen == 0) and w.monitor ~= nil then
       local cls = window_class(w)
-      if cls ~= "" and not seen[cls] then
-        seen[cls] = true
-        table.insert(leaders, w)
+      local wid = tostring(ws_id(w) or "")
+      local key = cls .. "@" .. wid
+      if cls ~= "" and not seen[key] then
+        seen[key] = true
+        by_space[wid] = by_space[wid] or {}
+        table.insert(by_space[wid], w)
       end
     end
   end
-  -- Fisher-Yates. math.random is seeded from the clock below; without the
-  -- shuffle the order is just whatever Hyprland enumerated.
-  for i = #leaders, 2, -1 do
-    local j = math.random(i)
-    leaders[i], leaders[j] = leaders[j], leaders[i]
-  end
-  for i, w in ipairs(leaders) do
-    snap(i % 2 == 1 and "left" or "right", w)
+  -- Fisher-Yates per workspace, so each space is split roughly evenly and a
+  -- window stays on the space it was on. math.random is seeded from the clock
+  -- below; without the shuffle the order is just whatever Hyprland enumerated.
+  for _, leaders in pairs(by_space) do
+    for i = #leaders, 2, -1 do
+      local j = math.random(i)
+      leaders[i], leaders[j] = leaders[j], leaders[i]
+    end
+    for i, w in ipairs(leaders) do
+      snap(i % 2 == 1 and "left" or "right", w)
+    end
   end
 end
 
