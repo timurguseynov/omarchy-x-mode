@@ -98,10 +98,19 @@ CBox Snap::usable(PHLMONITOR mon) {
         return {};
     const double left   = mon->m_reservedArea.left();
     const double top    = mon->m_reservedArea.top();
-    const double right  = mon->m_reservedArea.right() + sc<double>(g_pGlobalState->config.xModeDockInset->value());
+    const double right  = mon->m_reservedArea.right();
     const double bottom = mon->m_reservedArea.bottom();
     const CBox   box    = monitorBox(mon);
     return {box.x + left, box.y + top, box.w - left - right, box.h - top - bottom};
+}
+
+// Dock card plus half the outer gap, published by x-mode.lua as one inset.
+// The dock's own screen margin is the other half of GAP_OUT, and a window that
+// reaches the dock keeps this half between them. Applied after the fractional
+// split so a right third stays as wide as a left third (the dock used to shrink
+// the frame before the split).
+static int dockPull() {
+    return sc<int>(g_pGlobalState->config.xModeDockInset->value());
 }
 
 static CBox fractionalRect(const CBox& frame, const char* hside, const char* vside, double hf, double vf) {
@@ -116,14 +125,22 @@ static CBox fractionalRect(const CBox& frame, const char* hside, const char* vsi
     return {x, y, w, h};
 }
 
-static CBox applyGaps(const CBox& box, bool innerL, bool innerR, bool innerT, bool innerB) {
+static bool touchesDock(const char* hside, double hf) {
+    if (hside && std::strcmp(hside, "right") == 0)
+        return true;
+    return (!hside || hside[0] == '\0') && hf >= 1.0;
+}
+
+static CBox applyGaps(const CBox& box, bool innerL, bool innerR, bool innerT, bool innerB, bool touchDock) {
     const int gap  = gapOut();
     const int half = gap / 2;
     const int b    = border();
     const int left = (innerL ? half : gap) + b;
-    const int right = (innerR ? half : gap) + b;
+    int       right = (innerR ? half : gap) + b;
     const int top = (innerT ? half : gap) + b;
     const int bottom = (innerB ? half : gap) + b;
+    if (touchDock)
+        right += dockPull();
     return {box.x + left, box.y + top, box.w - left - right, box.h - top - bottom};
 }
 
@@ -161,7 +178,8 @@ std::optional<CBox> Snap::zoneBox(eKind kind, PHLMONITOR mon) {
         default: return std::nullopt;
     }
 
-    return applyGaps(fractionalRect(frame, z.hside, z.vside, z.hf, z.vf), z.innerL, z.innerR, z.innerT, z.innerB);
+    const CBox frac = fractionalRect(frame, z.hside, z.vside, z.hf, z.vf);
+    return applyGaps(frac, z.innerL, z.innerR, z.innerT, z.innerB, touchesDock(z.hside, z.hf));
 }
 
 std::optional<CBox> Snap::contentBox(eKind kind, PHLMONITOR mon, PHLWINDOW w) {

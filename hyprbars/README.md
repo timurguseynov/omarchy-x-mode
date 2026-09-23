@@ -69,7 +69,7 @@ hl.plugin.hyprbars.add_button({
 
 | property | type | description | default |
 | --- | --- | --- | --- |
-| `x_mode_dock_inset` | int | right dock inset for snap zones | `46` |
+| `x_mode_dock_inset` | int | right snap inset, dock card plus half of `gaps_out`; set by `x-mode.lua` | `45` |
 | `x_mode_snap_margin` | int | edge strip that starts a snap (px) | `12` |
 | `x_mode_snap_corner` | int | corner square that picks a quarter (px) | `20` |
 | `x_mode_snap_short_edge` | int | side-edge px from top/bottom for half snaps | `145` |
