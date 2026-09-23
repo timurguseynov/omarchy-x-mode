@@ -154,6 +154,12 @@ print(json.dumps(out))
     log "loading patched hyprbars"
     hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
     hyprctl plugin load "$HYPRBARS_SO" >/dev/null 2>&1 || warn "could not load hyprbars now (it will load on next login)"
+    # Before either reload: the config spreads the already-open windows across
+    # the left and right halves, then deletes the marker. Whichever of the two
+    # reloads parses the new config first does the arrange; the other, and
+    # every reload after, leaves windows where the user put them.
+    mkdir -p "$X_MODE_STATE_DIR"
+    : > "$X_MODE_STATE_DIR/arrange"
     log "reloading Hyprland to activate hyprbars"
     hyprctl reload >/dev/null 2>&1 || true
   fi
@@ -187,6 +193,11 @@ print(json.dumps(out))
 
   log "wiring x-mode into hyprland.lua"
   sentinel_add "$HYPR/hyprland.lua"
+
+  # Recreate the marker: the reload above may already have consumed it, and
+  # this reload is the one that parses the config just installed.
+  mkdir -p "$X_MODE_STATE_DIR"
+  : > "$X_MODE_STATE_DIR/arrange"
 
   log "reloading Hyprland"
   hyprctl reload >/dev/null 2>&1 || true

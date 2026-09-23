@@ -1649,14 +1649,10 @@ local function consolidate()
 end
 
 -- hyprbars draws the titlebar (and the tabbar, once a window is grouped)
--- *above* the window box and does not move the window. Windows that were
--- already open — tiled, or floating with no chrome — therefore end up with
--- their bar under the top bar the moment the plugin loads. Move each one so
--- its visual top lands at topbar + gap + border, and leave the size alone:
--- clamp_window also shrinks, and a centered shrink plus the old y pins the
--- window to the top. Target is absolute, so a second pass (the reload that
--- loading the plugin triggers, or the re-float below) does not slide a
--- window that is already clear.
+-- *above* the window box and does not move the window, so a window that was
+-- already open ends up with its new bar under the top bar. snap() places the
+-- content box below the chrome, so snapping clears it; this only covers the
+-- windows a snap skips (hidden, fullscreen, still tiled, no monitor).
 local function clear_bars()
   for _, w in ipairs(hl.get_windows() or {}) do
     w = refresh_window(w) or w
@@ -1675,13 +1671,73 @@ local function clear_bars()
   end
 end
 
+-- install.sh drops this marker right before its reload. Spread the windows
+-- that were already open across the left and right halves, one side per app,
+-- alternating in a shuffled order so the two sides come out roughly even.
+-- The marker is removed on sight: the plugin load reloads Hyprland a second
+-- time, and an ordinary reload must never reshuffle windows the user has
+-- since moved. One window per class, because consolidate() has already folded
+-- same-app windows into a single group.
+local ARRANGE_MARKER = X_MODE_STATE .. "/arrange"
+
+local function take_arrange_marker()
+  local file = io.open(ARRANGE_MARKER, "r")
+  if file == nil then
+    return false
+  end
+  file:close()
+  os.remove(ARRANGE_MARKER)
+  return true
+end
+
+local function arrange_halves()
+  local windows = hl.get_windows()
+  if type(windows) ~= "table" then
+    return
+  end
+  local seen = {}
+  local leaders = {}
+  for _, w in ipairs(windows) do
+    w = refresh_window(w) or w
+    if w.mapped and not w.hidden and (not w.fullscreen or w.fullscreen == 0) and w.monitor ~= nil then
+      local cls = window_class(w)
+      if cls ~= "" and not seen[cls] then
+        seen[cls] = true
+        table.insert(leaders, w)
+      end
+    end
+  end
+  -- Fisher-Yates. math.random is seeded from the clock below; without the
+  -- shuffle the order is just whatever Hyprland enumerated.
+  for i = #leaders, 2, -1 do
+    local j = math.random(i)
+    leaders[i], leaders[j] = leaders[j], leaders[i]
+  end
+  for i, w in ipairs(leaders) do
+    snap(i % 2 == 1 and "left" or "right", w)
+  end
+end
+
+local arrange_pending = take_arrange_marker()
+if arrange_pending then
+  math.randomseed(os.time())
+end
+
 hl.timer(function()
   consolidate()
   clear_bars()
 end, { timeout = 250, type = "oneshot" })
--- The re-float below runs at 300ms and only then do those windows have a
--- floating box the bar can overflow, so clear them once more after it.
-hl.timer(clear_bars, { timeout = 500, type = "oneshot" })
+-- The re-float below runs at 300ms, so arrange after it: windows that were
+-- still tiled need a floating box before snap() can place them. Once only,
+-- per config load — a second shuffle would undo the first. clear_bars then
+-- covers whatever the snap skipped.
+hl.timer(function()
+  if arrange_pending then
+    arrange_pending = false
+    arrange_halves()
+  end
+  clear_bars()
+end, { timeout = 500, type = "oneshot" })
 
 pcall(function()
   if hl.plugin and hl.plugin.hyprbars and hl.plugin.hyprbars.x_mode then
