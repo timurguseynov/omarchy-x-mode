@@ -74,7 +74,11 @@ Item {
   readonly property var pinnedApps: apps.filter(function(a) { return a.pinned })
   readonly property var runningApps: apps.filter(function(a) { return !a.pinned })
   readonly property bool menuPinned: menuApp ? !!menuApp.pinned : false
-  readonly property var menuActionsModel: menuOpen ? menuActions() : []
+  // Depends on appsSig as well as menuOpen: menuApp is a snapshot taken when
+  // the menu opened, so a window whose title changes afterwards (a file
+  // manager navigating to another folder) would keep showing the old title
+  // until the menu was closed. appsSig changes whenever rebuildApps() runs.
+  readonly property var menuActionsModel: (menuOpen && appsSig) ? menuActions() : []
   readonly property bool emptyDock: pinnedApps.length === 0 && runningApps.length === 0
 
   readonly property string pinnedPath: Quickshell.env("HOME") + "/.config/omarchy/x-mode-dock.json"
@@ -611,6 +615,17 @@ Item {
 
   function menuActions() {
     var a = []
+    // menuApp is the app object captured at open time. The client list is
+    // re-read on windowtitle, so swap in the current entry for the same class
+    // before building the rows — otherwise the titles stay frozen.
+    if (menuApp) {
+      for (var k = 0; k < apps.length; k++) {
+        if (apps[k].cls === menuApp.cls) {
+          menuApp = apps[k]
+          break
+        }
+      }
+    }
     if (menuApp && !root.isSingleInstance(menuApp.cls)) {
       a.push({ id: "new", label: "New " + root.appDisplayName(menuApp.cls), enabled: true })
       if (menuApp.wins && menuApp.wins.length > 0)
