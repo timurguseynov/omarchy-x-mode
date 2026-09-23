@@ -1471,6 +1471,14 @@ join_same_app = function(w)
       peer.group:add(w)
     end
   end)
+  -- The new tab is the group's current window now (CGroup::add sets m_current to
+  -- it) and Hyprland focuses it in onMap. But focusing a group member only runs
+  -- setCurrent() through bringTargetToTop — it never raises the group, the same
+  -- missing raise keepGroupFocusOnClose compensates for on close. Left as is, the
+  -- new window is focused yet can stay behind the app that was in front (a
+  -- browser login window opened from a terminal), and the dock will not surface
+  -- it either: it skips an app that already is the active class.
+  hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = w }))
   -- Adding a tab must not yank the group to the new window's position.
   -- absorb_chrome_growth places the group from the peer's pre-join box so
   -- the visual titlebar stays put when the tabbar appears.
