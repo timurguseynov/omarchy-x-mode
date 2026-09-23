@@ -83,11 +83,6 @@ Item {
   readonly property int iconSpacing: 6
   // Empty dock still paints a one-icon card so it does not collapse to a pill.
   readonly property int minIconsHeight: iconSize
-  // Distance from the screen's right edge. Style.gapsOut is already half of
-  // Hyprland's general:gaps_out (same token the shell uses for panel margins).
-  // Keep hypr/x-mode.lua DOCK_INSET = cardWidth + this gap in sync.
-  readonly property int dockGap: Style.gapsOut
-  readonly property int cardWidth: iconSize + pad * 2
   // Dock corner radius, following the window rounding (decoration:rounding via
   // Style.cornerRadius). A theme with square corners (0) keeps the dock square.
   readonly property int dockRadius: Math.round(Style.cornerRadius || 0)
@@ -882,11 +877,10 @@ Item {
             top: true
             right: true
           }
-          implicitWidth: root.cardWidth
+          implicitWidth: root.iconSize + root.pad * 2 + 12
           implicitHeight: Math.max(col.implicitHeight, root.minIconsHeight) + root.pad * 2
           margins {
             top: Math.max(0, Math.round((modelData.height - implicitHeight) / 2))
-            right: root.dockGap
           }
           color: "transparent"
           WlrLayershell.namespace: "x-mode-dock"
@@ -896,7 +890,9 @@ Item {
 
           Rectangle {
             id: dockBg
-            anchors.fill: parent
+            anchors.centerIn: parent
+            width: root.iconSize + root.pad * 2
+            height: Math.max(col.implicitHeight, root.minIconsHeight) + root.pad * 2
             radius: root.dockRadius
             color: Util.alpha(Color.background, 0.85)
             border.color: Util.alpha(Color.foreground, 0.15)
@@ -1158,9 +1154,9 @@ Item {
 
             Region {
               intersection: Intersection.Subtract
-              x: modelData.width - root.cardWidth - root.dockGap
+              x: modelData.width - (root.iconSize + root.pad * 2 + 12)
               y: 0
-              width: root.cardWidth + root.dockGap
+              width: root.iconSize + root.pad * 2 + 12
               height: modelData.height
             }
           }
@@ -1174,10 +1170,10 @@ Item {
             id: menuCard
             width: 240
             height: menuCol.implicitHeight + 12
-            x: modelData.width - root.dockGap - root.cardWidth - width - (Style.gapsOut * 2)
-            // Align the popup with the icon it was opened from (the card's
-            // pad puts the first row at the icon's top).
-            y: Math.max(8, Math.min(modelData.height - height - 8, root.menuY - root.pad))
+            x: modelData.width - 6 - (root.iconSize + root.pad * 2) - width - (Style.gapsOut * 2)
+            // Align the popup with the icon it was opened from (the card's 6px
+            // inner margin puts the first row at the icon's top).
+            y: Math.max(8, Math.min(modelData.height - height - 8, root.menuY - 6))
             radius: root.dockRadius
             color: Util.alpha(Color.background, 0.97)
             border.color: Util.alpha(Color.foreground, 0.2)

@@ -93,23 +93,15 @@ CBox Snap::monitorBox(PHLMONITOR mon) {
     return {mon->m_position.x, mon->m_position.y, mon->m_size.x, mon->m_size.y};
 }
 
-CBox Snap::workArea(PHLMONITOR mon) {
+CBox Snap::usable(PHLMONITOR mon) {
     if (!mon)
         return {};
     const double left   = mon->m_reservedArea.left();
     const double top    = mon->m_reservedArea.top();
-    const double right  = mon->m_reservedArea.right();
+    const double right  = mon->m_reservedArea.right() + sc<double>(g_pGlobalState->config.xModeDockInset->value());
     const double bottom = mon->m_reservedArea.bottom();
     const CBox   box    = monitorBox(mon);
     return {box.x + left, box.y + top, box.w - left - right, box.h - top - bottom};
-}
-
-CBox Snap::usable(PHLMONITOR mon) {
-    CBox area = workArea(mon);
-    area.w -= sc<double>(g_pGlobalState->config.xModeDockInset->value());
-    if (area.w < 0)
-        area.w = 0;
-    return area;
 }
 
 static CBox fractionalRect(const CBox& frame, const char* hside, const char* vside, double hf, double vf) {
@@ -139,8 +131,6 @@ std::optional<CBox> Snap::zoneBox(eKind kind, PHLMONITOR mon) {
     if (!mon || kind == eKind::None)
         return std::nullopt;
 
-    // Fractions of the dock-aware usable box (Rectangle with a right dock:
-    // visibleFrame already excludes the dock).
     const CBox frame = usable(mon);
 
     if (kind == eKind::AlmostMaximize) {
