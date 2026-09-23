@@ -529,7 +529,10 @@ Item {
     } else if (e && e.id) {
       // gtk-launch the matched entry: correct for web apps (runs
       // omarchy-launch-webapp) and for classes that differ from the file name.
-      Quickshell.execDetached(["uwsm-app", "--", "gtk-launch", e.id])
+      // Quickshell's entry id is the file basename without ".desktop"
+      // (org.telegram.desktop for org.telegram.desktop.desktop), so the suffix
+      // still has to be appended or gtk-launch reports "no such application".
+      Quickshell.execDetached(["uwsm-app", "--", "gtk-launch", root.desktopIdFor(e.id)])
     } else {
       Quickshell.execDetached(["uwsm-app", "--", "gtk-launch", root.desktopIdFor(app.cls)])
     }
