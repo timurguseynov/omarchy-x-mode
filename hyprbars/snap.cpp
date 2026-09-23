@@ -97,7 +97,11 @@ CBox Snap::usable(PHLMONITOR mon) {
     if (!mon)
         return {};
     const double left   = mon->m_reservedArea.left();
-    const double top    = mon->m_reservedArea.top();
+    // The top bar reserves its height, but it is a layer-shell surface that is
+    // gone for a moment while the shell restarts during install. Snapping in
+    // that window saw a zero top and sized windows to the full screen height.
+    // Fall back to the bar's own reserved height so a half stays a half.
+    const double top    = std::max(mon->m_reservedArea.top(), 24.0);
     // x-mode.lua publishes the dock card plus half of gaps_out. Rectangle's
     // visibleFrame excludes a right-edge dock before any fraction is taken, so
     // a left half and a right half split this narrower frame and never overlap.
@@ -214,7 +218,7 @@ eKind Snap::zoneAtCursor(const Vector2D& cursor, PHLWINDOW dragged, bool activeD
     // Maximize only when the cursor is in the reserved top (the bar) plus a
     // small slop. If there is no bar and gaps_out is 0, reserved top is 0 and
     // this collapses to the screen edge + slop — like Rectangle on macOS.
-    const int topBand = sc<int>(mon->m_reservedArea.top())
+    const int topBand = std::max(sc<int>(mon->m_reservedArea.top()), 24)
         + std::max(0, sc<int>(g_pGlobalState->config.xModeSnapTopSlop->value()));
     const bool onTop = rely < std::max(margin, topBand);
 

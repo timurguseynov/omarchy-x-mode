@@ -15,9 +15,10 @@ Item {
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var shell: null
   property var manifest: null
-  // The dock owns the icon index / desktop-entry lookup; the switcher reuses it
-  // so its row shows real icons instead of blanks.
+  // `dock` is only kept so the existing `Switcher { dock: root }` in Dock.qml
+  // still binds. The icon lookup moved out of the dock into IconResolver.
   property var dock: null
+  IconResolver { id: icons }
 
   readonly property string cmdPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-switcher.cmd"
 
@@ -26,25 +27,8 @@ Item {
   property string activeClass: ""
   property var classes: []
 
-  function cleanName(cls) {
-    return String(cls || "").toLowerCase().trim()
-      .replace(/^org\./, "").replace(/^com\./, "").replace(/^io\./, "").replace(/^dev\./, "")
-      .replace(/\.desktop$/, "")
-  }
-
   function iconFor(cls) {
-    if (root.dock)
-      return root.dock.iconFor(cls)
-    var candidates = [String(cls || ""), cleanName(cls)]
-    for (var i = 0; i < candidates.length; i++) {
-      if (candidates[i] === "")
-        continue
-      var p = Quickshell.iconPath(candidates[i], true)
-      if (p && p.length > 0)
-        return p
-    }
-    var fb = Quickshell.iconPath("application-x-executable", true)
-    return fb && fb.length > 0 ? fb : ""
+    return icons.iconFor(cls)
   }
 
   function applyXModeLine(raw) {
