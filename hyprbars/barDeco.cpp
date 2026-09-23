@@ -720,6 +720,9 @@ void CHyprBar::updateTabDrag(const Vector2D& coords) {
         if (group->getCurrentIdx() != (size_t)m_iTabDragFrom)
             group->setCurrent((size_t)m_iTabDragFrom);
         m_bTabDragging = true;
+        // The lifted tab is drawn wherever the pointer is, so it needs a
+        // repaint on every move, not only when it changes slot.
+        damageEntire();
     }
 
     bool      closeHit = false;
@@ -789,13 +792,9 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
     CBox rowBox = {barBox->x, barBox->y + (int)(HEIGHT * scale), (int)(W * scale), (int)(tabHeight() * scale)};
     g_pHyprOpenGL->renderRect(rowBox, CHyprColor(ROW.r, ROW.g, ROW.b, ROW.a * a), {});
 
-    // Where the dragged tab currently sits: a hairline on the boundary it
-    // crossed, so the drop target reads before the tabs finish sliding.
-    if (m_bTabDragging && m_iTabDragOver >= 0 && m_iTabDragOver < N && TABW > 0) {
-        const double edge = m_iTabDragOver > m_iTabDragFrom ? (m_iTabDragOver + 1) * TABW : m_iTabDragOver * TABW;
-        CBox marker = {barBox->x + (int)std::round(edge * scale) - 1, rowBox.y, 2, rowBox.h};
-        g_pHyprOpenGL->renderRect(marker, CHyprColor(TEXT.r, TEXT.g, TEXT.b, TEXT.a * a), {});
-    }
+    // The dragged tab leaves its slot, so the row shows a gap there and the tab
+    // itself is painted on top, shifted toward the pointer.
+    const bool dragging = m_bTabDragging && m_iTabDragOver >= 0 && m_iTabDragOver < N;
 
     for (int i = 0; i < N; i++) {
         auto m = members[i].lock();
@@ -804,6 +803,8 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
 
         const bool ISACTIVE = (N <= 1) || (m == CURRENT);
         CBox       tabBox   = {barBox->x + (int)(i * TABW * scale), barBox->y + (int)(HEIGHT * scale), (int)(TABW * scale) - 1, (int)(tabHeight() * scale)};
+        if (dragging && i == m_iTabDragOver)
+            continue;
         g_pHyprOpenGL->renderRect(tabBox, ISACTIVE ? CHyprColor(BASE.r, BASE.g, BASE.b, BASE.a * a) : CHyprColor(TABIN.r, TABIN.g, TABIN.b, TABIN.a * a), {});
 
         const std::string title = m->m_title;
@@ -830,6 +831,33 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
             if (xit->second && xit->second->m_texID != 0) {
                 CBox xBox = {tabBox.x + tabBox.w - (int)(18 * scale), tabBox.y + (int)std::round((tabBox.h - xit->second->m_size.y) / 2.0), xit->second->m_size.x, xit->second->m_size.y};
                 g_pHyprOpenGL->renderTexture(xit->second, xBox, {.a = a});
+            }
+        }
+    }
+
+    // The lifted tab. Its slot was skipped above, so it has to be drawn here,
+    // shifted by how far the pointer has moved but kept inside the row.
+    if (dragging) {
+        auto dragged = members[m_iTabDragOver].lock();
+        if (dragged) {
+            const double home  = m_iTabDragOver * TABW;
+            const double delta = cursorRelativeToBar().x - (m_tabDragStart.x - assignedBoxGlobal().pos().x);
+            double       x     = home + delta;
+            x                  = std::clamp(x, 0.0, std::max(0.0, W - TAB_PLUS_W - TABW));
+
+            CBox tabBox = {barBox->x + (int)std::round(x * scale), barBox->y + (int)(HEIGHT * scale), (int)(TABW * scale) - 1, (int)(tabHeight() * scale)};
+            g_pHyprOpenGL->renderRect(tabBox, CHyprColor(BASE.r, BASE.g, BASE.b, BASE.a * a), {});
+
+            const std::string title = dragged->m_title;
+            const std::string key   = std::to_string(TAB_MAXW) + ":" + std::to_string(TAB_FONT) + ":1:" + title;
+            auto              it    = m_tabTexs.find(key);
+            if (it == m_tabTexs.end()) {
+                auto tex = g_pHyprRenderer->renderText(title, TXTACT, TAB_FONT, false, FONT, TAB_MAXW, TAB_WEIGHT);
+                it       = m_tabTexs.emplace(key, tex).first;
+            }
+            if (it->second && it->second->m_texID != 0) {
+                CBox titleBox = {tabBox.x + (int)(8 * scale), tabBox.y + (int)std::round((tabBox.h - it->second->m_size.y) / 2.0), it->second->m_size.x, it->second->m_size.y};
+                g_pHyprOpenGL->renderTexture(it->second, titleBox, {.a = a});
             }
         }
     }
