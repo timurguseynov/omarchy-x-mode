@@ -54,7 +54,7 @@ Panel {
     var out = []
     for (var i = 0; i < running.length; i++) {
       var a = running[i]
-      if (q === "" || String(a.cls).toLowerCase().indexOf(q) >= 0 || String(a.title || "").toLowerCase().indexOf(q) >= 0)
+      if (q === "" || String(a.cls).toLowerCase().indexOf(q) >= 0 || root.appName(a.cls).toLowerCase().indexOf(q) >= 0 || String(a.title || "").toLowerCase().indexOf(q) >= 0)
         out.push(a)
     }
     return out
@@ -74,6 +74,12 @@ Panel {
   // chromium extension manifest, on-disk icon index, then Qt themed lookup).
   function appIcon(cls) {
     return iconResolver.iconFor(cls)
+  }
+
+  // The desktop entry's real name ("Files") rather than the window class
+  // ("org.gnome.Nautilus"). Falls back to the last dotted segment.
+  function appName(cls) {
+    return iconResolver.appDisplayName(cls)
   }
 
   function cfgFor(cls) {
@@ -376,7 +382,7 @@ Panel {
         anchors.verticalCenter: parent.verticalCenter
 
         Text {
-          text: arow.modelData.cls
+          text: root.appName(arow.modelData.cls)
           color: root.contentForeground
           font.family: root.contentFontFamily
           font.pixelSize: Style.font.body
@@ -530,7 +536,7 @@ Panel {
 
       PanelSectionHeader {
         id: sectionHeader
-        text: root.openCls === "" ? "APPS" : String(root.openApp ? root.openApp.cls : root.openCls).toUpperCase()
+        text: root.openCls === "" ? "APPS" : root.appName(root.openApp ? root.openApp.cls : root.openCls).toUpperCase()
         foreground: root.contentForeground
         fontFamily: root.contentFontFamily
       }
