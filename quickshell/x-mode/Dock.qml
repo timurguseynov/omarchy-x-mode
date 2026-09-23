@@ -857,8 +857,17 @@ Item {
   Connections {
     target: Hyprland
     function onRawEvent(event) {
-      if (event && event.name === "xmode")
+      if (!event)
+        return
+      if (event.name === "xmode")
         root.applyXModeLine(event.data)
+      // Style.gapsOut (the dock's screen margin) is only re-read on shell
+      // startup and on a theme switch, so editing general:gaps_out left the
+      // dock at the old distance until the shell restarted. Hyprland emits
+      // configreloaded once per reload; scheduleRefresh debounces and runs
+      // hyprctl getoption a single time, so this costs nothing while idle.
+      else if (event.name === "configreloaded")
+        Style.scheduleRefresh()
     }
   }
 
