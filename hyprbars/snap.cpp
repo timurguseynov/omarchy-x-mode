@@ -98,18 +98,13 @@ CBox Snap::usable(PHLMONITOR mon) {
         return {};
     const double left   = mon->m_reservedArea.left();
     const double top    = mon->m_reservedArea.top();
-    const double right  = mon->m_reservedArea.right();
+    // x-mode.lua publishes the dock card plus half of gaps_out. Rectangle's
+    // visibleFrame excludes a right-edge dock before any fraction is taken, so
+    // a left half and a right half split this narrower frame and never overlap.
+    const double right  = mon->m_reservedArea.right() + sc<double>(g_pGlobalState->config.xModeDockInset->value());
     const double bottom = mon->m_reservedArea.bottom();
     const CBox   box    = monitorBox(mon);
     return {box.x + left, box.y + top, box.w - left - right, box.h - top - bottom};
-}
-
-// Dock card plus half the outer gap, published by x-mode.lua as one inset.
-// The dock only slides a window that reaches the right edge; it never changes
-// the width, which stays a fraction of the full work area (a right third is as
-// wide as a left third, matching Rectangle).
-static int dockPull() {
-    return sc<int>(g_pGlobalState->config.xModeDockInset->value());
 }
 
 static CBox fractionalRect(const CBox& frame, const char* hside, const char* vside, double hf, double vf) {
@@ -124,12 +119,6 @@ static CBox fractionalRect(const CBox& frame, const char* hside, const char* vsi
     return {x, y, w, h};
 }
 
-static bool reachesRight(const char* hside, double hf) {
-    if (hside && std::strcmp(hside, "right") == 0)
-        return true;
-    return (!hside || hside[0] == '\0') && hf >= 1.0;
-}
-
 static CBox applyGaps(const CBox& box, bool innerL, bool innerR, bool innerT, bool innerB) {
     const int gap  = gapOut();
     const int half = gap / 2;
@@ -139,20 +128,6 @@ static CBox applyGaps(const CBox& box, bool innerL, bool innerR, bool innerT, bo
     const int top = (innerT ? half : gap) + b;
     const int bottom = (innerB ? half : gap) + b;
     return {box.x + left, box.y + top, box.w - left - right, box.h - top - bottom};
-}
-
-// The dock only reserves its own strip. A partial snap keeps its width and
-// slides left up to it; a full-width snap cannot slide (its left edge is the
-// screen edge) and is shortened instead, so the dock never covers a window.
-static CBox clearDock(const CBox& box, double frameX, double frameW, const char* hside, double hf) {
-    if (!reachesRight(hside, hf))
-        return box;
-    const double limit = frameX + frameW - dockPull();
-    if (box.x + box.w <= limit)
-        return box;
-    if (!hside || hside[0] == '\0')
-        return {box.x, box.y, std::max(1.0, limit - box.x), box.h};
-    return {limit - box.w, box.y, box.w, box.h};
 }
 
 std::optional<CBox> Snap::zoneBox(eKind kind, PHLMONITOR mon) {
@@ -189,9 +164,7 @@ std::optional<CBox> Snap::zoneBox(eKind kind, PHLMONITOR mon) {
         default: return std::nullopt;
     }
 
-    const CBox frac = fractionalRect(frame, z.hside, z.vside, z.hf, z.vf);
-    const CBox gapped = applyGaps(frac, z.innerL, z.innerR, z.innerT, z.innerB);
-    return clearDock(gapped, frame.x, frame.w, z.hside, z.hf);
+    return applyGaps(fractionalRect(frame, z.hside, z.vside, z.hf, z.vf), z.innerL, z.innerR, z.innerT, z.innerB);
 }
 
 std::optional<CBox> Snap::contentBox(eKind kind, PHLMONITOR mon, PHLWINDOW w) {

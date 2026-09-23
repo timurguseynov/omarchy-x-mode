@@ -386,14 +386,12 @@ end
 
 local function usable(monitor)
   local left, top, right, bottom = reserved(monitor)
+  -- Rectangle's visibleFrame already excludes a right-edge dock, and every
+  -- fraction (1/2, 2/3, 1/3) is taken from that narrower frame. Reserving the
+  -- dock here is what keeps a left half and a right half from overlapping.
+  right = right + DOCK_PULL
   local x, y, width, height = monitor_box(monitor)
   return x + left, y + top, width - left - right, height - top - bottom
-end
-
--- Extra right inset so a window's visible right edge stops half a GAP_OUT short
--- of the dock card. The card's own screen margin is the other half of GAP_OUT.
-local function dock_pull()
-  return DOCK_PULL
 end
 
 local function window_class(w)
@@ -478,10 +476,8 @@ end
 -- keep the full outer gap, edges shared with another window keep half, so two
 -- snapped windows end up exactly GAP_OUT apart too. BORDER is added to every edge
 -- because the border is drawn outside the box (see above), so the *visible* gap
--- equals GAP_OUT. The dock is not part of the frame Rectangle divides: a right
--- snap is the same width as the left one (a fraction of the full work area) and
--- is only slid left so its right edge clears the dock. Shrinking the width by
--- the dock is what made the 1/3 step narrower than on the Mac.
+-- equals GAP_OUT. The dock is already gone from the frame (see usable), exactly
+-- as Rectangle's visibleFrame excludes it, so the gaps below are the only inset.
 local function apply_gaps(x, y, w, h, inner)
   local half = math.floor(GAP_OUT / 2)
   local left = (inner.l and half or GAP_OUT) + BORDER
@@ -489,25 +485,6 @@ local function apply_gaps(x, y, w, h, inner)
   local top = (inner.t and half or GAP_OUT) + BORDER
   local bottom = (inner.b and half or GAP_OUT) + BORDER
   return x + left, y + top, w - left - right, h - top - bottom
-end
-
-local function clear_dock(x, y, w, h, frame_x, frame_w, hside, hf)
-  local reaches_right = hside == "right" or ((hside == nil or hside == "") and hf >= 1)
-  if not reaches_right then
-    return x, y, w, h
-  end
-  -- The dock only reserves its own strip. A partial snap keeps its width and
-  -- slides left up to it; a full-width snap cannot slide (its left edge is the
-  -- screen edge) and is shortened instead, so the dock never covers a window.
-  local limit = frame_x + frame_w - dock_pull()
-  if x + w > limit then
-    if hside == nil or hside == "" then
-      w = math.max(1, limit - x)
-    else
-      x = limit - w
-    end
-  end
-  return x, y, w, h
 end
 
 local function snap_geom(kind, monitor)
@@ -522,8 +499,7 @@ local function snap_geom(kind, monitor)
     return nil
   end
   local x, y, w, h = fractional_rect({ x = fx, y = fy, w = fw, h = fh }, z.h, z.v, z.hf, z.vf)
-  x, y, w, h = apply_gaps(x, y, w, h, z.inner)
-  return clear_dock(x, y, w, h, fx, fw, z.h, z.hf)
+  return apply_gaps(x, y, w, h, z.inner)
 end
 
 local function window_by_addr(addr)
@@ -626,8 +602,7 @@ local function cycle_geom(side, hf, monitor)
   local fx, fy, fw, fh = usable(monitor)
   local inner = side == "left" and { r = true } or { l = true }
   local x, y, w, h = fractional_rect({ x = fx, y = fy, w = fw, h = fh }, side, nil, hf, 1)
-  x, y, w, h = apply_gaps(x, y, w, h, inner)
-  return clear_dock(x, y, w, h, fx, fw, side, hf)
+  return apply_gaps(x, y, w, h, inner)
 end
 
 local function snap_or_expand(side)
@@ -680,8 +655,6 @@ local function clamp_window(w)
     return
   end
   local ux, uy, uw, uh = usable(mon)
-  -- Right edge stops half a GAP_OUT short of the dock, matching a right snap.
-  uw = uw - dock_pull()
   local x, y = vec(w.at)
   local ww, wh = vec(w.size)
   local edge = GAP_OUT + BORDER
