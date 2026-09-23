@@ -907,8 +907,22 @@ end
 
 -- A real focus change updates the MRU order. While the switcher is held the
 -- focus moves through every app tabbed over, so those are ignored here.
-hl.on("window.active", function(w)
-  if switcher_active or w == nil then
+hl.on("window.active", function(w, reason)
+  if w == nil then
+    return
+  end
+  -- Focusing a window does not raise it. rawWindowFocus only runs setCurrent()
+  -- through bringTargetToTop for a grouped window, and a focus dispatch (dock,
+  -- switcher, a keybind) never raises at all — so the window can end up focused
+  -- while it stays behind the app that was in front. A browser reusing its
+  -- window for a login URL landed exactly like that. This desktop is always
+  -- floating and click-to-focus, so a focused window that is not on top is never
+  -- wanted: raise it here, once, for every focus path. alter_zorder is cheap and
+  -- idempotent (moveToTop returns early when the window is already last).
+  if w.floating then
+    hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = w }))
+  end
+  if switcher_active then
     return
   end
   switcher_touch(w.class)
