@@ -278,9 +278,12 @@ local GROUPBAR          = cfg_int("plugin:hyprbars:tab_height", GROUPBAR_FALLBAC
 local GAP_OUT           = cfg_int("general:gaps_out", GAP_FALLBACK)
 local BORDER            = cfg_int("general:border_size", 2)
 -- The dock overlays windows (it reserves no screen space), so snap zones are
--- inset by the dock's visible width; keep plugin:hyprbars:x_mode_dock_inset in
--- sync with Dock.qml (iconSize + pad*2 + panel padding, minus the card margin).
-local DOCK_INSET        = cfg_int("plugin:hyprbars:x_mode_dock_inset", 46)
+-- inset by the dock's visible width. Dock.qml: cardWidth (iconSize+pad*2=40)
+-- + Style.gapsOut (= half of general:gaps_out). Keep the plugin config key in
+-- sync so hyprbars' C++ snap uses the same inset.
+local DOCK_CARD         = 40
+local DOCK_GAP          = math.floor(GAP_OUT / 2)
+local DOCK_INSET        = DOCK_CARD + DOCK_GAP
 local ALMOST_MAXIMIZE   = cfg_int("plugin:hyprbars:x_mode_almost_maximize_percent", 90) / 100
 local GROUP_MIN_W       = cfg_int("plugin:hyprbars:x_mode_group_min_width", 400)
 local GROUP_MIN_H       = cfg_int("plugin:hyprbars:x_mode_group_min_height", 300)
@@ -299,6 +302,11 @@ hl.config({
       left = FLOAT_EDGE,
       right = FLOAT_EDGE,
       bottom = FLOAT_EDGE,
+    },
+  },
+  plugin = {
+    hyprbars = {
+      x_mode_dock_inset = DOCK_INSET,
     },
   },
 })
@@ -375,11 +383,20 @@ local function monitor_box(monitor)
   return x, y, width, height
 end
 
-local function usable(monitor)
+-- Work area excluding Hyprland reserved regions (top bar, …) but NOT the
+-- overlay dock. Horizontal snap fractions use this, matching Rectangle on a
+-- Mac with the dock on the bottom (full screen width).
+local function work_area(monitor)
   local left, top, right, bottom = reserved(monitor)
-  right = right + DOCK_INSET
   local x, y, width, height = monitor_box(monitor)
   return x + left, y + top, width - left - right, height - top - bottom
+end
+
+-- Same as work_area, plus the right-edge dock overlay. Maximize / clamp / the
+-- right anchor of a snap use this so windows never sit under the dock.
+local function usable(monitor)
+  local x, y, width, height = work_area(monitor)
+  return x, y, width - DOCK_INSET, height
 end
 
 local function window_class(w)
@@ -485,6 +502,8 @@ local function snap_geom(kind, monitor)
   if z == nil then
     return nil
   end
+  -- Fractions of the dock-aware usable box (Rectangle with a right dock:
+  -- visibleFrame already excludes the dock).
   local x, y, w, h = fractional_rect({ x = fx, y = fy, w = fw, h = fh }, z.h, z.v, z.hf, z.vf)
   return apply_gaps(x, y, w, h, z.inner)
 end
@@ -586,10 +605,28 @@ end
 local CYCLE_HF = { 0.5, 2 / 3, 1 / 3 }
 
 local function cycle_geom(side, hf, monitor)
-  local fx, fy, fw, fh = usable(monitor)
+  -- Rectangle's LeftRightHalfCalculation / CycleSize: fraction of the full
+  -- screen visible frame. On a Mac the dock is usually on the bottom, so that
+  -- is the full width; we match that for Super+Alt cycles so 1/3 is not
+  -- shrunk by the right-edge dock. The dock-aware usable box is only used to
+  -- anchor the right side (and as a clamp) so the window never sits under it.
+  -- (Drag-to-edge halves still use usable() via snap_geom so left|right tile.)
+  local fx, fy, fw, fh = work_area(monitor)
+  local ux, uy, uw, uh = usable(monitor)
   local inner = side == "left" and { r = true } or { l = true }
-  local x, y, w, h = fractional_rect({ x = fx, y = fy, w = fw, h = fh }, side, nil, hf, 1)
-  return apply_gaps(x, y, w, h, inner)
+  -- 1/3 is the exact complement of 2/3 (same as FirstThird vs FirstTwoThirds
+  -- remainder), so the two sizes always add up to the frame.
+  local w
+  if math.abs(hf - 1 / 3) < 1e-6 then
+    w = fw - math.floor(fw * 2 / 3 + 0.0001)
+  else
+    w = math.floor(fw * hf + 0.0001)
+  end
+  if w > uw then
+    w = uw
+  end
+  local x = side == "right" and (ux + uw - w) or ux
+  return apply_gaps(x, uy, w, uh, inner)
 end
 
 local function snap_or_expand(side)
@@ -614,7 +651,13 @@ local function snap_or_expand(side)
       return
     end
   end
-  snap(side, window)
+  -- First press: cycle's 1/2 (full work-area width), not snap_geom's tiling
+  -- half (usable width). Keeps Super+Alt sizes consistent across the cycle;
+  -- drag-to-edge halves still tile via snap("left"/"right").
+  save(window)
+  local nx, ny, nw, nh = cycle_geom(side, CYCLE_HF[1], monitor)
+  nx, ny, nw, nh = with_chrome(nx, ny, nw, nh, window)
+  place(nx, ny, nw, nh, window)
 end
 
 -- Super+LMB window dragging is disabled in x-mode. Titlebar drag-to-edge

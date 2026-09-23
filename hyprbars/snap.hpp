@@ -32,6 +32,9 @@ namespace Snap {
     int                chromeH(PHLWINDOW w);
 
     CBox               monitorBox(PHLMONITOR mon);
+    // Work area excluding reserved regions, but not the overlay dock.
+    CBox               workArea(PHLMONITOR mon);
+    // Work area plus the right-edge dock overlay inset.
     CBox               usable(PHLMONITOR mon);
     // Full snap zone (titlebar + tabbar + content). Preview draws this.
     std::optional<CBox> zoneBox(eKind kind, PHLMONITOR mon);

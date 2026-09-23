@@ -434,8 +434,11 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_pGlobalState->config.tabHeight = makeShared<Config::Values::CIntValue>("plugin:hyprbars:tab_height", "Height of the group tabbar", 24);
     g_pGlobalState->config.tabCloseActiveOnly =
         makeShared<Config::Values::CBoolValue>("plugin:hyprbars:tab_close_active_only", "Only show and act on the close button of the current tab, and only while the group has focus", false);
+    // Default matches Dock.qml: cardWidth (iconSize+pad*2=40) + Style.gapsOut
+    // (half of general:gaps_out, typically 5 when gaps_out=10). x-mode.lua
+    // overwrites this from the live gaps_out on load.
     g_pGlobalState->config.xModeDockInset =
-        makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_dock_inset", "Right dock inset used by the snap zones", 46);
+        makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_dock_inset", "Right dock inset used by the snap zones", 45);
     g_pGlobalState->config.xModeSnapMargin =
         makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_snap_margin", "Thickness (px) of the screen-edge strip that starts a snap", 12);
     g_pGlobalState->config.xModeSnapCorner =
