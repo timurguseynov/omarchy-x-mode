@@ -1020,20 +1020,21 @@ local function switch_group_tab(next)
     end
   end
   idx = next and (idx % n) + 1 or ((idx + n - 2) % n) + 1
+  local target = members[idx]
   -- group.active already focuses the new tab: CGroup::setCurrent calls
-  -- rawWindowFocus when the group held focus, and rawWindowFocus brings the
-  -- group's target to the top. A second dsp.focus right after it is a
-  -- fullWindowFocus plus warpCursor, so the window is unfocused and refocused
-  -- within one switch. Zed paints its title bar from is_window_active, so that
-  -- gap dims the bar (git, diagnostics) for a frame.
+  -- rawWindowFocus when the group held focus. A second dsp.focus right after it
+  -- is a fullWindowFocus plus warpCursor, so the window is unfocused and
+  -- refocused within one switch. Zed paints its title bar from is_window_active,
+  -- so that gap dims the bar (git, diagnostics) for a frame.
   --
-  -- Changed in 0e460f4. Before that this also ran, right after group.active:
-  --   hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
-  --   hl.dispatch(hl.dsp.focus({ window = target }))
-  -- Both came in with the function (f72438d) and were never touched again, so
-  -- nothing else depends on them. Dropping them did NOT fix the dim, though, so
-  -- putting them back is safe but will not bring the old behaviour either.
+  -- 0e460f4 dropped the alter_zorder along with the focus, on the assumption
+  -- that rawWindowFocus raises the group. It does not: for a grouped window
+  -- bringTargetToTop only calls setCurrent(). Keep the explicit raise, or a
+  -- group that is behind another app stays behind after Alt+Tab.
   hl.dispatch(hl.dsp.group.active({ index = idx, window = w }))
+  if target ~= nil then
+    hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
+  end
 end
 
 hl.unbind("ALT + TAB")
@@ -1282,8 +1283,10 @@ local function focus_group_tab(index)
   local target = members[index]
   hl.dispatch(hl.dsp.group.active({ index = index, window = w }))
   if target ~= nil then
+    -- Raise only: group.active already focused the tab (same reason as
+    -- switch_group_tab), and a second focus dims a client-drawn title bar
+    -- (Zed) for a frame.
     hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
-    hl.dispatch(hl.dsp.focus({ window = target }))
   end
   return { pass_event = false }
 end
