@@ -812,6 +812,8 @@ local function switcher_focus(cls)
     end
   end
   if best ~= nil then
+    -- TODO(524fd23): probably redundant now — the window.active handler raises
+    -- every focused window. Left in place because it predates that change.
     hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = best }))
     hl.dispatch(hl.dsp.focus({ window = best }))
   end
@@ -1046,6 +1048,8 @@ local function switch_group_tab(next)
   -- bringTargetToTop only calls setCurrent(). Keep the explicit raise, or a
   -- group that is behind another app stays behind after Alt+Tab.
   hl.dispatch(hl.dsp.group.active({ index = idx, window = w }))
+  -- TODO(524fd23): probably redundant now — window.active raises the focused
+  -- window. Restored by 1bd99a2 while the central raise did not exist yet.
   if target ~= nil then
     hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
   end
@@ -1297,6 +1301,8 @@ local function focus_group_tab(index)
   local target = members[index]
   hl.dispatch(hl.dsp.group.active({ index = index, window = w }))
   if target ~= nil then
+    -- TODO(524fd23): probably redundant now — window.active raises the focused
+    -- window.
     -- Raise only: group.active already focused the tab (same reason as
     -- switch_group_tab), and a second focus dims a client-drawn title bar
     -- (Zed) for a frame.
@@ -1495,6 +1501,8 @@ join_same_app = function(w)
   -- new window is focused yet can stay behind the app that was in front (a
   -- browser login window opened from a terminal), and the dock will not surface
   -- it either: it skips an app that already is the active class.
+  -- TODO(524fd23): probably redundant now — window.active raises the focused
+  -- window, the one that just joined included.
   hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = w }))
   -- Adding a tab must not yank the group to the new window's position.
   -- absorb_chrome_growth places the group from the peer's pre-join box so
