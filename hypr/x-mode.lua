@@ -909,21 +909,45 @@ end
 
 -- A real focus change updates the MRU order. While the switcher is held the
 -- focus moves through every app tabbed over, so those are ignored here.
+-- Focusing a window does not raise it. rawWindowFocus only runs setCurrent()
+-- through bringTargetToTop for a grouped window, and a focus dispatch (dock,
+-- switcher, a keybind) never raises at all — so the window can end up focused
+-- while it stays behind the app that was in front. A browser reusing its window
+-- for a login URL landed exactly like that. This desktop is always floating and
+-- click-to-focus, so a focused window that is not on top is never wanted: raise
+-- it here, once, for every focus path.
+--
+-- The raise is deferred on purpose. alter_zorder ends with
+-- simulateMouseMovement(), which synchronously re-emits input.mouse.move; the
+-- patched hyprbars reorders tabs from that event (onMouseMove -> updateTabDrag),
+-- and setCurrent()/swapWithNext() focus a tab, which lands back here. Raising
+-- inline therefore re-entered updateTabDrag before it bumped m_iTabDragOver,
+-- recursed, and froze the compositor on a tab drag. A 1ms timer runs after the
+-- current event has unwound (hl.timer refuses a zero timeout), and the pending
+-- flag stays set across the dispatch so a raise cannot trigger another one.
+local raise_pending = false
+
+local function raise_active()
+  if raise_pending then
+    return
+  end
+  raise_pending = true
+  hl.timer(function()
+    local w = hl.get_active_window()
+    if w ~= nil and w.floating then
+      pcall(function()
+        hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = w }))
+      end)
+    end
+    raise_pending = false
+  end, { timeout = 1, type = "oneshot" })
+end
+
 hl.on("window.active", function(w, reason)
   if w == nil then
     return
   end
-  -- Focusing a window does not raise it. rawWindowFocus only runs setCurrent()
-  -- through bringTargetToTop for a grouped window, and a focus dispatch (dock,
-  -- switcher, a keybind) never raises at all — so the window can end up focused
-  -- while it stays behind the app that was in front. A browser reusing its
-  -- window for a login URL landed exactly like that. This desktop is always
-  -- floating and click-to-focus, so a focused window that is not on top is never
-  -- wanted: raise it here, once, for every focus path. alter_zorder is cheap and
-  -- idempotent (moveToTop returns early when the window is already last).
-  if w.floating then
-    hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = w }))
-  end
+  raise_active()
   if switcher_active then
     return
   end
