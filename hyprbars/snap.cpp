@@ -141,15 +141,18 @@ static CBox applyGaps(const CBox& box, bool innerL, bool innerR, bool innerT, bo
     return {box.x + left, box.y + top, box.w - left - right, box.h - top - bottom};
 }
 
-// Slide the box left so its right edge clears the dock. Width is untouched.
-static CBox clearDock(const CBox& box, double frameW, const char* hside, double hf) {
+// The dock only reserves its own strip. A partial snap keeps its width and
+// slides left up to it; a full-width snap cannot slide (its left edge is the
+// screen edge) and is shortened instead, so the dock never covers a window.
+static CBox clearDock(const CBox& box, double frameX, double frameW, const char* hside, double hf) {
     if (!reachesRight(hside, hf))
         return box;
-    const double limit = box.x + frameW - dockPull();
-    const double overflow = (box.x + box.w) - limit;
-    if (overflow > 0)
-        return {box.x - overflow, box.y, box.w, box.h};
-    return box;
+    const double limit = frameX + frameW - dockPull();
+    if (box.x + box.w <= limit)
+        return box;
+    if (!hside || hside[0] == '\0')
+        return {box.x, box.y, std::max(1.0, limit - box.x), box.h};
+    return {limit - box.w, box.y, box.w, box.h};
 }
 
 std::optional<CBox> Snap::zoneBox(eKind kind, PHLMONITOR mon) {
@@ -188,7 +191,7 @@ std::optional<CBox> Snap::zoneBox(eKind kind, PHLMONITOR mon) {
 
     const CBox frac = fractionalRect(frame, z.hside, z.vside, z.hf, z.vf);
     const CBox gapped = applyGaps(frac, z.innerL, z.innerR, z.innerT, z.innerB);
-    return clearDock(gapped, frame.w, z.hside, z.hf);
+    return clearDock(gapped, frame.x, frame.w, z.hside, z.hf);
 }
 
 std::optional<CBox> Snap::contentBox(eKind kind, PHLMONITOR mon, PHLWINDOW w) {

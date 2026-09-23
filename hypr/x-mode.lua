@@ -491,15 +491,21 @@ local function apply_gaps(x, y, w, h, inner)
   return x + left, y + top, w - left - right, h - top - bottom
 end
 
-local function clear_dock(x, y, w, h, frame_w, hside, hf)
+local function clear_dock(x, y, w, h, frame_x, frame_w, hside, hf)
   local reaches_right = hside == "right" or ((hside == nil or hside == "") and hf >= 1)
   if not reaches_right then
     return x, y, w, h
   end
-  local limit = x + frame_w - dock_pull()
-  local overflow = (x + w) - limit
-  if overflow > 0 then
-    x = x - overflow
+  -- The dock only reserves its own strip. A partial snap keeps its width and
+  -- slides left up to it; a full-width snap cannot slide (its left edge is the
+  -- screen edge) and is shortened instead, so the dock never covers a window.
+  local limit = frame_x + frame_w - dock_pull()
+  if x + w > limit then
+    if hside == nil or hside == "" then
+      w = math.max(1, limit - x)
+    else
+      x = limit - w
+    end
   end
   return x, y, w, h
 end
@@ -517,7 +523,7 @@ local function snap_geom(kind, monitor)
   end
   local x, y, w, h = fractional_rect({ x = fx, y = fy, w = fw, h = fh }, z.h, z.v, z.hf, z.vf)
   x, y, w, h = apply_gaps(x, y, w, h, z.inner)
-  return clear_dock(x, y, w, h, fw, z.h, z.hf)
+  return clear_dock(x, y, w, h, fx, fw, z.h, z.hf)
 end
 
 local function window_by_addr(addr)
@@ -621,7 +627,7 @@ local function cycle_geom(side, hf, monitor)
   local inner = side == "left" and { r = true } or { l = true }
   local x, y, w, h = fractional_rect({ x = fx, y = fy, w = fw, h = fh }, side, nil, hf, 1)
   x, y, w, h = apply_gaps(x, y, w, h, inner)
-  return clear_dock(x, y, w, h, fw, side, hf)
+  return clear_dock(x, y, w, h, fx, fw, side, hf)
 end
 
 local function snap_or_expand(side)
