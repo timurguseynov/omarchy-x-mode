@@ -826,18 +826,6 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
         }
     }
 
-    // Outline the tab being dragged. Drawn after the tabs so nothing covers
-    // it; the earlier hairline sat underneath them and only showed in the gap.
-    if (m_bTabDragging && m_iTabDragOver >= 0 && m_iTabDragOver < N && TABW > 0) {
-        CBox mark = {barBox->x + (int)std::round(m_iTabDragOver * TABW * scale), rowBox.y, (int)std::round(TABW * scale) - 1, rowBox.h};
-        const auto t = std::max(1, (int)std::round(2 * scale));
-        const CHyprColor edge{TEXT.r, TEXT.g, TEXT.b, TEXT.a * a};
-        g_pHyprOpenGL->renderRect(CBox{mark.x, mark.y, mark.w, (double)t}, edge, {});
-        g_pHyprOpenGL->renderRect(CBox{mark.x, mark.y + mark.h - t, mark.w, (double)t}, edge, {});
-        g_pHyprOpenGL->renderRect(CBox{mark.x, mark.y, (double)t, mark.h}, edge, {});
-        g_pHyprOpenGL->renderRect(CBox{mark.x + mark.w - t, mark.y, (double)t, mark.h}, edge, {});
-    }
-
     CBox plusBox = {barBox->x + (int)((W - TAB_PLUS_W) * scale), barBox->y + (int)(HEIGHT * scale), (int)(TAB_PLUS_W * scale), (int)(tabHeight() * scale)};
     g_pHyprOpenGL->renderRect(plusBox, CHyprColor(TABIN.r, TABIN.g, TABIN.b, TABIN.a * a), {});
     const double arm    = std::round(8.0 * scale);
