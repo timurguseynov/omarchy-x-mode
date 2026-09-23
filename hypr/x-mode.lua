@@ -1703,7 +1703,7 @@ local function take_arrange_marker()
   return true
 end
 
-local function arrange_halves()
+function x_mode.arrange_halves()
   local windows = hl.get_windows()
   if type(windows) ~= "table" then
     return
@@ -1737,6 +1737,12 @@ local function arrange_halves()
   end
 end
 
+-- The marker is dropped by install.sh before its reload and by the off path
+-- when the desktop is switched back on. Arrange once per load, and only after
+-- the re-float below: a tiled window has no floating box for snap() to place,
+-- and the re-float's own dispatch lands after this timer. A later pass (the
+-- shell in install.sh calls x_mode.arrange_halves() again once it has floated
+-- the windows itself) is harmless — the shuffle differs, the halves do not.
 local arrange_pending = take_arrange_marker()
 if arrange_pending then
   math.randomseed(os.time())
@@ -1744,19 +1750,12 @@ end
 
 hl.timer(function()
   consolidate()
-  clear_bars()
-end, { timeout = 250, type = "oneshot" })
--- The re-float below runs at 300ms, so arrange after it: windows that were
--- still tiled need a floating box before snap() can place them. Once only,
--- per config load — a second shuffle would undo the first. clear_bars then
--- covers whatever the snap skipped.
-hl.timer(function()
   if arrange_pending then
     arrange_pending = false
-    arrange_halves()
+    x_mode.arrange_halves()
   end
   clear_bars()
-end, { timeout = 500, type = "oneshot" })
+end, { timeout = 600, type = "oneshot" })
 
 pcall(function()
   if hl.plugin and hl.plugin.hyprbars and hl.plugin.hyprbars.x_mode then

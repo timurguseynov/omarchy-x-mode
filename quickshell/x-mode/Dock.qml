@@ -173,8 +173,15 @@ Item {
       out.push({ cls: rk, pinned: false, running: true, bestAddr: byClass[rk].bestAddr, addrs: byClass[rk].addrs, ws: byClass[rk].ws, wins: byClass[rk].wins })
     }
     var sig = ""
-    for (var m = 0; m < out.length; m++)
-      sig += out[m].cls + "|" + out[m].pinned + "|" + out[m].running + "|" + out[m].bestAddr + ";"
+    for (var m = 0; m < out.length; m++) {
+      sig += out[m].cls + "|" + out[m].pinned + "|" + out[m].running + "|" + out[m].bestAddr
+      // Titles too: a file manager navigating to another folder changes
+      // nothing else about the app, and the context menu reads these rows.
+      var wins = out[m].wins
+      for (var n = 0; n < wins.length; n++)
+        sig += "|" + wins[n].addr + "=" + wins[n].title
+      sig += ";"
+    }
     if (sig !== root.appsSig) {
       root.appsSig = sig
       root.apps = out

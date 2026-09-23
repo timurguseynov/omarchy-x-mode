@@ -219,6 +219,11 @@ for c in json.load(sys.stdin):
 ')
   fi
 
+  # The config's own arrange runs on a timer that races this re-float, so do
+  # it again now that every window is actually floating. Same shuffle, and it
+  # only changes which window lands on which half.
+  hyprctl eval 'if x_mode and x_mode.arrange_halves then x_mode.arrange_halves() end' >/dev/null 2>&1 || true
+
   # `rescanPlugins` + `plugin enable` only update the registry: a plugin that is
   # already loaded keeps the QML instance it was created with, so updated files
   # (and a stale icon index) would not take effect until a manual restart.
