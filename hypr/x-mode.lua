@@ -1646,18 +1646,42 @@ local function consolidate()
       end
     end
   end
-  -- Only nudge ungrouped windows under the top bar. A full walk with
-  -- clamp_window resizes groups and pins them to the top after reload.
-  for _, w in ipairs(windows) do
-    if w.group == nil then
-      keep_below_topbar(w)
+end
+
+-- hyprbars draws the titlebar (and the tabbar, once a window is grouped)
+-- *above* the window box and does not move the window. Windows that were
+-- already open — tiled, or floating with no chrome — therefore end up with
+-- their bar under the top bar the moment the plugin loads. Move each one so
+-- its visual top lands at topbar + gap + border, and leave the size alone:
+-- clamp_window also shrinks, and a centered shrink plus the old y pins the
+-- window to the top. Target is absolute, so a second pass (the reload that
+-- loading the plugin triggers, or the re-float below) does not slide a
+-- window that is already clear.
+local function clear_bars()
+  for _, w in ipairs(hl.get_windows() or {}) do
+    w = refresh_window(w) or w
+    if w.floating and w.mapped and not w.hidden and (not w.fullscreen or w.fullscreen == 0) and not drag_owns(w) then
+      local chrome = chrome_h(w)
+      local mon = w.monitor
+      if chrome > 0 and mon ~= nil then
+        local _, uy = usable(mon)
+        local x, y = vec(w.at)
+        local min_top = uy + GAP_OUT + BORDER + chrome
+        if y < min_top then
+          hl.dispatch(hl.dsp.window.move({ x = x, y = min_top, relative = false, window = w }))
+        end
+      end
     end
   end
 end
 
 hl.timer(function()
   consolidate()
+  clear_bars()
 end, { timeout = 250, type = "oneshot" })
+-- The re-float below runs at 300ms and only then do those windows have a
+-- floating box the bar can overflow, so clear them once more after it.
+hl.timer(clear_bars, { timeout = 500, type = "oneshot" })
 
 pcall(function()
   if hl.plugin and hl.plugin.hyprbars and hl.plugin.hyprbars.x_mode then
