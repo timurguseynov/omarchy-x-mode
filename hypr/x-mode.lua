@@ -1026,6 +1026,13 @@ local function switch_group_tab(next)
   -- fullWindowFocus plus warpCursor, so the window is unfocused and refocused
   -- within one switch. Zed paints its title bar from is_window_active, so that
   -- gap dims the bar (git, diagnostics) for a frame.
+  --
+  -- Changed in 0e460f4. Before that this also ran, right after group.active:
+  --   hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
+  --   hl.dispatch(hl.dsp.focus({ window = target }))
+  -- Both came in with the function (f72438d) and were never touched again, so
+  -- nothing else depends on them. Dropping them did NOT fix the dim, though, so
+  -- putting them back is safe but will not bring the old behaviour either.
   hl.dispatch(hl.dsp.group.active({ index = idx, window = w }))
 end
 

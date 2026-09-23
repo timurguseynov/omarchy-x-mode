@@ -373,6 +373,12 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
     // re-runs activation even for the focused window, so clicking the bar of the
     // front window (Zed's title bar, for one) dropped and restored focus and the
     // app dimmed its own bar for a frame. The tab path above focuses exactly once.
+    //
+    // Changed in 0e460f4. Before that this was unconditional:
+    //   Desktop::focusState()->fullWindowFocus(PWINDOW, Desktop::FOCUS_REASON_CLICK);
+    // It had been that way since the first commit (ac899f9); the other two focus
+    // sites in this file (tab arrows, tab release) already used rawWindowFocus.
+    // The switch did not fix the dim, so reverting it is safe but won't either.
     if (Desktop::focusState()->window() != PWINDOW)
         Desktop::focusState()->rawWindowFocus(PWINDOW, Desktop::FOCUS_REASON_CLICK);
 
