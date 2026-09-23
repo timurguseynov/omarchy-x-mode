@@ -478,28 +478,30 @@ end
 -- keep the full outer gap, edges shared with another window keep half, so two
 -- snapped windows end up exactly GAP_OUT apart too. BORDER is added to every edge
 -- because the border is drawn outside the box (see above), so the *visible* gap
--- equals GAP_OUT. The dock is not part of the frame: Rectangle sizes against the
--- full visible frame and only then reserves the dock. touch_dock keeps the full
--- right gap and then pulls in by the card plus half GAP_OUT, which cancels the
--- screen-edge half and leaves half GAP_OUT between the window and the dock.
--- Fractions are taken before that pull, so a right 1/3 stays as wide as a left 1/3.
-local function apply_gaps(x, y, w, h, inner, touch_dock)
+-- equals GAP_OUT. The dock is not part of the frame Rectangle divides: a right
+-- snap is the same width as the left one (a fraction of the full work area) and
+-- is only slid left so its right edge clears the dock. Shrinking the width by
+-- the dock is what made the 1/3 step narrower than on the Mac.
+local function apply_gaps(x, y, w, h, inner)
   local half = math.floor(GAP_OUT / 2)
   local left = (inner.l and half or GAP_OUT) + BORDER
   local right = (inner.r and half or GAP_OUT) + BORDER
   local top = (inner.t and half or GAP_OUT) + BORDER
   local bottom = (inner.b and half or GAP_OUT) + BORDER
-  if touch_dock then
-    right = right + dock_pull()
-  end
   return x + left, y + top, w - left - right, h - top - bottom
 end
 
-local function touches_dock(hside, hf)
-  if hside == "right" then
-    return true
+local function clear_dock(x, y, w, h, frame_w, hside, hf)
+  local reaches_right = hside == "right" or ((hside == nil or hside == "") and hf >= 1)
+  if not reaches_right then
+    return x, y, w, h
   end
-  return (hside == nil or hside == "") and hf >= 1
+  local limit = x + frame_w - dock_pull()
+  local overflow = (x + w) - limit
+  if overflow > 0 then
+    x = x - overflow
+  end
+  return x, y, w, h
 end
 
 local function snap_geom(kind, monitor)
@@ -514,7 +516,8 @@ local function snap_geom(kind, monitor)
     return nil
   end
   local x, y, w, h = fractional_rect({ x = fx, y = fy, w = fw, h = fh }, z.h, z.v, z.hf, z.vf)
-  return apply_gaps(x, y, w, h, z.inner, touches_dock(z.h, z.hf))
+  x, y, w, h = apply_gaps(x, y, w, h, z.inner)
+  return clear_dock(x, y, w, h, fw, z.h, z.hf)
 end
 
 local function window_by_addr(addr)
@@ -617,7 +620,8 @@ local function cycle_geom(side, hf, monitor)
   local fx, fy, fw, fh = usable(monitor)
   local inner = side == "left" and { r = true } or { l = true }
   local x, y, w, h = fractional_rect({ x = fx, y = fy, w = fw, h = fh }, side, nil, hf, 1)
-  return apply_gaps(x, y, w, h, inner, touches_dock(side, hf))
+  x, y, w, h = apply_gaps(x, y, w, h, inner)
+  return clear_dock(x, y, w, h, fw, side, hf)
 end
 
 local function snap_or_expand(side)

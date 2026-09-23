@@ -105,10 +105,9 @@ CBox Snap::usable(PHLMONITOR mon) {
 }
 
 // Dock card plus half the outer gap, published by x-mode.lua as one inset.
-// The dock's own screen margin is the other half of GAP_OUT, and a window that
-// reaches the dock keeps this half between them. Applied after the fractional
-// split so a right third stays as wide as a left third (the dock used to shrink
-// the frame before the split).
+// The dock only slides a window that reaches the right edge; it never changes
+// the width, which stays a fraction of the full work area (a right third is as
+// wide as a left third, matching Rectangle).
 static int dockPull() {
     return sc<int>(g_pGlobalState->config.xModeDockInset->value());
 }
@@ -125,23 +124,32 @@ static CBox fractionalRect(const CBox& frame, const char* hside, const char* vsi
     return {x, y, w, h};
 }
 
-static bool touchesDock(const char* hside, double hf) {
+static bool reachesRight(const char* hside, double hf) {
     if (hside && std::strcmp(hside, "right") == 0)
         return true;
     return (!hside || hside[0] == '\0') && hf >= 1.0;
 }
 
-static CBox applyGaps(const CBox& box, bool innerL, bool innerR, bool innerT, bool innerB, bool touchDock) {
+static CBox applyGaps(const CBox& box, bool innerL, bool innerR, bool innerT, bool innerB) {
     const int gap  = gapOut();
     const int half = gap / 2;
     const int b    = border();
     const int left = (innerL ? half : gap) + b;
-    int       right = (innerR ? half : gap) + b;
+    const int right = (innerR ? half : gap) + b;
     const int top = (innerT ? half : gap) + b;
     const int bottom = (innerB ? half : gap) + b;
-    if (touchDock)
-        right += dockPull();
     return {box.x + left, box.y + top, box.w - left - right, box.h - top - bottom};
+}
+
+// Slide the box left so its right edge clears the dock. Width is untouched.
+static CBox clearDock(const CBox& box, double frameW, const char* hside, double hf) {
+    if (!reachesRight(hside, hf))
+        return box;
+    const double limit = box.x + frameW - dockPull();
+    const double overflow = (box.x + box.w) - limit;
+    if (overflow > 0)
+        return {box.x - overflow, box.y, box.w, box.h};
+    return box;
 }
 
 std::optional<CBox> Snap::zoneBox(eKind kind, PHLMONITOR mon) {
@@ -179,7 +187,8 @@ std::optional<CBox> Snap::zoneBox(eKind kind, PHLMONITOR mon) {
     }
 
     const CBox frac = fractionalRect(frame, z.hside, z.vside, z.hf, z.vf);
-    return applyGaps(frac, z.innerL, z.innerR, z.innerT, z.innerB, touchesDock(z.hside, z.hf));
+    const CBox gapped = applyGaps(frac, z.innerL, z.innerR, z.innerT, z.innerB);
+    return clearDock(gapped, frame.w, z.hside, z.hf);
 }
 
 std::optional<CBox> Snap::contentBox(eKind kind, PHLMONITOR mon, PHLWINDOW w) {
