@@ -248,6 +248,9 @@ void CHyprBar::onMouseMove(Vector2D coords) {
         handleMovement();
     }
 
+    if (m_bTabDragPending)
+        updateTabDrag(coords);
+
     // Mouse titlebar drag is driven by CDragSession (global mouse-move listener)
     // so it keeps going if focus or the pointer leaves this bar. Touch still
     // uses the per-bar path below.
@@ -353,13 +356,14 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
                 // Just close: the window.close listener keeps focus and stacking
                 // in the group (keepGroupFocusOnClose).
                 g_pXWaylandManager->sendCloseWindow(target);
-            } else if (PWINDOW->m_group) {
-                if (target != PWINDOW)
-                    PWINDOW->m_group->setCurrent(target);
-                if (Desktop::focusState()->window() != target)
-                    Desktop::focusState()->rawWindowFocus(target, Desktop::FOCUS_REASON_CLICK);
-                if (target->m_isFloating)
-                    Desktop::windowState()->raise(target);
+            } else if (PWINDOW->m_group && PWINDOW->m_group->size() > 1) {
+                // Don't switch yet: a small move turns this into a reorder. The
+                // switch happens on release if the pointer never left the tab.
+                m_bTabDragPending = true;
+                m_bTabDragging    = false;
+                m_iTabDragFrom    = TAB;
+                m_iTabDragOver    = TAB;
+                m_tabDragStart    = g_pInputManager->getMouseCoordsInternal();
             }
         }
         return;
@@ -397,6 +401,33 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
 }
 
 void CHyprBar::handleUpEvent(Event::SCallbackInfo& info) {
+    if (m_bTabDragPending) {
+        // Released without ever crossing the drag threshold: it was a click, so
+        // switch to the tab that was pressed. A reorder already happened live.
+        const auto PWINDOW = m_pWindow.lock();
+        if (!m_bTabDragging && PWINDOW && PWINDOW->m_group) {
+            const auto MEMBERS = PWINDOW->m_group->windows();
+            if (m_iTabDragFrom >= 0 && m_iTabDragFrom < (int)MEMBERS.size()) {
+                if (const auto target = MEMBERS[m_iTabDragFrom].lock()) {
+                    if (target != PWINDOW->m_group->current())
+                        PWINDOW->m_group->setCurrent(target);
+                    if (Desktop::focusState()->window() != target)
+                        Desktop::focusState()->rawWindowFocus(target, Desktop::FOCUS_REASON_CLICK);
+                    if (target->m_isFloating)
+                        Desktop::windowState()->raise(target);
+                }
+            }
+        }
+        m_bTabDragPending = false;
+        m_bTabDragging    = false;
+        m_iTabDragFrom    = -1;
+        m_iTabDragOver    = -1;
+        info.cancelled    = true;
+        m_bCancelledDown  = false;
+        m_bTouchEv        = false;
+        return;
+    }
+
     if (m_pWindow.lock() != Desktop::focusState()->window() && !m_bDraggingThis && !m_bCancelledDown && !m_bDragPending)
         return;
 
@@ -671,6 +702,42 @@ int CHyprBar::tabAt(const Vector2D& coords, bool& closeHit) {
     return idx;
 }
 
+void CHyprBar::updateTabDrag(const Vector2D& coords) {
+    const auto PWINDOW = m_pWindow.lock();
+    if (!PWINDOW || !PWINDOW->m_group) {
+        m_bTabDragPending = false;
+        return;
+    }
+    auto& group = PWINDOW->m_group;
+
+    static auto PDRAGTHRESHOLD = CConfigValue<Config::INTEGER>("binds:drag_threshold");
+    if (!m_bTabDragging) {
+        const auto delta = g_pInputManager->getMouseCoordsInternal() - m_tabDragStart;
+        if (std::abs(delta.x) <= *PDRAGTHRESHOLD)
+            return;
+        // swapWithNext / swapWithLast only move the current tab, so the dragged
+        // one has to be current before it can walk anywhere.
+        if (group->getCurrentIdx() != (size_t)m_iTabDragFrom)
+            group->setCurrent((size_t)m_iTabDragFrom);
+        m_bTabDragging = true;
+    }
+
+    bool      closeHit = false;
+    const int over     = tabAt(cursorRelativeToBar(), closeHit);
+    if (over < 0 || over == m_iTabDragOver)
+        return;
+
+    const int dir = over > m_iTabDragOver ? 1 : -1;
+    while (m_iTabDragOver != over) {
+        if (dir > 0)
+            group->swapWithNext();
+        else
+            group->swapWithLast();
+        m_iTabDragOver += dir;
+    }
+    damageEntire();
+}
+
 void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
     const auto PWINDOW = m_pWindow.lock();
     if (!PWINDOW || !wantsTabbar())
@@ -721,6 +788,14 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
 
     CBox rowBox = {barBox->x, barBox->y + (int)(HEIGHT * scale), (int)(W * scale), (int)(tabHeight() * scale)};
     g_pHyprOpenGL->renderRect(rowBox, CHyprColor(ROW.r, ROW.g, ROW.b, ROW.a * a), {});
+
+    // Where the dragged tab currently sits: a hairline on the boundary it
+    // crossed, so the drop target reads before the tabs finish sliding.
+    if (m_bTabDragging && m_iTabDragOver >= 0 && m_iTabDragOver < N && TABW > 0) {
+        const double edge = m_iTabDragOver > m_iTabDragFrom ? (m_iTabDragOver + 1) * TABW : m_iTabDragOver * TABW;
+        CBox marker = {barBox->x + (int)std::round(edge * scale) - 1, rowBox.y, 2, rowBox.h};
+        g_pHyprOpenGL->renderRect(marker, CHyprColor(TEXT.r, TEXT.g, TEXT.b, TEXT.a * a), {});
+    }
 
     for (int i = 0; i < N; i++) {
         auto m = members[i].lock();
