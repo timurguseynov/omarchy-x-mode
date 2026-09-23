@@ -998,8 +998,9 @@ o.bind("SUPER + SHIFT + TAB", "Focus on previous window", function()
 end)
 
 -- Alt+Tab switches between the tabs of the focused group (Omarchy binds it to
--- cyclenext, which we do not want). Set the group's active index directly (not
--- group.next(), which briefly focuses something else) and focus the target tab.
+-- cyclenext, which we do not want). Set the group's active index directly:
+-- group.next() briefly focuses something else, and a follow-up focus would
+-- unfocus and refocus the window within one switch.
 local function switch_group_tab(next)
   local w = hl.get_active_window()
   if w == nil or w.group == nil then
@@ -1019,12 +1020,13 @@ local function switch_group_tab(next)
     end
   end
   idx = next and (idx % n) + 1 or ((idx + n - 2) % n) + 1
-  local target = members[idx]
+  -- group.active already focuses the new tab: CGroup::setCurrent calls
+  -- rawWindowFocus when the group held focus, and rawWindowFocus brings the
+  -- group's target to the top. A second dsp.focus right after it is a
+  -- fullWindowFocus plus warpCursor, so the window is unfocused and refocused
+  -- within one switch. Zed paints its title bar from is_window_active, so that
+  -- gap dims the bar (git, diagnostics) for a frame.
   hl.dispatch(hl.dsp.group.active({ index = idx, window = w }))
-  -- Switching the tab focuses the target but does not raise it, so the group can
-  -- stay behind another app; raise it first, then focus.
-  hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
-  hl.dispatch(hl.dsp.focus({ window = target }))
 end
 
 hl.unbind("ALT + TAB")

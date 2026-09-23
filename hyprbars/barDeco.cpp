@@ -369,8 +369,12 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
         return;
     }
 
+    // rawWindowFocus, and only when the window is not already focused. fullWindowFocus
+    // re-runs activation even for the focused window, so clicking the bar of the
+    // front window (Zed's title bar, for one) dropped and restored focus and the
+    // app dimmed its own bar for a frame. The tab path above focuses exactly once.
     if (Desktop::focusState()->window() != PWINDOW)
-        Desktop::focusState()->fullWindowFocus(PWINDOW, Desktop::FOCUS_REASON_CLICK);
+        Desktop::focusState()->rawWindowFocus(PWINDOW, Desktop::FOCUS_REASON_CLICK);
 
     if (PWINDOW->m_isFloating)
         Desktop::windowState()->raise(PWINDOW);
