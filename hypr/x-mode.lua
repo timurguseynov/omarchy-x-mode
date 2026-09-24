@@ -865,9 +865,7 @@ local function switcher_focus(cls)
     end
   end
   if best ~= nil then
-    -- TODO(524fd23): probably redundant now — the window.active handler raises
-    -- every focused window. Left in place because it predates that change.
-    hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = best }))
+    -- No raise here: focusing routes through window.active, which raises.
     hl.dispatch(hl.dsp.focus({ window = best }))
   end
 end
@@ -1125,23 +1123,12 @@ local function switch_group_tab(next)
     end
   end
   idx = next and (idx % n) + 1 or ((idx + n - 2) % n) + 1
-  local target = members[idx]
-  -- group.active already focuses the new tab: CGroup::setCurrent calls
-  -- rawWindowFocus when the group held focus. A second dsp.focus right after it
-  -- is a fullWindowFocus plus warpCursor, so the window is unfocused and
-  -- refocused within one switch. Zed paints its title bar from is_window_active,
-  -- so that gap dims the bar (git, diagnostics) for a frame.
-  --
-  -- 0e460f4 dropped the alter_zorder along with the focus, on the assumption
-  -- that rawWindowFocus raises the group. It does not: for a grouped window
-  -- bringTargetToTop only calls setCurrent(). Keep the explicit raise, or a
-  -- group that is behind another app stays behind after Alt+Tab.
+  -- group.active focuses the new tab (CGroup::setCurrent calls rawWindowFocus
+  -- when the group held focus) and focusing routes through window.active, which
+  -- raises. No second dsp.focus: that is a fullWindowFocus plus warpCursor, so
+  -- the window is unfocused and refocused within one switch, and Zed paints its
+  -- title bar from is_window_active, so that gap dims the bar for a frame.
   hl.dispatch(hl.dsp.group.active({ index = idx, window = w }))
-  -- TODO(524fd23): probably redundant now — window.active raises the focused
-  -- window. Restored by 1bd99a2 while the central raise did not exist yet.
-  if target ~= nil then
-    hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
-  end
 end
 
 hl.unbind("ALT + TAB")
@@ -1515,16 +1502,8 @@ local function focus_group_tab(index)
   if index < 1 or index > #members then
     return { pass_event = true }
   end
-  local target = members[index]
+  -- group.active focuses the tab; the raise is the focus handler's.
   hl.dispatch(hl.dsp.group.active({ index = index, window = w }))
-  if target ~= nil then
-    -- TODO(524fd23): probably redundant now — window.active raises the focused
-    -- window.
-    -- Raise only: group.active already focused the tab (same reason as
-    -- switch_group_tab), and a second focus dims a client-drawn title bar
-    -- (Zed) for a frame.
-    hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
-  end
   return { pass_event = false }
 end
 
@@ -1736,15 +1715,8 @@ join_same_app = function(w)
     end
   end)
   -- The new tab is the group's current window now (CGroup::add sets m_current to
-  -- it) and Hyprland focuses it in onMap. But focusing a group member only runs
-  -- setCurrent() through bringTargetToTop — it never raises the group, the same
-  -- missing raise keepGroupFocusOnClose compensates for on close. Left as is, the
-  -- new window is focused yet can stay behind the app that was in front (a
-  -- browser login window opened from a terminal), and the dock will not surface
-  -- it either: it skips an app that already is the active class.
-  -- TODO(524fd23): probably redundant now — window.active raises the focused
-  -- window, the one that just joined included.
-  hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = w }))
+  -- it) and Hyprland focuses it in onMap; focusing routes through window.active,
+  -- which raises the group.
   -- Adding a tab must not yank the group to the new window's position.
   -- absorb_chrome_growth places the group from the peer's pre-join box so
   -- the visual titlebar stays put when the tabbar appears.
