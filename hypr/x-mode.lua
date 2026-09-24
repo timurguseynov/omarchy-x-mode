@@ -1342,11 +1342,73 @@ local function flush_layout()
   end)
 end
 
+-- A window sits in a snap zone when its box matches that zone's geometry.
+-- Matching against the gaps from *before* the toggle names the zone; snapping
+-- it again afterwards re-lays it out with the gaps from *after*, so a snapped
+-- window grows to fill the gap that just disappeared (and shrinks back when
+-- the gaps return). Free-floating windows match nothing and stay put.
+local SNAP_KINDS = {
+  "left", "right", "top", "bottom",
+  "top-left", "top-right", "bottom-left", "bottom-right",
+  "maximize", "almost-maximize",
+}
+
+local function zone_of(window, gap, border, dock_pull)
+  local monitor = window.monitor or hl.get_active_monitor()
+  if monitor == nil then
+    return nil
+  end
+  local wx, wy = vec(window.at)
+  local ww, wh = vec(window.size)
+  local prev_gap, prev_border, prev_pull = GAP_OUT, BORDER, DOCK_PULL
+  GAP_OUT = function() return gap end
+  BORDER = function() return border end
+  DOCK_PULL = function() return dock_pull end
+  local found = nil
+  for _, kind in ipairs(SNAP_KINDS) do
+    local zx, zy, zw, zh = snap_geom(kind, monitor)
+    if zx ~= nil then
+      zx, zy, zw, zh = with_chrome(zx, zy, zw, zh, window)
+      if almost(wx, zx) and almost(wy, zy) and almost(ww, zw) and almost(wh, zh) then
+        found = kind
+        break
+      end
+    end
+  end
+  GAP_OUT, BORDER, DOCK_PULL = prev_gap, prev_border, prev_pull
+  return found
+end
+
+local function resnap_to_gaps(gap, border)
+  local p = bars()
+  if p == nil or p.snap == nil then
+    return
+  end
+  local dock_pull = DOCK_CARD + math.floor(gap / 2)
+  local hits = {}
+  for _, w in ipairs(hl.get_windows() or {}) do
+    if w.floating and not w.pinned and not w.hidden then
+      local kind = zone_of(w, gap, border, dock_pull)
+      if kind ~= nil then
+        hits[#hits + 1] = { window = w, kind = kind }
+      end
+    end
+  end
+  for _, hit in ipairs(hits) do
+    pcall(function()
+      p.snap({ kind = hit.kind, window = hit.window })
+    end)
+  end
+end
+
 local function apply_no_gaps()
   local changed = false
+  -- The gap and border the windows are currently laid out with, so resnap can
+  -- recognise which zone each one occupies before the config changes.
+  local prev = { out = GAP_OUT(), border = BORDER() }
   if no_gaps then
     if saved_gaps == nil then
-      saved_gaps = { out = GAP_OUT(), inn = cfg_int("general:gaps_in", 5), border = BORDER() }
+      saved_gaps = { out = prev.out, inn = cfg_int("general:gaps_in", 5), border = prev.border }
     end
     changed = true
     pcall(function()
@@ -1378,6 +1440,7 @@ local function apply_no_gaps()
   apply_gap_geometry()
   if changed then
     flush_layout()
+    resnap_to_gaps(prev.out, prev.border)
   end
 end
 
