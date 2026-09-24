@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "description": "A macOS-like desktop layer for Omarchy: floating windows, a Mac titlebar with per-tab close buttons (patched hyprbars), Rectangle-style edge snapping with a snap preview, and a right-edge app dock.",
   "license": "MIT",
-  "author": "tigsnv",
+  "author": "Timur Guseynov",
   "requires": {
     "omarchy": ">=4"
   },
