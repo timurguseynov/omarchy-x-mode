@@ -15,9 +15,9 @@ It is **additive**. The installer only creates files in its own namespace and on
 ## Key Features
 
 * **Floating desktop.** Windows open floating, with click-to-focus and no pointer warping. Tiling shortcuts (`Super+T`, layout picker, keyboard resize) are unbound while X Mode is on.
-* **Mac titlebars and tabs.** A patched [hyprbars](hyprbars/README.md) draws the titlebar and a tab strip. Windows of the same app on the same workspace group automatically. The titlebar close button quits the whole group; a tab’s close button closes that tab.
-* **Rectangle-style snapping.** Drag a window by its titlebar to a screen edge for a live preview: corners are quarters, the top edge maximizes, and the side edges are left/right halves. `Super+Alt+←/→` cycles `½ → ⅔ → ⅓`.
-* **Right-edge dock.** Pinned and running apps, one icon per app. Left-click focuses a running app or launches a pinned one. Right-click opens a menu: new window (unless the app is single-instance), its open windows, pin/unpin, and quit. Drag pinned icons to reorder them.
+* **Mac titlebars and tabs.** A patched [hyprbars](hyprbars/README.md) draws the titlebar and a tab strip, colored from the current Omarchy theme. Windows of the same app on the same workspace group automatically; a new window joins the existing group instead of flashing in the middle. The titlebar close button quits the whole group; a tab’s ✕ closes that tab, and only the focused one. `+` opens another window. Drag a tab to reorder it.
+* **Rectangle-style snapping.** Drag a window by its titlebar to a screen edge for a live preview: corners are quarters, the top edge maximizes, and the side edges are left/right halves. The right edge stops short of the dock. `Super+Alt+←/→` cycles `½ → ⅔ → ⅓`. On a fresh install, and again when you turn X Mode back on, already-open windows are spread across the left and right halves, one side per app.
+* **Right-edge dock.** Pinned and running apps, one icon per app. It floats over windows and does not reserve space. Left-click focuses a running app (and the window on this workspace) or launches a pinned one. Right-click opens a menu: new window (unless the app is single-instance), its open windows with their workspace numbers, pin/unpin, and quit. Drag pinned icons to reorder them. Pins are kept in `~/.config/omarchy/x-mode-dock.json`.
 * **App switcher (`Super+Tab`).** A centered row of running apps, most recently used first. The row stays up while Super is held; click an icon or release Super to land on the highlighted app.
 * **Settings panel.** The top-bar button opens:
   * X Mode on or off (off restores tiling and your previous window layout)
@@ -62,6 +62,8 @@ It is **additive**. The installer only creates files in its own namespace and on
 | --- | --- |
 | Drag the titlebar to an edge | Snap, with a live preview |
 | Drag the titlebar to the top edge | Maximize |
+| Click `+` on the tab strip | Open another window of that app |
+| Drag a tab | Reorder tabs in the group |
 | Left-click a dock icon | Focus the running app, or launch it |
 | Right-click a dock icon | New window, window list, pin/unpin, quit |
 | Drag a pinned dock icon | Reorder pins |
