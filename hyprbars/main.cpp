@@ -246,9 +246,9 @@ static int luaSnap(lua_State* L) {
     return 0;
 }
 
-// The snap zone a window currently fills, or nil. Lua uses it to re-snap
-// windows after the gaps change: it asks with the old gaps still set, then
-// snaps again once the new gaps are in.
+// The snap zone a window currently fills, or nil. An optional { gap, border }
+// tests the position against the zones those gaps would produce, so a window
+// snapped with no gaps is still recognised after the gaps come back.
 static int luaZone(lua_State* L) {
     PHLWINDOW w = nullptr;
     if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
@@ -256,7 +256,22 @@ static int luaZone(lua_State* L) {
     if (!w)
         w = Desktop::focusState()->window();
 
+    int gap = -1, border = -1;
+    if (lua_istable(L, 2)) {
+        lua_getfield(L, 2, "gap");
+        if (lua_isnumber(L, -1))
+            gap = sc<int>(lua_tonumber(L, -1));
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "border");
+        if (lua_isnumber(L, -1))
+            border = sc<int>(lua_tonumber(L, -1));
+        lua_pop(L, 1);
+    }
+
+    Snap::assumeGaps(gap, border);
     const auto kind = Snap::kindOf(w);
+    Snap::assumeGaps(-1, -1);
+
     if (kind == Snap::eKind::None) {
         lua_pushnil(L);
         return 1;

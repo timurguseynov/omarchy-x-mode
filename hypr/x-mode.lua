@@ -1302,16 +1302,13 @@ end
 -- by the bar panel. Ctrl+1..9 switches group tabs when the focused app has
 -- chrome/titlebar on; otherwise the key is passed through to the app. Off by
 -- default, so those shortcuts reach the app. Cmd+1..9 stay as Omarchy
--- workspace binds either way. No gaps zeroes the outer and inner gaps and the
--- border; turning it off restores whatever was set before.
+-- workspace binds either way. No gaps zeroes the outer and inner gaps and
+-- keeps a hairline border.
 local OPTIONS_PATH = X_MODE_STATE .. "/options.json"
 local native_scroll = false
 local ctrl_tab_switch = false
 local ctrl_tab_binds = {}
 local no_gaps = false
--- Gaps and border as they were before "No gaps" was turned on, so turning it
--- off puts them back instead of leaving the zeroes.
-local saved_gaps = nil
 
 local function load_options()
   native_scroll = false
@@ -1342,32 +1339,24 @@ local function flush_layout()
   end)
 end
 
--- Ask the plugin which snap zone a window fills. It compares against the
--- same logical box it snapped the window into; doing it here diverges on a
--- fractional scale, where Lua only has the monitor's pixel size. The zone has
--- to be named *before* the gaps change, and the window snapped *after*, so the
--- two steps are separate.
-local function zones_now()
+-- Re-snap every window that is sitting in a snap zone, so it picks up the
+-- gaps now in effect. The zone comes from where the window is, not from
+-- anything remembered: the plugin is asked which zone the window would fill if
+-- there were no gaps, which is the layout "No gaps" leaves behind. A window
+-- that fills none of them is left where it is.
+local function resnap_zoned()
   local p = bars()
-  if p == nil or p.zone == nil then
-    return {}
+  if p == nil or p.snap == nil or p.zone == nil then
+    return
   end
   local hits = {}
   for _, w in ipairs(hl.get_windows() or {}) do
     if w.floating and not w.pinned and not w.hidden then
-      local ok, kind = pcall(p.zone, w)
+      local ok, kind = pcall(p.zone, w, { gap = 0, border = 1 })
       if ok and type(kind) == "string" and kind ~= "" then
         hits[#hits + 1] = { window = w, kind = kind }
       end
     end
-  end
-  return hits
-end
-
-local function resnap(hits)
-  local p = bars()
-  if p == nil or p.snap == nil then
-    return
   end
   for _, hit in ipairs(hits) do
     pcall(function()
@@ -1377,15 +1366,7 @@ local function resnap(hits)
 end
 
 local function apply_no_gaps()
-  local changed = false
-  -- Read while the screen still shows the old gaps, so each window is matched
-  -- against the zone it was snapped into.
-  local hits = zones_now()
   if no_gaps then
-    if saved_gaps == nil then
-      saved_gaps = { out = GAP_OUT(), inn = cfg_int("general:gaps_in", 5), border = BORDER() }
-    end
-    changed = true
     pcall(function()
       hl.config({
         general = {
@@ -1397,28 +1378,11 @@ local function apply_no_gaps()
         },
       })
     end)
-  elseif saved_gaps ~= nil then
-    local g = saved_gaps
-    saved_gaps = nil
-    changed = true
-    pcall(function()
-      hl.config({
-        general = {
-          gaps_in = g.inn,
-          gaps_out = g.out,
-          border_size = g.border,
-        },
-      })
-    end)
   end
   -- Snap, float_gaps and the dock inset all read the gap live.
   apply_gap_geometry()
-  if changed then
-    -- The gaps are changed now, so snapping re-lays each window into the zone
-    -- it already occupied, at the new size.
-    resnap(hits)
-    flush_layout()
-  end
+  flush_layout()
+  resnap_zoned()
 end
 
 local function apply_native_scroll()

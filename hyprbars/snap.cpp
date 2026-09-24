@@ -60,7 +60,14 @@ const char* Snap::kindToString(eKind k) {
     return "";
 }
 
+// Overridden while naming the zone a window occupied before the gaps
+// changed. Null means read the live config.
+static int s_gapOverride    = -1;
+static int s_borderOverride = -1;
+
 int Snap::gapOut() {
+    if (s_gapOverride >= 0)
+        return s_gapOverride;
     static auto PGAPSOUTDATA = CConfigValue<Config::IComplexConfigValue>("general:gaps_out");
     auto* const PGAPSOUT     = sc<Config::CCssGapData*>(PGAPSOUTDATA.ptr());
     if (!PGAPSOUT)
@@ -69,8 +76,15 @@ int Snap::gapOut() {
 }
 
 int Snap::border() {
+    if (s_borderOverride >= 0)
+        return s_borderOverride;
     static auto PBORDER = CConfigValue<Config::INTEGER>("general:border_size");
     return sc<int>(*PBORDER);
+}
+
+void Snap::assumeGaps(int gap, int border) {
+    s_gapOverride    = gap;
+    s_borderOverride = border;
 }
 
 int Snap::chromeH(PHLWINDOW w) {
