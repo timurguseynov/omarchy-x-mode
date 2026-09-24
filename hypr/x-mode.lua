@@ -1281,12 +1281,15 @@ function x_mode.refresh_apps_off()
   regroup_chrome_on()
 end
 
--- Desktop options (native scroll). Written by the bar panel.
--- Ctrl+1..9 switches group tabs when the focused app has chrome/titlebar on;
--- otherwise the key is passed through to the app. Cmd+1..9 stay as Omarchy
--- workspace binds.
+-- Desktop options (native scroll, Ctrl+1..9 tab switching). Written by the
+-- bar panel. Ctrl+1..9 switches group tabs when the focused app has
+-- chrome/titlebar on; otherwise the key is passed through to the app. Off by
+-- default, so those shortcuts reach the app. Cmd+1..9 stay as Omarchy
+-- workspace binds either way.
 local OPTIONS_PATH = X_MODE_STATE .. "/options.json"
 local native_scroll = false
+local ctrl_tab_switch = false
+local ctrl_tab_binds = {}
 
 local function load_options()
   native_scroll = false
@@ -1298,6 +1301,9 @@ local function load_options()
   file:close()
   if raw:find('"nativeScroll"%s*:%s*true') then
     native_scroll = true
+  end
+  if raw:find('"ctrlTabSwitch"%s*:%s*true') then
+    ctrl_tab_switch = true
   end
 end
 
@@ -1335,19 +1341,41 @@ local function focus_group_tab(index)
   return { pass_event = false }
 end
 
-for i = 1, 9 do
-  o.bind("CTRL + code:" .. tostring(i + 9), "Switch to tab " .. i, function()
-    return focus_group_tab(i)
-  end)
+-- Bind or release Ctrl+1..9. The handles are kept so turning the option off
+-- removes exactly these binds (hl.unbind would also drop any the user set on
+-- the same keys). A removed bind lets the key fall through to the app.
+local function apply_ctrl_tab_switch()
+  if ctrl_tab_switch then
+    if #ctrl_tab_binds > 0 then
+      return
+    end
+    for i = 1, 9 do
+      local ok, kb = pcall(o.bind, "CTRL + code:" .. tostring(i + 9), "Switch to tab " .. i, function()
+        return focus_group_tab(i)
+      end)
+      if ok and kb then
+        ctrl_tab_binds[#ctrl_tab_binds + 1] = kb
+      end
+    end
+  else
+    for _, kb in ipairs(ctrl_tab_binds) do
+      pcall(function()
+        kb:unbind()
+      end)
+    end
+    ctrl_tab_binds = {}
+  end
 end
 
 function x_mode.refresh_options()
   load_options()
   apply_native_scroll()
+  apply_ctrl_tab_switch()
 end
 
 load_options()
 apply_native_scroll()
+apply_ctrl_tab_switch()
 
 local function skip_group(w)
   if w == nil or w.pinned or w.hidden then

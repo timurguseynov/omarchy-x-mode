@@ -28,7 +28,7 @@ Panel {
   // sized to the space actually left in the capped card. Excludes `listFlick`
   // itself -- referencing its height here would be circular.
   readonly property real listFixedHeight: {
-    var items = [hero, sepTop, scrollRow, sepMid, backRow, sectionHeader, searchField, detailColumn]
+    var items = [hero, sepTop, scrollRow, tabKeysRow, sepMid, backRow, sectionHeader, searchField, detailColumn]
     var h = 0
     var n = 0
     for (var i = 0; i < items.length; i++) {
@@ -44,6 +44,7 @@ Panel {
   }
 
   property bool nativeScroll: false
+  property bool ctrlTabSwitch: false
   property var appsCfg: ({})
   property var running: []
   property string query: ""
@@ -128,9 +129,10 @@ Panel {
     return "'" + String(s).replace(/'/g, "'\\''") + "'"
   }
 
-  function setOptions(nativeScroll) {
+  function setOptions(nativeScroll, ctrlTabSwitch) {
     root.nativeScroll = !!nativeScroll
-    var json = JSON.stringify({ nativeScroll: root.nativeScroll })
+    root.ctrlTabSwitch = !!ctrlTabSwitch
+    var json = JSON.stringify({ nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch })
     var on = root.nativeScroll ? "true" : "false"
     Quickshell.execDetached([
       "sh", "-c",
@@ -223,12 +225,15 @@ Panel {
       try {
         var d = JSON.parse(text())
         root.nativeScroll = !!(d && d.nativeScroll)
+        root.ctrlTabSwitch = !!(d && d.ctrlTabSwitch)
       } catch (e) {
         root.nativeScroll = false
+        root.ctrlTabSwitch = false
       }
     }
     onLoadFailed: {
       root.nativeScroll = false
+      root.ctrlTabSwitch = false
     }
   }
 
@@ -495,7 +500,18 @@ Panel {
         description: "Natural (reversed) touchpad scrolling"
         checked: root.nativeScroll
         rowEnabled: root.xModeOn
-        onToggled: root.setOptions(!root.nativeScroll)
+        onToggled: root.setOptions(!root.nativeScroll, root.ctrlTabSwitch)
+      }
+
+      SwitchRow {
+        id: tabKeysRow
+        width: parent.width
+        visible: root.openCls === ""
+        label: "Ctrl+1..9 switches tabs"
+        description: "Jump to a titlebar tab; off, the shortcut goes to the app"
+        checked: root.ctrlTabSwitch
+        rowEnabled: root.xModeOn
+        onToggled: root.setOptions(root.nativeScroll, !root.ctrlTabSwitch)
       }
 
       PanelSeparator {
