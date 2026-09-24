@@ -412,6 +412,11 @@ end
 
 local function usable(monitor)
   local left, top, right, bottom = reserved(monitor)
+  -- The bar is a layer-shell surface that is gone for a moment while the shell
+  -- restarts during install. A snap in that window saw a zero top and put the
+  -- window under the bar. Same floor as Snap::usable in hyprbars (the bar is
+  -- 24px tall); anything that reserves more (the error overlay) is used as is.
+  top = math.max(top, 24)
   -- Rectangle's visibleFrame already excludes a right-edge dock, and every
   -- fraction (1/2, 2/3, 1/3) is taken from that narrower frame. Reserving the
   -- dock here is what keeps a left half and a right half from overlapping.

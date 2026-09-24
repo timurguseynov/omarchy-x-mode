@@ -138,11 +138,12 @@ Panel {
     root.nativeScroll = !!nativeScroll
     root.ctrlTabSwitch = !!ctrlTabSwitch
     root.noGaps = !!noGaps
-    var on = root.nativeScroll ? "true" : "false"
-    // `hyprctl reload` re-runs the config, which reapplies these options, and
-    // emits configreloaded. The dock only re-reads its screen margin on that
-    // event, so without the reload it stays at the old gap.
-    writeSettings("hyprctl eval 'hl.config({ input = { natural_scroll = " + on + ", touchpad = { natural_scroll = " + on + " } })' >/dev/null && hyprctl reload >/dev/null")
+    // The reload re-runs the config, which reapplies every option from
+    // settings.json, and emits configreloaded. The dock only re-reads its screen
+    // margin on that event, so without the reload it stays at the old gap. It is
+    // the only step: the natural-scroll eval that used to run first could fail,
+    // and with `&&` that skipped the reload and left the option unapplied.
+    writeSettings("hyprctl reload >/dev/null")
   }
 
   function rebuildRunning(clients) {
