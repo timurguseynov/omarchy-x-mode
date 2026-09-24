@@ -1339,33 +1339,58 @@ local function flush_layout()
   end)
 end
 
--- Re-snap every window that is sitting in a snap zone, so it picks up the
--- gaps now in effect. The zone comes from where the window is, not from
--- anything remembered: the plugin is asked which zone the window would fill if
--- there were no gaps, which is the layout "No gaps" leaves behind. A window
--- that fills none of them is left where it is.
-local function resnap_zoned()
+-- A window can be sitting in one of two layouts: the one the live gaps make,
+-- or the one "No gaps" leaves behind. Only the second is known from the option:
+-- a reload starts Lua over, and the config above this file has already put the
+-- normal gaps back while the windows are still where the previous option left
+-- them. So each window is matched twice, once against the live gaps and, for
+-- whatever is left, against the no-gap layout. Only a window in the *other*
+-- layout is returned; one already in the target layout is left alone, as is a
+-- window that fills no zone at all (moved by hand).
+--
+-- The dock inset follows gaps_out, so the no-gap pass has to push the inset
+-- that layout used as well; the plugin's own gap override only covers the gap
+-- and border, and without this a right-edge window misses by half a gap.
+local function zoned_hits(target)
+  local hits = {}
   local p = bars()
   if p == nil or p.snap == nil or p.zone == nil then
-    return
+    return hits
   end
-  local hits = {}
+
+  local rest = {}
   for _, w in ipairs(hl.get_windows() or {}) do
     if w.floating and not w.pinned and not w.hidden then
-      local ok, kind = pcall(p.zone, w, { gap = 0, border = 1 })
+      local ok, kind = pcall(p.zone, w)
       if ok and type(kind) == "string" and kind ~= "" then
+        if target ~= "live" then
+          hits[#hits + 1] = { window = w, kind = kind }
+        end
+      else
+        rest[#rest + 1] = w
+      end
+    end
+  end
+
+  if #rest > 0 then
+    -- No gaps means gaps_out is 0, so the inset is the dock card alone.
+    hl.config({ plugin = { hyprbars = { x_mode_dock_inset = DOCK_CARD } } })
+    for _, w in ipairs(rest) do
+      local ok, kind = pcall(p.zone, w, { gap = 0, border = 1 })
+      if ok and type(kind) == "string" and kind ~= "" and target ~= "no-gap" then
         hits[#hits + 1] = { window = w, kind = kind }
       end
     end
   end
-  for _, hit in ipairs(hits) do
-    pcall(function()
-      p.snap({ kind = hit.kind, window = hit.window })
-    end)
-  end
+
+  return hits
 end
 
 local function apply_no_gaps()
+  -- Name the zones while the windows are still in the layout they were snapped
+  -- in: change the gaps first and there is nothing left to compare against.
+  local hits = zoned_hits(no_gaps and "no-gap" or "live")
+
   if no_gaps then
     pcall(function()
       hl.config({
@@ -1379,10 +1404,20 @@ local function apply_no_gaps()
       })
     end)
   end
-  -- Snap, float_gaps and the dock inset all read the gap live.
+  -- Snap, float_gaps and the dock inset all read the gap live. This also puts
+  -- the dock inset back after the no-gap pass above moved it.
   apply_gap_geometry()
   flush_layout()
-  resnap_zoned()
+
+  local p = bars()
+  if p == nil or p.snap == nil then
+    return
+  end
+  for _, hit in ipairs(hits) do
+    pcall(function()
+      p.snap({ kind = hit.kind, window = hit.window })
+    end)
+  end
 end
 
 local function apply_native_scroll()
