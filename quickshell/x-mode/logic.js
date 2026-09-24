@@ -73,3 +73,46 @@ function webappHostFromExec(execString) {
         host = host.slice(4)
     return host
 }
+
+// The switcher's command file, written by x-mode.lua:
+//   show <activeClass> <class|address> ...    (while cycling)
+//   hide
+// Returns { shown, activeClass, classes: [{ cls, addr }] }.
+function parseSwitcherCmd(raw, enabled) {
+    if (!enabled)
+        return { shown: false, activeClass: "", classes: [] }
+    var parts = String(raw || "").trim().split(/\s+/)
+    if (parts.length >= 2 && parts[0] === "show") {
+        var list = []
+        for (var i = 2; i < parts.length; i++) {
+            var t = parts[i].split("|")
+            list.push({ cls: t[0], addr: t[1] || "" })
+        }
+        return { shown: true, activeClass: parts[1], classes: list }
+    }
+    return { shown: false, activeClass: "", classes: [] }
+}
+
+// The snap preview command file: show <x> <y> <w> <h> | hide.
+// Returns { shown, x, y, w, h } (x/y/w/h only when shown).
+function parseSnapCmd(raw, enabled) {
+    if (!enabled)
+        return { shown: false }
+    var parts = String(raw || "").trim().split(/\s+/)
+    if (parts.length >= 5 && parts[0] === "show") {
+        var x = Number(parts[1]), y = Number(parts[2]), w = Number(parts[3]), h = Number(parts[4])
+        if (isFinite(x) && isFinite(y) && isFinite(w) && isFinite(h) && w > 0 && h > 0)
+            return { shown: true, x: x, y: y, w: w, h: h }
+    }
+    return { shown: false }
+}
+
+// Axis-aligned rectangle overlap. Reads w/h or width/height, so callers can
+// pass QML item boxes straight through.
+function rectsIntersect(a, b) {
+    var aw = a.w !== undefined ? a.w : a.width
+    var ah = a.h !== undefined ? a.h : a.height
+    var bw = b.w !== undefined ? b.w : b.width
+    var bh = b.h !== undefined ? b.h : b.height
+    return a.x < b.x + bw && a.x + aw > b.x && a.y < b.y + bh && a.y + ah > b.y
+}

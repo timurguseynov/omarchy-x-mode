@@ -42,23 +42,10 @@ Item {
   }
 
   function applyCmd(raw) {
-    if (!root.xModeOn) {
-      root.shown = false
-      return
-    }
-    var parts = String(raw || "").trim().split(/\s+/)
-    if (parts.length >= 2 && parts[0] === "show") {
-      root.activeClass = parts[1]
-      var list = []
-      for (var i = 2; i < parts.length; i++) {
-        var t = parts[i].split("|")
-        list.push({ cls: t[0], addr: t[1] || "" })
-      }
-      root.classes = list
-      root.shown = true
-    } else {
-      root.shown = false
-    }
+    var m = Logic.parseSwitcherCmd(raw, root.xModeOn)
+    root.activeClass = m.activeClass
+    root.classes = m.classes
+    root.shown = m.shown
   }
 
   // Click an icon: raise + focus that window (by address, like the dock) and

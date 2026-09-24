@@ -68,4 +68,42 @@ TestCase {
         compare(Logic.webappHostFromExec("firefox https://example.com"), "", "not a web app")
         compare(Logic.webappHostFromExec(""), "")
     }
+
+    function test_parseSwitcherCmd_show() {
+        var m = Logic.parseSwitcherCmd("show Zed zed|addr:1 foot|addr:2", true)
+        compare(m.shown, true)
+        compare(m.activeClass, "Zed")
+        compare(m.classes.length, 2)
+        compare(m.classes[0].cls, "zed")
+        compare(m.classes[0].addr, "addr:1")
+        compare(m.classes[1].cls, "foot")
+    }
+
+    function test_parseSwitcherCmd_hide_and_disabled() {
+        compare(Logic.parseSwitcherCmd("hide", true).shown, false)
+        compare(Logic.parseSwitcherCmd("show Zed zed|a", false).shown, false, "off means hidden")
+        compare(Logic.parseSwitcherCmd("show", true).shown, false, "needs a class")
+    }
+
+    function test_parseSnapCmd_show() {
+        var m = Logic.parseSnapCmd("show 12 64 900 1000", true)
+        compare(m.shown, true)
+        compare(m.x, 12)
+        compare(m.y, 64)
+        compare(m.w, 900)
+        compare(m.h, 1000)
+    }
+
+    function test_parseSnapCmd_rejects_bad() {
+        compare(Logic.parseSnapCmd("show 12 64 0 1000", true).shown, false, "zero width")
+        compare(Logic.parseSnapCmd("show 12 64 900", true).shown, false, "too few fields")
+        compare(Logic.parseSnapCmd("hide", true).shown, false)
+        compare(Logic.parseSnapCmd("show 12 64 900 1000", false).shown, false, "off means hidden")
+    }
+
+    function test_rectsIntersect() {
+        compare(Logic.rectsIntersect({ x: 0, y: 0, w: 100, h: 100 }, { x: 50, y: 50, width: 100, height: 100 }), true)
+        compare(Logic.rectsIntersect({ x: 0, y: 0, w: 100, h: 100 }, { x: 100, y: 0, width: 100, height: 100 }), false, "touching edges do not overlap")
+        compare(Logic.rectsIntersect({ x: 0, y: 0, w: 100, h: 100 }, { x: 200, y: 200, w: 10, h: 10 }), false)
+    }
 }
