@@ -23,6 +23,19 @@ bash tests/unit/run.sh  # pure lua only
 bash tests/qml/run.sh   # pure JS only
 ```
 
+Nest scenarios can be picked by name, whole or in part:
+
+```sh
+tests/nest/run.sh pointer                    # just the pointer tool's own test
+tests/nest/run.sh integration/no_gaps snap   # several
+tests/nest/run.sh close                      # anything whose name matches
+```
+
+The nest is one per run and `nest_clean()` runs between files, so a selected
+scenario is as isolated as it is in a full run. The startup is only a few
+seconds and the cost is per scenario, so selecting one is worth it: a single
+scenario runs in about 4s against about 30s for the whole nest layer.
+
 The nest layer builds `hyprbars` first (incrementally) and needs a running
 Hyprland session (for the nest) plus the hyprpm headers. It starts one nest for
 the whole run. Between files it closes the windows and restores a clean
