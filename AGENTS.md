@@ -65,6 +65,14 @@ Sandbox, under `_docs/`, read-only unless a note is being written:
   unit layer is plain lua, the nest layer is a nested Hyprland with its own
   state dir. Run it before committing a change to `x-mode.lua`, a module, the
   plugin or an install file.
+- Editing and installing are separate steps: make the change in this repo, run
+  `tests/run.sh`, and only then install. Never hand-edit or copy over the
+  installed files (`~/.config/hypr/x-mode.lua`, `~/.config/hypr/x-mode/`,
+  `~/.local/share/hyprbars/`): `install.sh` is the only writer, so its manifest
+  stays right and a test build never lands on the live session half-done.
+- `./install.sh --no-hyprbars` installs the Lua and the modules without touching
+  the plugin; use it when `hyprbars/` did not change (the build is the slow
+  step).
 - Keep pure logic (no `hl`) in the `hypr/x-mode/` modules so it stays unit
   testable; event/state code stays in `x-mode.lua` and is covered by the nest.
 - Never load the pack's plugin into the live session and never `cp` over the
