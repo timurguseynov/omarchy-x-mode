@@ -1201,14 +1201,17 @@ local function slurp(path)
 end
 
 -- The whole settings file, migrating the two old files into it on first run.
--- A missing or empty settings.json is rebuilt instead of erroring, so a
--- truncated write self-heals into defaults.
+-- A present-but-empty file is returned as it is, not rebuilt: the panel writes
+-- by truncating first, so rebuilding here would turn a write that is still in
+-- flight into lost settings.
 local function read_settings()
-  local raw = slurp(SETTINGS_PATH)
-  if raw ~= nil then
+  local file = io.open(SETTINGS_PATH, "r")
+  if file ~= nil then
+    local raw = file:read("*a") or ""
+    file:close()
     return raw
   end
-  raw = '{"options":' .. (slurp(LEGACY_OPTIONS_PATH) or "{}") ..
+  local raw = '{"options":' .. (slurp(LEGACY_OPTIONS_PATH) or "{}") ..
     ',"apps":' .. (slurp(LEGACY_APPS_PATH) or "{}") .. '}'
   local out = io.open(SETTINGS_PATH, "w")
   if out then
