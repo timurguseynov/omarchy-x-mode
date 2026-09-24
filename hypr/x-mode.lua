@@ -288,14 +288,22 @@ end
 
 local TITLEBAR          = cfg_int("plugin:hyprbars:bar_height", TITLEBAR_FALLBACK)
 local GROUPBAR          = cfg_int("plugin:hyprbars:tab_height", GROUPBAR_FALLBACK)
-local GAP_OUT           = cfg_int("general:gaps_out", GAP_FALLBACK)
-local BORDER            = cfg_int("general:border_size", 2)
+-- Read live: the panel's "No gaps" option rewrites general:gaps_out and
+-- general:border_size at runtime, and snap geometry has to follow.
+local function GAP_OUT()
+  return cfg_int("general:gaps_out", GAP_FALLBACK)
+end
+local function BORDER()
+  return cfg_int("general:border_size", 2)
+end
 -- The dock overlays windows (it reserves no screen space). Snap zones keep the
 -- full work area and only the right edge is pulled in by the dock card plus half
 -- the outer gap, which is the dock's own screen margin (Style.gapsOut). The card
 -- width matches Dock.qml (iconSize + pad*2) and is pushed to hyprbars below.
 local DOCK_CARD         = 40
-local DOCK_PULL         = DOCK_CARD + math.floor(GAP_OUT / 2)
+local function DOCK_PULL()
+  return DOCK_CARD + math.floor(GAP_OUT() / 2)
+end
 local ALMOST_MAXIMIZE   = cfg_int("plugin:hyprbars:x_mode_almost_maximize_percent", 90) / 100
 local GROUP_MIN_W       = cfg_int("plugin:hyprbars:x_mode_group_min_width", 400)
 local GROUP_MIN_H       = cfg_int("plugin:hyprbars:x_mode_group_min_height", 300)
@@ -306,22 +314,29 @@ local GROUP_MIN_H       = cfg_int("plugin:hyprbars:x_mode_group_min_height", 300
 -- float_gaps.top - TITLEBAR below the bar. Add the effective outer gap and the
 -- border so the titlebar sits exactly at topbar + gap + border, and give the
 -- other sides the same gap + border so a window never opens flush to an edge.
-local FLOAT_EDGE = GAP_OUT + BORDER
-hl.config({
-  general = {
-    float_gaps = {
-      top = TITLEBAR + FLOAT_EDGE,
-      left = FLOAT_EDGE,
-      right = FLOAT_EDGE,
-      bottom = FLOAT_EDGE,
+-- float_gaps and the dock inset both derive from the live gap and border, so
+-- the panel's "No gaps" option recomputes them instead of leaving the values
+-- captured at load.
+local function apply_gap_geometry()
+  local edge = GAP_OUT() + BORDER()
+  hl.config({
+    general = {
+      float_gaps = {
+        top = TITLEBAR + edge,
+        left = edge,
+        right = edge,
+        bottom = edge,
+      },
     },
-  },
-  plugin = {
-    hyprbars = {
-      x_mode_dock_inset = DOCK_PULL,
+    plugin = {
+      hyprbars = {
+        x_mode_dock_inset = DOCK_PULL(),
+      },
     },
-  },
-})
+  })
+end
+
+apply_gap_geometry()
 
 -- Load hyprpm-managed plugins, then the patched x-mode hyprbars on login
 -- (install.sh loads it immediately too). Disable a stock hyprbars first so only
@@ -400,7 +415,7 @@ local function usable(monitor)
   -- Rectangle's visibleFrame already excludes a right-edge dock, and every
   -- fraction (1/2, 2/3, 1/3) is taken from that narrower frame. Reserving the
   -- dock here is what keeps a left half and a right half from overlapping.
-  right = right + DOCK_PULL
+  right = right + DOCK_PULL()
   local x, y, width, height = monitor_box(monitor)
   return x + left, y + top, width - left - right, height - top - bottom
 end
@@ -490,11 +505,13 @@ end
 -- equals GAP_OUT. The dock is already gone from the frame (see usable), exactly
 -- as Rectangle's visibleFrame excludes it, so the gaps below are the only inset.
 local function apply_gaps(x, y, w, h, inner)
-  local half = math.floor(GAP_OUT / 2)
-  local left = (inner.l and half or GAP_OUT) + BORDER
-  local right = (inner.r and half or GAP_OUT) + BORDER
-  local top = (inner.t and half or GAP_OUT) + BORDER
-  local bottom = (inner.b and half or GAP_OUT) + BORDER
+  local gap = GAP_OUT()
+  local half = math.floor(gap / 2)
+  local border = BORDER()
+  local left = (inner.l and half or gap) + border
+  local right = (inner.r and half or gap) + border
+  local top = (inner.t and half or gap) + border
+  local bottom = (inner.b and half or gap) + border
   return x + left, y + top, w - left - right, h - top - bottom
 end
 
@@ -668,7 +685,7 @@ local function clamp_window(w)
   local ux, uy, uw, uh = usable(mon)
   local x, y = vec(w.at)
   local ww, wh = vec(w.size)
-  local edge = GAP_OUT + BORDER
+  local edge = GAP_OUT() + BORDER()
   local chrome = 0
   if not apps_off[window_class(w)] then
     chrome = TITLEBAR
@@ -1281,15 +1298,20 @@ function x_mode.refresh_apps_off()
   regroup_chrome_on()
 end
 
--- Desktop options (native scroll, Ctrl+1..9 tab switching). Written by the
--- bar panel. Ctrl+1..9 switches group tabs when the focused app has
+-- Desktop options (native scroll, Ctrl+1..9 tab switching, no gaps). Written
+-- by the bar panel. Ctrl+1..9 switches group tabs when the focused app has
 -- chrome/titlebar on; otherwise the key is passed through to the app. Off by
 -- default, so those shortcuts reach the app. Cmd+1..9 stay as Omarchy
--- workspace binds either way.
+-- workspace binds either way. No gaps zeroes the outer and inner gaps and the
+-- border; turning it off restores whatever was set before.
 local OPTIONS_PATH = X_MODE_STATE .. "/options.json"
 local native_scroll = false
 local ctrl_tab_switch = false
 local ctrl_tab_binds = {}
+local no_gaps = false
+-- Gaps and border as they were before "No gaps" was turned on, so turning it
+-- off puts them back instead of leaving the zeroes.
+local saved_gaps = nil
 
 local function load_options()
   native_scroll = false
@@ -1305,6 +1327,41 @@ local function load_options()
   if raw:find('"ctrlTabSwitch"%s*:%s*true') then
     ctrl_tab_switch = true
   end
+  if raw:find('"noGaps"%s*:%s*true') then
+    no_gaps = true
+  end
+end
+
+local function apply_no_gaps()
+  if no_gaps then
+    if saved_gaps == nil then
+      saved_gaps = { out = GAP_OUT(), inn = cfg_int("general:gaps_in", 5), border = BORDER() }
+    end
+    pcall(function()
+      hl.config({
+        general = {
+          -- No gaps between windows, and no borders.
+          gaps_in = 0,
+          gaps_out = 0,
+          border_size = 0,
+        },
+      })
+    end)
+  elseif saved_gaps ~= nil then
+    local g = saved_gaps
+    saved_gaps = nil
+    pcall(function()
+      hl.config({
+        general = {
+          gaps_in = g.inn,
+          gaps_out = g.out,
+          border_size = g.border,
+        },
+      })
+    end)
+  end
+  -- Snap, float_gaps and the dock inset all read the gap live.
+  apply_gap_geometry()
 end
 
 local function apply_native_scroll()
@@ -1371,11 +1428,13 @@ function x_mode.refresh_options()
   load_options()
   apply_native_scroll()
   apply_ctrl_tab_switch()
+  apply_no_gaps()
 end
 
 load_options()
 apply_native_scroll()
 apply_ctrl_tab_switch()
+apply_no_gaps()
 
 local function skip_group(w)
   if w == nil or w.pinned or w.hidden then
@@ -1452,7 +1511,7 @@ local function absorb_chrome_growth(w, old_x, old_y, old_w, old_h, old_chrome)
   local ww, wh = vec(w.size)
   local new_chrome = chrome_h(w)
   local grow = math.max(new_chrome - (old_chrome or 0), 0)
-  local edge = GAP_OUT + BORDER
+  local edge = GAP_OUT() + BORDER()
   local ny = old_y + grow
   local min_top = uy + edge + new_chrome
   if ny < min_top then
@@ -1767,7 +1826,7 @@ local function clear_bars()
       if chrome > 0 and mon ~= nil then
         local _, uy = usable(mon)
         local x, y = vec(w.at)
-        local min_top = uy + GAP_OUT + BORDER + chrome
+        local min_top = uy + GAP_OUT() + BORDER() + chrome
         if y < min_top then
           hl.dispatch(hl.dsp.window.move({ x = x, y = min_top, relative = false, window = w }))
         end

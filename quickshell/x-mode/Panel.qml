@@ -28,7 +28,7 @@ Panel {
   // sized to the space actually left in the capped card. Excludes `listFlick`
   // itself -- referencing its height here would be circular.
   readonly property real listFixedHeight: {
-    var items = [hero, sepTop, scrollRow, tabKeysRow, sepMid, backRow, sectionHeader, searchField, detailColumn]
+    var items = [hero, sepTop, scrollRow, tabKeysRow, gapsRow, sepMid, backRow, sectionHeader, searchField, detailColumn]
     var h = 0
     var n = 0
     for (var i = 0; i < items.length; i++) {
@@ -45,6 +45,7 @@ Panel {
 
   property bool nativeScroll: false
   property bool ctrlTabSwitch: false
+  property bool noGaps: false
   property var appsCfg: ({})
   property var running: []
   property string query: ""
@@ -129,10 +130,11 @@ Panel {
     return "'" + String(s).replace(/'/g, "'\\''") + "'"
   }
 
-  function setOptions(nativeScroll, ctrlTabSwitch) {
+  function setOptions(nativeScroll, ctrlTabSwitch, noGaps) {
     root.nativeScroll = !!nativeScroll
     root.ctrlTabSwitch = !!ctrlTabSwitch
-    var json = JSON.stringify({ nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch })
+    root.noGaps = !!noGaps
+    var json = JSON.stringify({ nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps })
     var on = root.nativeScroll ? "true" : "false"
     Quickshell.execDetached([
       "sh", "-c",
@@ -226,14 +228,17 @@ Panel {
         var d = JSON.parse(text())
         root.nativeScroll = !!(d && d.nativeScroll)
         root.ctrlTabSwitch = !!(d && d.ctrlTabSwitch)
+        root.noGaps = !!(d && d.noGaps)
       } catch (e) {
         root.nativeScroll = false
         root.ctrlTabSwitch = false
+        root.noGaps = false
       }
     }
     onLoadFailed: {
       root.nativeScroll = false
       root.ctrlTabSwitch = false
+      root.noGaps = false
     }
   }
 
@@ -500,7 +505,7 @@ Panel {
         description: "Natural (reversed) touchpad scrolling"
         checked: root.nativeScroll
         rowEnabled: root.xModeOn
-        onToggled: root.setOptions(!root.nativeScroll, root.ctrlTabSwitch)
+        onToggled: root.setOptions(!root.nativeScroll, root.ctrlTabSwitch, root.noGaps)
       }
 
       SwitchRow {
@@ -511,7 +516,18 @@ Panel {
         description: "Jump to a titlebar tab; off, the shortcut goes to the app"
         checked: root.ctrlTabSwitch
         rowEnabled: root.xModeOn
-        onToggled: root.setOptions(root.nativeScroll, !root.ctrlTabSwitch)
+        onToggled: root.setOptions(root.nativeScroll, !root.ctrlTabSwitch, root.noGaps)
+      }
+
+      SwitchRow {
+        id: gapsRow
+        width: parent.width
+        visible: root.openCls === ""
+        label: "No gaps"
+        description: "Remove the space between windows and their borders"
+        checked: root.noGaps
+        rowEnabled: root.xModeOn
+        onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, !root.noGaps)
       }
 
       PanelSeparator {
