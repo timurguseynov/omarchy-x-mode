@@ -498,20 +498,20 @@ local function fractional_rect(frame, hside, vside, hf, vf)
   return x, y, w, h
 end
 
--- Rectangle's GapCalculation. Every edge gets GAP_OUT: edges touching the screen
--- keep the full outer gap, edges shared with another window keep half, so two
--- snapped windows end up exactly GAP_OUT apart too. BORDER is added to every edge
--- because the border is drawn outside the box (see above), so the *visible* gap
--- equals GAP_OUT. The dock is already gone from the frame (see usable), exactly
--- as Rectangle's visibleFrame excludes it, so the gaps below are the only inset.
+-- The border is drawn outside the window box and reserves its own space, so it
+-- comes off every side of the frame once. GAP_OUT is inset on top of that: a
+-- full outer gap on the screen edges, half on an edge shared with another
+-- window, so two snapped windows end up exactly GAP_OUT apart. The dock is
+-- already gone from the frame (see usable), as Rectangle's visibleFrame excludes
+-- it, so the gaps below are the only inset.
 local function apply_gaps(x, y, w, h, inner)
   local gap = GAP_OUT()
   local half = math.floor(gap / 2)
   local border = BORDER()
-  local left = (inner.l and half or gap) + border
-  local right = (inner.r and half or gap) + border
-  local top = (inner.t and half or gap) + border
-  local bottom = (inner.b and half or gap) + border
+  local left = border + (inner.l and half or gap)
+  local right = border + (inner.r and half or gap)
+  local top = border + (inner.t and half or gap)
+  local bottom = border + (inner.b and half or gap)
   return x + left, y + top, w - left - right, h - top - bottom
 end
 

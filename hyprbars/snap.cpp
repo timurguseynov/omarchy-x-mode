@@ -137,14 +137,18 @@ static CBox fractionalRect(const CBox& frame, const char* hside, const char* vsi
     return {x, y, w, h};
 }
 
+// The border is drawn outside the window box and reserves its own space, so it
+// is taken off every side of the frame once. The gap is inset on top of that: a
+// full outer gap on the screen edges, half on an edge shared with the window
+// next to it, so two snapped windows end up exactly one gap apart.
 static CBox applyGaps(const CBox& box, bool innerL, bool innerR, bool innerT, bool innerB) {
     const int gap  = gapOut();
     const int half = gap / 2;
     const int b    = border();
-    const int left = (innerL ? half : gap) + b;
-    const int right = (innerR ? half : gap) + b;
-    const int top = (innerT ? half : gap) + b;
-    const int bottom = (innerB ? half : gap) + b;
+    const int left = b + (innerL ? half : gap);
+    const int right = b + (innerR ? half : gap);
+    const int top = b + (innerT ? half : gap);
+    const int bottom = b + (innerB ? half : gap);
     return {box.x + left, box.y + top, box.w - left - right, box.h - top - bottom};
 }
 
