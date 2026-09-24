@@ -32,7 +32,8 @@ out windows.
 
 Requirements: `hyprpm` headers (`hyprpm update`), `quickshell`/`qs` (the fake top
 bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
-`qmltestrunner` (in `/usr/lib/qt6/bin`).
+`qmltestrunner` (in `/usr/lib/qt6/bin`). The pointer tool also needs
+`wayland-scanner` and the `wayland-client` headers.
 
 ## nest scenarios
 
@@ -43,6 +44,7 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `topbar_test.sh` | with the bar gone (shell restart) a snap still clears where it was |
 | `nogaps_test.sh` | the panel's file + reload zeroes the gaps and re-lays the snapped windows |
 | `focus_test.sh` | the focused window ends up topmost, including after a same-app window joins |
+| `pointer_test.sh` | a titlebar drag moves the window through the drag session, and a click does not |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
 
 `focus_test.sh` relies on `hyprctl clients -j` being in z-order (topmost last),
@@ -61,7 +63,36 @@ assert_ge "$(visual_top foot)" 36 "the titlebar clears the bar"
 ```
 
 Helpers: `open_window`, `nest_clean`, `win_geom`, `visual_top`, `group_size`,
-`snap`, `bar_top`, `gaps_out`, `nest_ctl`, `nest_socket`, and `assert_eq/ne/ge/le`.
+`snap`, `bar_top`, `gaps_out`, `nest_ctl`, `nest_socket`, `titlebar_point`, the
+`pointer_*` family below, and `assert_eq/ne/ge/le/between`.
+
+## The pointer
+
+`tests/pointer/` builds a small Wayland client that injects real input through
+`zwlr_virtual_pointer_manager_v1`, so a scenario can click and drag a titlebar
+instead of calling the pack's snap function. Hyprland turns a virtual pointer
+into an ordinary `IPointer`, so a warp runs `mouseMoveUnified()` and emits
+`input.mouse.move`, and a button press emits `input.mouse.button` — the two
+events hyprbars' titlebar and its drag session listen to. That is why a drag
+here exercises the same path a mouse does.
+
+`lib.sh` builds it into `.nest/pointer/` (`build_pointer`, called by
+`nest_start`) and exposes:
+
+```sh
+pointer_move  X Y
+pointer_click X Y [BUTTON]
+pointer_drag  X1 Y1 X2 Y2 [BUTTON]
+```
+
+`BUTTON` is `left` (default), `right`, `middle`, or a numeric code. Coordinates
+are logical pixels in the nest's layout; the extent is taken from the monitor,
+so nothing in a test has to know the monitor size. `titlebar_point CLASS`
+returns the middle of a window's titlebar, which is where a drag has to start.
+
+`nest/pointer_test.sh` guards the tool itself: if the protocol disappears or a
+warp stops reaching `input.mouse.move`, the window does not move and every
+scenario built on the pointer would fail for the wrong reason.
 
 ## unit layer
 

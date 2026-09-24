@@ -12,6 +12,8 @@ NEST_STATE="$TESTS_DIR/.nest"
 NEST_LOG="$NEST_STATE/nest.log"
 NEST_LUA="$REPO_DIR/hypr/x-mode.lua"
 PLUGIN_SO="$REPO_DIR/hyprbars/hyprbars.so"
+POINTER_DIR="$TESTS_DIR/pointer"
+POINTER_BIN="$NEST_STATE/pointer/pointer"
 SIG="${SIG:-$(cat "$TESTS_DIR/.nest/sig" 2>/dev/null || true)}"
 NEST_BAR="${NEST_BAR:-1}"
 
@@ -37,8 +39,27 @@ build_plugin() {
     || { PKG_CONFIG_PATH="$headers/share/pkgconfig" make -C "$REPO_DIR/hyprbars" all; fail "hyprbars build failed"; }
 }
 
+# The pointer injects real input through zwlr_virtual_pointer_manager_v1, so a
+# test can drag a titlebar instead of calling the pack's snap function. Built
+# into .nest/ so the generated protocol code stays out of the tree.
+build_pointer() {
+  local out="$NEST_STATE/pointer"
+  command -v wayland-scanner >/dev/null || fail "wayland-scanner not found"
+  pkg-config --exists wayland-client || fail "wayland-client headers not found"
+  mkdir -p "$out"
+  wayland-scanner client-header "$POINTER_DIR/wlr-virtual-pointer-unstable-v1.xml" \
+    "$out/wlr-virtual-pointer-unstable-v1-client-protocol.h"
+  wayland-scanner private-code "$POINTER_DIR/wlr-virtual-pointer-unstable-v1.xml" \
+    "$out/wlr-virtual-pointer-unstable-v1-protocol.c"
+  # shellcheck disable=SC2046 - pkg-config output is a flag list on purpose
+  cc -O2 -Wall -Wextra -I"$out" -o "$POINTER_BIN" "$POINTER_DIR/pointer.c" \
+    "$out/wlr-virtual-pointer-unstable-v1-protocol.c" $(pkg-config --cflags --libs wayland-client) \
+    || fail "pointer build failed"
+}
+
 nest_start() {
   build_plugin
+  build_pointer
   nest_stop
   # Start from a clean state dir: a run that fails midway can leave settings.json
   # behind, and the next run would inherit it.
@@ -207,6 +228,38 @@ snap() { # CLASS KIND
 
 bar_top() {
   nest_ctl monitors -j | python3 -c "import json,sys;print(json.load(sys.stdin)[0]['reserved'][1])"
+}
+
+# --- pointer -----------------------------------------------------------------
+
+# Logical monitor size: warpAbsolute normalises against it, and window geometry
+# from hyprctl is logical too, so both sides of the ratio must use the same unit.
+pointer_extent() {
+  nest_ctl monitors -j | python3 -c "
+import json, sys
+monitors = json.load(sys.stdin)
+m = next((x for x in monitors if x.get('focused')), monitors[0])
+scale = m.get('scale') or 1
+print(f\"{round(m['width'] / scale)}x{round(m['height'] / scale)}\")"
+}
+
+pointer() {
+  WAYLAND_DISPLAY="$(nest_socket)" X_MODE_POINTER_EXTENT="$(pointer_extent)" \
+    "$POINTER_BIN" "$@"
+}
+
+pointer_move() { pointer move "$1" "$2"; }
+pointer_click() { pointer click "$1" "$2" "${3:-left}"; }
+pointer_drag() { pointer drag "$1" "$2" "$3" "$4" "${5:-left}"; }
+
+# Middle of a window's titlebar: the bar occupies the 28px above the window box.
+titlebar_point() { # CLASS -> "X Y"
+  nest_ctl clients -j | python3 -c "
+import json, sys
+for c in json.load(sys.stdin):
+    if c['class'] == '$1' and c['mapped']:
+        print(c['at'][0] + c['size'][0] // 2, c['at'][1] - 14)
+        break"
 }
 
 gaps_out() { nest_ctl getoption general:gaps_out | head -1 | awk '{print $4}'; }
