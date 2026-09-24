@@ -122,4 +122,39 @@ function M.cycle_geom(side, hf, frame, gap, border)
   return M.apply_gaps(x, y, w, h, inner, gap, border)
 end
 
+-- Fit a floating box into the work frame: cap the size to the frame minus the
+-- border/gap inset and, vertically, the chrome, then pull it back below the bar
+-- and inside the edges. Hyprland's resize is centred, so a caller that resizes
+-- re-reads the box and calls this again; the size is then already capped and
+-- only the position moves.
+function M.fit_box(box, frame, edge, chrome)
+  local max_w = frame.w - edge - edge
+  local max_h = frame.h - edge - edge - chrome
+  local nw = math.min(box.w, max_w)
+  local nh = math.min(box.h, max_h)
+
+  local min_top = frame.y + edge + chrome
+  local max_bottom = frame.y + frame.h - edge
+  local ny = box.y
+  if ny < min_top then
+    ny = min_top
+  elseif ny + nh > max_bottom then
+    ny = max_bottom - nh
+    if ny < min_top then
+      ny = min_top
+    end
+  end
+
+  local min_left = frame.x + edge
+  local max_right = frame.x + frame.w - edge
+  local nx = box.x
+  if nx < min_left then
+    nx = min_left
+  elseif nx + nw > max_right then
+    nx = max_right - nw
+  end
+
+  return nx, ny, nw, nh
+end
+
 return M

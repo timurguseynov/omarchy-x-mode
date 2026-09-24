@@ -72,6 +72,25 @@ check("cycle.half", cw2, math.floor(1875 * 0.5) - 19)
 check("cycle.two-thirds", cw3, math.floor(1875 * (2 / 3)) - 19)
 check("cycle.grows", cw3 > cw2, true)
 
+-- fit_box: cap the size, keep the titlebar below the bar and the box inside
+-- the edges.
+local ff = { x = 0, y = 24, w = 1875, h = 1056 }
+local _, ty, tw, th = geom.fit_box({ x = 0, y = 0, w = 100, h = 100 }, ff, 12, 28)
+check("fit.top", ty, 24 + 12 + 28)
+check("fit.unchanged.w", tw, 100)
+check("fit.unchanged.h", th, 100)
+
+local _, _, cw, ch = geom.fit_box({ x = 0, y = 0, w = 99999, h = 99999 }, ff, 12, 28)
+check("fit.max.w", cw, 1875 - 24)
+check("fit.max.h", ch, 1056 - 24 - 28)
+
+local _, by, _, bh = geom.fit_box({ x = 0, y = 5000, w = 100, h = 100 }, ff, 12, 28)
+check("fit.bottom", by + bh, 24 + 1056 - 12)
+
+check("fit.left", select(1, geom.fit_box({ x = -50, y = 100, w = 100, h = 100 }, ff, 12, 28)), 12)
+local rx, _, rw = geom.fit_box({ x = 5000, y = 100, w = 100, h = 100 }, ff, 12, 28)
+check("fit.right", rx + rw, 1875 - 12)
+
 if failures > 0 then
   os.exit(1)
 end

@@ -619,37 +619,15 @@ local function clamp_window(w)
     end
   end
 
-  local max_w = uw - edge - edge
-  local max_h = uh - edge - edge - chrome
-  local nw = math.min(ww, max_w)
-  local nh = math.min(wh, max_h)
+  local frame = { x = ux, y = uy, w = uw, h = uh }
+  local nx, ny, nw, nh = geom.fit_box({ x = x, y = y, w = ww, h = wh }, frame, edge, chrome)
   if nw ~= ww or nh ~= wh then
     hl.dispatch(hl.dsp.window.resize({ x = nw, y = nh, relative = false, window = w }))
-    -- Resize is centered: re-read so we never clamp with a stale y.
+    -- Resize is centred: re-read so the clamp below works off the real box.
     w = window_by_addr(w.address) or w
     x, y = vec(w.at)
     ww, wh = vec(w.size)
-  end
-
-  local min_top = uy + edge + chrome
-  local max_bottom = uy + uh - edge
-  local ny = y
-  if ny < min_top then
-    ny = min_top
-  elseif ny + wh > max_bottom then
-    ny = max_bottom - wh
-    if ny < min_top then
-      ny = min_top
-    end
-  end
-
-  local min_left = ux + edge
-  local max_right = ux + uw - edge
-  local nx = x
-  if nx < min_left then
-    nx = min_left
-  elseif nx + ww > max_right then
-    nx = max_right - ww
+    nx, ny, nw, nh = geom.fit_box({ x = x, y = y, w = ww, h = wh }, frame, edge, chrome)
   end
 
   if math.abs(x - nx) >= 1 or math.abs(y - ny) >= 1 then
