@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # omarchy-x-mode installer.
 #
-# Additive by design: it only creates files in its own namespace (tim.*,
-# x-mode.lua, x-mode/) and makes a single, sentinel-marked edit to
+# Additive by design: it only creates files in its own namespace (x-mode,
+# x-mode.lua) and makes a single, sentinel-marked edit to
 # ~/.config/hypr/hyprland.lua. Uninstall removes exactly what it created and
 # leaves the user's own config untouched.
 set -euo pipefail
