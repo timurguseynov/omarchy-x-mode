@@ -112,10 +112,12 @@ CBox Snap::usable(PHLMONITOR mon) {
         return {};
     const double left   = mon->m_reservedArea.left();
     // The top bar reserves its height, but it is a layer-shell surface that is
-    // gone for a moment while the shell restarts during install. Snapping in
-    // that window saw a zero top and sized windows to the full screen height.
-    // Fall back to the bar's own reserved height so a half stays a half.
-    const double top    = std::max(mon->m_reservedArea.top(), 24.0);
+    // gone for a moment while the shell restarts during install. A snap in that
+    // window saw a zero top and sized windows to the full screen height. Fall
+    // back to the bar's own 24px only when nothing at all is reserved; anything
+    // taller (the error overlay) is used as it is, so the window is not placed
+    // underneath it.
+    const double top    = mon->m_reservedArea.top() > 0 ? mon->m_reservedArea.top() : 24.0;
     // x-mode.lua publishes the dock card plus half of gaps_out. Rectangle's
     // visibleFrame excludes a right-edge dock before any fraction is taken, so
     // a left half and a right half split this narrower frame and never overlap.
