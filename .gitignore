@@ -26,4 +26,7 @@ build/
 
 .pi/sessions
 
+# Test working dir (nest state, logs, socket)
+tests/.nest
+
 _docs
