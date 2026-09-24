@@ -28,7 +28,15 @@ there.
 
 Pack code, in this repo:
 
-- `hypr/x-mode.lua` — Hyprland config and the snap / grouping engine.
+- `hypr/x-mode.lua` — the desktop layer: Hyprland config, binds/events, and the
+  snap / grouping engine.
+- `hypr/x-mode/` — the pure modules it loads, split out so they can be tested
+  without a compositor: `geom.lua` (frame and zone math, window fit),
+  `settings.lua` (option/app parsing, rule diff), `theme.lua` (colors.toml),
+  `mru.lua` (switcher order).
+- `tests/` — the test suite. `tests/run.sh` runs `unit/` (plain lua, no
+  compositor) then `nest/` (a nested Hyprland running the real config and a
+  freshly built plugin); `tests/README.md` has the details.
 - `hyprbars/` — vendored patched hyprbars (titlebar, tabbar, drag, snap).
   `build.sh` builds it; `README.md` lists its config keys.
 - `quickshell/x-mode/` — the shell plugin.
@@ -50,9 +58,18 @@ Sandbox, under `_docs/`, read-only unless a note is being written:
 
 ## Working rules
 
-- Do not test by hand. If something needs to be checked, say so and wait: the
-  user will check it. If you need log output, ask for it instead of collecting
-  it yourself.
+- Do not test by hand on the live session. If something needs to be checked
+  there, say so and wait: the user will check it. If you need log output, ask
+  for it instead of collecting it yourself.
+- `tests/run.sh` is the sanctioned check, and it is automated and isolated: the
+  unit layer is plain lua, the nest layer is a nested Hyprland with its own
+  state dir. Run it before committing a change to `x-mode.lua`, a module, the
+  plugin or an install file.
+- Keep pure logic (no `hl`) in the `hypr/x-mode/` modules so it stays unit
+  testable; event/state code stays in `x-mode.lua` and is covered by the nest.
+- Never load the pack's plugin into the live session and never `cp` over the
+  loaded `x-mode-hyprbars.so`: overwriting a mapped `.so` corrupts its pages and
+  crashes the compositor (`SIGILL`). The nest is where a plugin gets loaded.
 - After every successful edit or completed task, commit in the repo that owns
   the change. Pack changes go to this repo. Sandbox changes (`_docs/`, and the
   outer checkout's `AGENTS.md` and `.pi/`) go to the outer repo. The message
