@@ -17,6 +17,7 @@
 -- file out of hypr/).
 local X_MODE_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "./"
 local geom = dofile(X_MODE_DIR .. "x-mode/geom.lua")
+local settings = dofile(X_MODE_DIR .. "x-mode/settings.lua")
 
 -- ---------------------------------------------------------------------------
 -- Runtime on/off. The bar widget writes ~/.local/state/omarchy-x-mode/enabled
@@ -1170,8 +1171,7 @@ local function read_settings()
     file:close()
     return raw
   end
-  local raw = '{"options":' .. (slurp(LEGACY_OPTIONS_PATH) or "{}") ..
-    ',"apps":' .. (slurp(LEGACY_APPS_PATH) or "{}") .. '}'
+  local raw = settings.merge(slurp(LEGACY_OPTIONS_PATH), slurp(LEGACY_APPS_PATH))
   local out = io.open(SETTINGS_PATH, "w")
   if out then
     out:write(raw, "\n")
@@ -1180,30 +1180,13 @@ local function read_settings()
   return raw
 end
 
--- Just the apps object. The class scan below takes every "key": { ... } it
--- finds, so it must not be pointed at the whole file: "options" would come
--- back as an app class.
+-- The apps object on its own, out of the settings file.
 local function apps_raw()
-  local raw = read_settings()
-  return raw:match('"apps"%s*:%s*(%b{})') or raw:match('"apps"%s*:%s*(%b[])') or ""
+  return settings.apps_section(read_settings())
 end
 
 local function load_apps()
-  local raw = apps_raw()
-  local cfg = {}
-  -- Object form: "class": { ... "chrome": false ... }
-  for cls, body in raw:gmatch('"([^"]+)"%s*:%s*(%b{})') do
-    local chrome = not body:find('"chrome"%s*:%s*false')
-    local always = body:find('"alwaysTabbar"%s*:%s*true') ~= nil
-    cfg[string.lower(cls)] = { chrome = chrome, always_tabbar = always }
-  end
-  -- Legacy array: ["class", ...] means chrome off.
-  if next(cfg) == nil then
-    for cls in raw:gmatch('"([^"]+)"') do
-      cfg[string.lower(cls)] = { chrome = false, always_tabbar = false }
-    end
-  end
-  return cfg
+  return settings.parse_apps(apps_raw())
 end
 
 local function chrome_on(cls)
@@ -1308,10 +1291,10 @@ local ctrl_tab_binds = {}
 local no_gaps = false
 
 local function load_options()
-  local raw = read_settings()
-  native_scroll = raw:find('"nativeScroll"%s*:%s*true') ~= nil
-  ctrl_tab_switch = raw:find('"ctrlTabSwitch"%s*:%s*true') ~= nil
-  no_gaps = raw:find('"noGaps"%s*:%s*true') ~= nil
+  local o = settings.parse_options(read_settings())
+  native_scroll = o.native_scroll
+  ctrl_tab_switch = o.ctrl_tab_switch
+  no_gaps = o.no_gaps
 end
 
 -- gaps_* only schedule a layout refresh, and `hyprctl eval` returns before

@@ -51,11 +51,16 @@ assert_ge "$(visual_top foot)" 36 "the titlebar clears the bar"
 Helpers: `open_window`, `nest_clean`, `win_geom`, `visual_top`, `group_size`,
 `snap`, `bar_top`, `gaps_out`, `nest_ctl`, `nest_socket`, and `assert_eq/ne/ge/le`.
 
-## unit layer (TODO)
+## unit layer
 
-`x-mode.lua` is deliberately a single file, so its locals (`usable`, `snap_geom`,
-`apply_gaps`, `chrome_h`, `read_settings`, `load_apps`) cannot be reached from a
-test. To unit-test them without a compositor, either extract them into
-`hypr/x-mode/geom.lua` and `hypr/x-mode/settings.lua` (takes inputs as
-arguments, no `hl`), or load the whole file under a `fake_hl.lua` that stubs and
-records the Hyprland API.
+Pure logic that does not need a compositor. It lives in sibling modules next to
+`x-mode.lua`, so the tests load them directly with plain `lua`:
+
+| file | module | covers |
+|---|---|---|
+| `geometry_test.lua` | `hypr/x-mode/geom.lua` | frame (including scale), zone insets with and without gaps, halves not overlapping, maximize, almost-maximize, cycle sizes |
+| `settings_test.lua` | `hypr/x-mode/settings.lua` | options/apps parsing, the apps section vs the whole file, the legacy array, the merge of the two old files |
+
+Adding to a module is the way to make something unit-testable: `x-mode.lua`
+still holds the event/state layer (binds, `hl.dispatch`, grouping, switcher),
+which the nest layer exercises instead.
