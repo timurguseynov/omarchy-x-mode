@@ -9,9 +9,10 @@ nest_start
 trap nest_stop EXIT
 
 fail=0
-for t in "$HERE"/*_test.sh; do
+for t in "$HERE"/*_test.sh "$HERE"/integration/*_test.sh; do
   [ -e "$t" ] || continue
   name="$(basename "$t" .sh)"
+  case "$t" in "$HERE"/integration/*) name="integration/$name" ;; esac
   nest_clean
   if out="$(bash "$t" 2>&1)"; then
     echo "  ${GREEN}ok${RESET}   $name"

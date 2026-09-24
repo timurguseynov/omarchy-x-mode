@@ -263,3 +263,5 @@ for c in json.load(sys.stdin):
 }
 
 gaps_out() { nest_ctl getoption general:gaps_out | head -1 | awk '{print $4}'; }
+
+border_size() { nest_ctl getoption general:border_size | head -1 | awk '{print $2}'; }

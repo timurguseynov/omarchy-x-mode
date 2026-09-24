@@ -45,6 +45,8 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `nogaps_test.sh` | the panel's file + reload zeroes the gaps and re-lays the snapped windows |
 | `focus_test.sh` | the focused window ends up topmost, including after a same-app window joins |
 | `pointer_test.sh` | a titlebar drag moves the window through the drag session, and a click does not |
+| `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
+| `integration/no_gaps_keeps_border_test.sh` | No gaps collapses the gaps, keeps the 1px border, and restores both |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
 
 `focus_test.sh` relies on `hyprctl clients -j` being in z-order (topmost last),
@@ -63,8 +65,20 @@ assert_ge "$(visual_top foot)" 36 "the titlebar clears the bar"
 ```
 
 Helpers: `open_window`, `nest_clean`, `win_geom`, `visual_top`, `group_size`,
-`snap`, `bar_top`, `gaps_out`, `nest_ctl`, `nest_socket`, `titlebar_point`, the
-`pointer_*` family below, and `assert_eq/ne/ge/le/between`.
+`snap`, `bar_top`, `gaps_out`, `border_size`, `nest_ctl`, `nest_socket`,
+`titlebar_point`, the `pointer_*` family below, and `assert_eq/ne/ge/le/between`.
+
+## nest scenarios and integration scenarios
+
+`nest/*_test.sh` checks the mechanism: a snap keeps its inset, a same-app window
+joins, focus raises. `nest/integration/*_test.sh` are regressions for bugs that
+actually happened, each naming the symptom in its header. Both run in the same
+nest, so `run.sh` picks up both and nothing needs a second compositor.
+
+When an assertion here hard-codes a number, say which configuration it belongs
+to: `visual_top >= 36` is the gaps-on inset (bar 24 + gap 12), while with gaps
+off the titlebar sits at 25 and the contract is `>= bar_top`. Comparing against
+`bar_top` states the rule; a literal only states one case.
 
 ## The pointer
 
