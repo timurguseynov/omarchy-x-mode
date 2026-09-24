@@ -21,6 +21,7 @@ local settings = dofile(X_MODE_DIR .. "x-mode/settings.lua")
 local theme = dofile(X_MODE_DIR .. "x-mode/theme.lua")
 local mru = dofile(X_MODE_DIR .. "x-mode/mru.lua")
 
+
 -- ---------------------------------------------------------------------------
 -- Runtime on/off. The bar widget writes ~/.local/state/omarchy-x-mode/enabled
 -- then runs `hyprctl reload`. Off skips the rest of this file so Omarchy's
@@ -126,6 +127,14 @@ local TITLEBAR_FALLBACK = 28
 local GROUPBAR_FALLBACK = 24
 
 hl.config({
+  general = {
+    -- Otherwise Hyprland makes the parent of a modal window non-interactive, so
+    -- with a dialog open (gitfourchette's push, a save prompt, ...) clicks on the
+    -- parent fall through to whatever is behind it -- a different app when the
+    -- parent fills the screen. The modal is just another floating window here,
+    -- and a click on the parent should focus the parent.
+    modal_parent_blocking = false,
+  },
   cursor = {
     -- Do not move the pointer when a window is focused (e.g. from the dock).
     no_warps = true,
@@ -839,17 +848,29 @@ end
 -- current event has unwound (hl.timer refuses a zero timeout), and the pending
 -- flag stays set across the dispatch so a raise cannot trigger another one.
 local raise_pending = false
-local raise_target = nil
+local raise_queue = {}
+local raise_draining = false
 
 local function raise_active(w)
-  if w ~= nil then
-    raise_target = w
+  -- Every window that takes focus is raised, in order. A single "last wins"
+  -- slot dropped the raise of a window focused just before another -- e.g. a
+  -- window focused, then a dialog it opened grabbing focus in the same
+  -- millisecond: the first stayed behind whatever was already in front (a
+  -- full-width app behind the app that had focus before it, so a click on the
+  -- overlap went to the wrong one). Keep a queue. While it drains, new events
+  -- are ignored: alter_zorder ends with simulateMouseMovement, which re-enters
+  -- window.active.
+  if w == nil or raise_draining then
+    return
   end
+  raise_queue[#raise_queue + 1] = w
   if raise_pending then
     return
   end
   raise_pending = true
   hl.timer(function()
+    local queue = raise_queue
+    raise_queue = {}
     -- Raise the window the event named, not the live active one: alter_zorder
     -- ends with simulateMouseMovement(), which re-enters the patched hyprbars
     -- tab reorder, and by the time this runs that can have moved focus to a tab.
@@ -859,13 +880,17 @@ local function raise_active(w)
     -- can be a window that closed since the event, and an error reading it would
     -- otherwise leave the flag set and swallow every later raise (a focused
     -- window then never comes to the front).
-    pcall(function()
-      local target = raise_target
-      raise_target = nil
-      if target ~= nil and target.floating then
-        hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
-      end
-    end)
+    if #queue > 0 then
+      raise_draining = true
+      pcall(function()
+        for _, target in ipairs(queue) do
+          if target ~= nil and target.floating then
+            hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
+          end
+        end
+      end)
+      raise_draining = false
+    end
     raise_pending = false
   end, { timeout = 1, type = "oneshot" })
 end
