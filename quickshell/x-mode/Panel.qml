@@ -136,9 +136,12 @@ Panel {
     root.noGaps = !!noGaps
     var json = JSON.stringify({ nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps })
     var on = root.nativeScroll ? "true" : "false"
+    // `hyprctl reload` re-runs the config, which reapplies these options, and
+    // emits configreloaded. The dock only re-reads its screen margin on that
+    // event, so without the reload it stays at the old gap.
     Quickshell.execDetached([
       "sh", "-c",
-      "mkdir -p \"$HOME/.local/state/omarchy-x-mode\" && printf '%s\\n' " + shellQuote(json) + " > \"$HOME/.local/state/omarchy-x-mode/options.json\" && hyprctl eval 'hl.config({ input = { natural_scroll = " + on + ", touchpad = { natural_scroll = " + on + " } } })' >/dev/null && hyprctl eval 'if x_mode and x_mode.refresh_options then x_mode.refresh_options() end' >/dev/null"
+      "mkdir -p \"$HOME/.local/state/omarchy-x-mode\" && printf '%s\\n' " + shellQuote(json) + " > \"$HOME/.local/state/omarchy-x-mode/options.json\" && hyprctl eval 'hl.config({ input = { natural_scroll = " + on + ", touchpad = { natural_scroll = " + on + " } } })' >/dev/null && hyprctl reload >/dev/null"
     ])
   }
 

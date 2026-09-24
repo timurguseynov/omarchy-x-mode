@@ -1332,24 +1332,38 @@ local function load_options()
   end
 end
 
+-- gaps_* only schedule a layout refresh, and `hyprctl eval` returns before
+-- that deferred refresh runs, so the windows would keep their old boxes and
+-- the border change would not repaint. Run the scheduled refresh now: it
+-- recalculates every monitor's active workspace from the new gaps.
+local function flush_layout()
+  pcall(function()
+    hl.exec_scheduled_prop_refresh_immediately()
+  end)
+end
+
 local function apply_no_gaps()
+  local changed = false
   if no_gaps then
     if saved_gaps == nil then
       saved_gaps = { out = GAP_OUT(), inn = cfg_int("general:gaps_in", 5), border = BORDER() }
     end
+    changed = true
     pcall(function()
       hl.config({
         general = {
-          -- No gaps between windows, and no borders.
+          -- No gaps between windows; keep a hairline border so windows stay
+          -- separable.
           gaps_in = 0,
           gaps_out = 0,
-          border_size = 0,
+          border_size = 1,
         },
       })
     end)
   elseif saved_gaps ~= nil then
     local g = saved_gaps
     saved_gaps = nil
+    changed = true
     pcall(function()
       hl.config({
         general = {
@@ -1362,6 +1376,9 @@ local function apply_no_gaps()
   end
   -- Snap, float_gaps and the dock inset all read the gap live.
   apply_gap_geometry()
+  if changed then
+    flush_layout()
+  end
 end
 
 local function apply_native_scroll()
