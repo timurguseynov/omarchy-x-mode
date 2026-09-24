@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# x-mode test suite. Unit tests first (no compositor), then the nest scenarios.
-# Prints ok/FAIL per file and exits non-zero if anything failed.
+# x-mode test suite. Static QML lint, the pure-Lua and pure-JS units, then the
+# nest scenarios. Prints ok/FAIL per step and exits non-zero on any failure.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 fail=0
 
-for d in unit nest; do
+if [ -f "$HERE/lint.sh" ]; then
+  echo "== lint"
+  bash "$HERE/lint.sh" || fail=1
+fi
+
+for d in unit qml nest; do
   [ -f "$HERE/$d/run.sh" ] || continue
   echo "== $d"
   bash "$HERE/$d/run.sh" || fail=1

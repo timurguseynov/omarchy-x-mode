@@ -40,6 +40,8 @@ Pack code, in this repo:
 - `hyprbars/` — vendored patched hyprbars (titlebar, tabbar, drag, snap).
   `build.sh` builds it; `README.md` lists its config keys.
 - `quickshell/x-mode/` — the shell plugin.
+  - `logic.js` — the pure JS the components share (`pragma library`), unit
+    tested with qmltestrunner.
   - `Dock.qml` — right-edge dock.
   - `SnapPreview.qml` — snap zone preview.
   - `Switcher.qml` — app switcher.

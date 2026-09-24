@@ -1,19 +1,26 @@
 # x-mode tests
 
-Two layers:
+Four layers:
 
-- **`nest/`** — scenarios in a nested Hyprland. It is a window inside the real
-  session running the repo's `x-mode.lua` and the freshly built plugin, with its
-  own `$X_MODE_STATE`, so nothing here touches the live session or
-  `~/.local/state`. This is where snap/group/no-gaps/topbar/focus are checked.
-- **`unit/`** — pure Lua, no compositor. Not written yet; it needs the geometry
-  and settings parsing split out of `x-mode.lua` (see below).
+- **`lint/`** (via `lint.sh`) — `qmllint` over `quickshell/x-mode/*.qml`. The
+  Quickshell/qs.* modules are not on the lint import path, so their "not found"
+  warnings are expected; only real errors fail.
+- **`unit/`** — pure Lua, no compositor: the modules in `hypr/x-mode/`
+  (geometry, settings, theme, MRU).
+- **`qml/`** — pure JS, no compositor: the shell plugin's shared logic in
+  `quickshell/x-mode/logic.js`, run with `qmltestrunner` offscreen.
+- **`nest/`** — scenarios in a nested Hyprland: a window inside the real session
+  running the repo's `x-mode.lua` and the freshly built plugin, with its own
+  `$X_MODE_STATE`, so nothing here touches the live session or
+  `~/.local/state`.
 
 ## Run
 
 ```sh
-tests/run.sh            # unit, then nest
+bash tests/run.sh       # lint, unit, qml, then nest
 tests/nest/run.sh       # nest only
+bash tests/unit/run.sh  # pure lua only
+bash tests/qml/run.sh   # pure JS only
 ```
 
 The nest layer builds `hyprbars` first (incrementally) and needs a running
@@ -21,7 +28,8 @@ Hyprland session (for the nest) plus the hyprpm headers. It starts one nest for
 the whole run and cleans the windows between files.
 
 Requirements: `hyprpm` headers (`hyprpm update`), `quickshell`/`qs` (the fake top
-bar), and a terminal to open test windows (`foot`, `kitty`).
+bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
+`qmltestrunner` (in `/usr/lib/qt6/bin`).
 
 ## nest scenarios
 
@@ -66,3 +74,20 @@ Pure logic that does not need a compositor. It lives in sibling modules next to
 Adding to a module is the way to make something unit-testable: `x-mode.lua`
 still holds the event/state layer (binds, `hl.dispatch`, grouping, switcher),
 which the nest layer exercises instead.
+
+## qml layer
+
+Same idea for the shell plugin: the pure JS it shares lives in
+`quickshell/x-mode/logic.js` (`.pragma library`), so it can be tested with
+`qmltestrunner` offscreen, without a Quickshell runtime.
+
+| file | covers |
+|---|---|
+| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, invalid), `cleanName`, `lastSegment`, `webappHostFromExec` |
+
+What is *not* unit-testable this way: the components themselves. `import
+Quickshell` fails under `qmltestrunner` (`plugin "quickshell-coreplugin" not
+found`) — the Quickshell types live in the Quickshell binary. Component and
+behaviour tests need a real Quickshell, i.e. the nest or the VM (drive via the
+plugin's IPC and check the state files / `hyprctl`). Add to `logic.js` to make
+more of the plugin testable.
