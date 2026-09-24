@@ -410,13 +410,29 @@ local function monitor_box(monitor)
   return x, y, width, height
 end
 
+-- The top the bar reserves. It is a layer-shell surface and is gone for a
+-- moment while the shell restarts, so a snap in that window saw a zero top and
+-- put the window under the bar. Remember the last non-zero top per monitor and
+-- fall back to it for a few seconds, the same as Snap::usable in hyprbars: a
+-- bar that really moved away (bottom/left/right, or none) stops applying. A
+-- hardcoded height would leave a phantom inset over a bottom bar.
+local bar_top_seen = {}
+local function resolved_top(monitor, top)
+  local name = tostring(monitor.name or monitor.id or "")
+  if top > 0 then
+    bar_top_seen[name] = { top = top, at = os.time() }
+    return top
+  end
+  local seen = bar_top_seen[name]
+  if seen ~= nil and os.time() - seen.at < 10 then
+    return seen.top
+  end
+  return top
+end
+
 local function usable(monitor)
   local left, top, right, bottom = reserved(monitor)
-  -- The bar is a layer-shell surface that is gone for a moment while the shell
-  -- restarts during install. A snap in that window saw a zero top and put the
-  -- window under the bar. Same floor as Snap::usable in hyprbars (the bar is
-  -- 24px tall); anything that reserves more (the error overlay) is used as is.
-  top = math.max(top, 24)
+  top = resolved_top(monitor, top)
   -- Rectangle's visibleFrame already excludes a right-edge dock, and every
   -- fraction (1/2, 2/3, 1/3) is taken from that narrower frame. Reserving the
   -- dock here is what keeps a left half and a right half from overlapping.

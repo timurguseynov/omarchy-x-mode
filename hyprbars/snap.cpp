@@ -12,10 +12,13 @@
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
+#include <hyprland/src/helpers/time/Time.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <unordered_map>
 
 using namespace Snap;
 
@@ -107,17 +110,33 @@ CBox Snap::monitorBox(PHLMONITOR mon) {
     return {mon->m_position.x, mon->m_position.y, mon->m_size.x, mon->m_size.y};
 }
 
+// The top the bar reserves. The bar is a layer-shell surface and is gone for a
+// moment while the shell restarts, so a snap in that window saw a zero top and
+// sized the window to the full screen height. Remember the last non-zero top
+// per monitor and fall back to it for a few seconds: long enough to cover a
+// restart, short enough that a bar the user really moved away (bottom/left/
+// right, or none) stops applying and the top goes back to what the monitor
+// reports. A hardcoded height would leave a phantom inset over a bottom bar.
+static std::unordered_map<std::string, std::pair<double, Time::steady_tp>> s_lastBarTop;
+
+static double resolvedTop(PHLMONITOR mon) {
+    const double top = mon->m_reservedArea.top();
+    if (top > 0) {
+        s_lastBarTop[mon->m_name] = {top, Time::steadyNow()};
+        return top;
+    }
+    const auto it = s_lastBarTop.find(mon->m_name);
+    if (it != s_lastBarTop.end() &&
+        std::chrono::duration_cast<std::chrono::seconds>(Time::steadyNow() - it->second.second).count() < 10)
+        return it->second.first;
+    return top;
+}
+
 CBox Snap::usable(PHLMONITOR mon) {
     if (!mon)
         return {};
     const double left   = mon->m_reservedArea.left();
-    // The top bar reserves its height, but it is a layer-shell surface that is
-    // gone for a moment while the shell restarts during install. A snap in that
-    // window saw a zero top and sized windows to the full screen height. Fall
-    // back to the bar's own 24px only when nothing at all is reserved; anything
-    // taller (the error overlay) is used as it is, so the window is not placed
-    // underneath it.
-    const double top    = mon->m_reservedArea.top() > 0 ? mon->m_reservedArea.top() : 24.0;
+    const double top    = resolvedTop(mon);
     // x-mode.lua publishes the dock card plus half of gaps_out. Rectangle's
     // visibleFrame excludes a right-edge dock before any fraction is taken, so
     // a left half and a right half split this narrower frame and never overlap.
