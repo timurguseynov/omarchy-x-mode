@@ -547,11 +547,31 @@ local function snap(kind, window)
   end
 end
 
-local function almost(a, b, tol)
-  return math.abs(a - b) <= (tol or 32)
-end
+local function snap_or_expand(side)
+  local window = hl.get_active_window()
+  local monitor = hl.get_monitor_at_cursor() or hl.get_active_monitor()
+  if window == nil or monitor == nil then
+    return
+  end
 
--- Super+Alt+Left/Right: Rectangle default cycle sizes 1/2 → 2/3 → 1/3.
+  local wx, wy = vec(window.at)
+  local ww, wh = vec(window.size)
+  local candidates = {}
+  for _, hf in ipairs(CYCLE_HF) do
+    local zx, zy, zw, zh = cycle_geom(side, hf, monitor)
+    local cx, cy, cw, ch = with_chrome(zx, zy, zw, zh, window)
+    candidates[#candidates + 1] = { x = cx, y = cy, w = cw, h = ch }
+  end
+
+  local i = geom.cycle_index({ x = wx, y = wy, w = ww, h = wh }, candidates, side)
+  if i ~= nil then
+    local nx, ny, nw, nh = cycle_geom(side, CYCLE_HF[(i % #CYCLE_HF) + 1], monitor)
+    nx, ny, nw, nh = with_chrome(nx, ny, nw, nh, window)
+    place(nx, ny, nw, nh, window)
+    return
+  end
+  snap(side, window)
+end
 local CYCLE_HF = { 0.5, 2 / 3, 1 / 3 }
 
 local function cycle_geom(side, hf, monitor)
@@ -568,18 +588,19 @@ local function snap_or_expand(side)
 
   local wx, wy = vec(window.at)
   local ww, wh = vec(window.size)
-  for i, hf in ipairs(CYCLE_HF) do
+  local candidates = {}
+  for _, hf in ipairs(CYCLE_HF) do
     local zx, zy, zw, zh = cycle_geom(side, hf, monitor)
     local cx, cy, cw, ch = with_chrome(zx, zy, zw, zh, window)
-    local on_left = almost(wx, cx) and almost(wy, cy) and almost(wh, ch) and almost(ww, cw)
-    local on_right = almost(wx + ww, cx + cw) and almost(wy, cy) and almost(wh, ch) and almost(ww, cw)
-    if (side == "left" and on_left) or (side == "right" and on_right) then
-      local next_hf = CYCLE_HF[(i % #CYCLE_HF) + 1]
-      local nx, ny, nw, nh = cycle_geom(side, next_hf, monitor)
-      nx, ny, nw, nh = with_chrome(nx, ny, nw, nh, window)
-      place(nx, ny, nw, nh, window)
-      return
-    end
+    candidates[#candidates + 1] = { x = cx, y = cy, w = cw, h = ch }
+  end
+
+  local i = geom.cycle_index({ x = wx, y = wy, w = ww, h = wh }, candidates, side)
+  if i ~= nil then
+    local nx, ny, nw, nh = cycle_geom(side, CYCLE_HF[(i % #CYCLE_HF) + 1], monitor)
+    nx, ny, nw, nh = with_chrome(nx, ny, nw, nh, window)
+    place(nx, ny, nw, nh, window)
+    return
   end
   snap(side, window)
 end

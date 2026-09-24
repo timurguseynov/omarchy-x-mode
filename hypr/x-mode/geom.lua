@@ -157,4 +157,21 @@ function M.fit_box(box, frame, edge, chrome)
   return nx, ny, nw, nh
 end
 
+-- Which cycle candidate a window is sitting on, or nil. `side` is the edge the
+-- window is anchored to; `tol` absorbs a pixel of layout rounding.
+function M.cycle_index(box, candidates, side, tol)
+  tol = tol or 32
+  local function near(a, b)
+    return math.abs(a - b) <= tol
+  end
+  for i, c in ipairs(candidates) do
+    local left = near(box.x, c.x) and near(box.y, c.y) and near(box.w, c.w) and near(box.h, c.h)
+    local right = near(box.x + box.w, c.x + c.w) and near(box.y, c.y) and near(box.w, c.w) and near(box.h, c.h)
+    if (side == "left" and left) or (side == "right" and right) then
+      return i
+    end
+  end
+  return nil
+end
+
 return M

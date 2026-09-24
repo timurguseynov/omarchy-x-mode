@@ -91,6 +91,16 @@ check("fit.left", select(1, geom.fit_box({ x = -50, y = 100, w = 100, h = 100 },
 local rx, _, rw = geom.fit_box({ x = 5000, y = 100, w = 100, h = 100 }, ff, 12, 28)
 check("fit.right", rx + rw, 1875 - 12)
 
+-- cycle_index: which candidate the window is sitting on, by the anchored edge.
+local cands = {
+  { x = 0, y = 0, w = 100, h = 100 },
+  { x = 100, y = 0, w = 100, h = 100 },
+}
+check("cycle.left.first", geom.cycle_index({ x = 0, y = 0, w = 100, h = 100 }, cands, "left"), 1)
+check("cycle.right.second", geom.cycle_index({ x = 100, y = 0, w = 100, h = 100 }, cands, "right"), 2)
+check("cycle.tolerance", geom.cycle_index({ x = 2, y = 0, w = 100, h = 100 }, cands, "left", 4), 1)
+check("cycle.none", geom.cycle_index({ x = 500, y = 0, w = 100, h = 100 }, cands, "left"), nil)
+
 if failures > 0 then
   os.exit(1)
 end
