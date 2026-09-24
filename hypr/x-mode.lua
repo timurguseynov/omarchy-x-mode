@@ -16,9 +16,11 @@
 -- Runtime on/off. The bar widget writes ~/.local/state/omarchy-x-mode/enabled
 -- then runs `hyprctl reload`. Off skips the rest of this file so Omarchy's
 -- binds, tiling and animations come back; the plugin stays loaded.
+-- $X_MODE_STATE overrides the state directory, so a nested test session keeps
+-- its own state instead of touching the real one.
 -- ---------------------------------------------------------------------------
 
-local X_MODE_STATE = (os.getenv("HOME") or "") .. "/.local/state/omarchy-x-mode"
+local X_MODE_STATE = os.getenv("X_MODE_STATE") or ((os.getenv("HOME") or "") .. "/.local/state/omarchy-x-mode")
 
 local function x_mode_wanted()
   local file = io.open(X_MODE_STATE .. "/enabled", "r")
