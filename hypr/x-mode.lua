@@ -18,6 +18,7 @@
 local X_MODE_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "./"
 local geom = dofile(X_MODE_DIR .. "x-mode/geom.lua")
 local settings = dofile(X_MODE_DIR .. "x-mode/settings.lua")
+local theme = dofile(X_MODE_DIR .. "x-mode/theme.lua")
 
 -- ---------------------------------------------------------------------------
 -- Runtime on/off. The bar widget writes ~/.local/state/omarchy-x-mode/enabled
@@ -186,48 +187,13 @@ local function omarchy_theme_colors()
   if file == nil then
     return {}
   end
-  local colors = {}
-  for line in file:lines() do
-    local key, value = line:match("^%s*([%w_%-]+)%s*=%s*(.-)%s*$")
-    if key ~= nil and value ~= nil and value ~= "" then
-      -- Strip an inline comment first: a TOML comment '#' must be preceded by
-      -- whitespace, so this leaves '#rrggbb' color values intact.
-      value = value:gsub("%s+#.*$", "")
-      value = value:gsub('^"', ""):gsub('"$', ""):gsub("^'", ""):gsub("'$", "")
-      colors[key] = value
-    end
-  end
+  local raw = file:read("*a") or ""
   file:close()
-  return colors
+  return theme.parse_toml(raw)
 end
 
-local function to_hypr_color(value)
-  local v = tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
-  if v == "" then
-    return nil
-  end
-  if v:match("^rgba?%(") then
-    return v
-  end
-  local h = v:gsub("#", "")
-  if #h == 3 then
-    h = h:sub(1, 1):rep(2) .. h:sub(2, 2):rep(2) .. h:sub(3, 3):rep(2)
-  end
-  if #h < 6 then
-    return nil
-  end
-  local r = tonumber(h:sub(1, 2), 16)
-  local g = tonumber(h:sub(3, 4), 16)
-  local b = tonumber(h:sub(5, 6), 16)
-  if r == nil or g == nil or b == nil then
-    return nil
-  end
-  return string.format("rgb(%d,%d,%d)", r, g, b)
-end
-
-local theme = omarchy_theme_colors()
-local bar_bg = to_hypr_color(theme.background or theme.bg or theme.color0) or "rgb(55, 55, 58)"
-local bar_fg = to_hypr_color(theme.foreground or theme.fg or theme.color7) or "rgb(255, 255, 255)"
+local palette = omarchy_theme_colors()
+local bar_bg, bar_fg = theme.bar_colors(palette)
 
 pcall(function()
   hl.config({
