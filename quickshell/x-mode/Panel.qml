@@ -19,8 +19,7 @@ Panel {
   property bool xModeOn: true
   readonly property var barIdentity: hostWidget || root
 
-  readonly property string appsPath: (Quickshell.env("HOME") || "") + "/.local/state/omarchy-x-mode/apps.json"
-  readonly property string optionsPath: (Quickshell.env("HOME") || "") + "/.local/state/omarchy-x-mode/options.json"
+  readonly property string settingsPath: (Quickshell.env("HOME") || "") + "/.local/state/omarchy-x-mode/settings.json"
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
@@ -103,46 +102,47 @@ Panel {
     for (var k in appsCfg)
       next[k] = appsCfg[k]
     // Persist only non-default chrome (off) or alwaysTabbar; chrome-on alone
-    // is the implicit default and can be dropped from apps.json.
+    // is the implicit default and can be dropped from the app list.
     if (chrome && !alwaysTabbar)
       delete next[key]
     else
       next[key] = { chrome: chrome, alwaysTabbar: !!alwaysTabbar }
     appsCfg = next
-    writeApps()
-  }
-
-  function writeApps() {
-    var obj = {}
-    for (var k in appsCfg) {
-      var e = appsCfg[k]
-      if (e && (e.chrome === false || e.alwaysTabbar))
-        obj[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar }
-    }
-    var json = JSON.stringify(obj)
-    Quickshell.execDetached([
-      "sh", "-c",
-      "mkdir -p \"$HOME/.local/state/omarchy-x-mode\" && printf '%s\\n' " + shellQuote(json) + " > \"$HOME/.local/state/omarchy-x-mode/apps.json\" && hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null"
-    ])
+    writeSettings("hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null")
   }
 
   function shellQuote(s) {
     return "'" + String(s).replace(/'/g, "'\\''") + "'"
   }
 
+  // The panel's whole state in one file, so the options and the app list can
+  // never drift apart. `followUp` is the hyprctl call the change needs.
+  function writeSettings(followUp) {
+    var apps = {}
+    for (var k in appsCfg) {
+      var e = appsCfg[k]
+      if (e && (e.chrome === false || e.alwaysTabbar))
+        apps[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar }
+    }
+    var json = JSON.stringify({
+      options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps },
+      apps: apps
+    })
+    Quickshell.execDetached([
+      "sh", "-c",
+      "mkdir -p \"$HOME/.local/state/omarchy-x-mode\" && printf '%s\\n' " + shellQuote(json) + " > \"$HOME/.local/state/omarchy-x-mode/settings.json\" && " + followUp
+    ])
+  }
+
   function setOptions(nativeScroll, ctrlTabSwitch, noGaps) {
     root.nativeScroll = !!nativeScroll
     root.ctrlTabSwitch = !!ctrlTabSwitch
     root.noGaps = !!noGaps
-    var json = JSON.stringify({ nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps })
     var on = root.nativeScroll ? "true" : "false"
     // `hyprctl reload` re-runs the config, which reapplies these options, and
     // emits configreloaded. The dock only re-reads its screen margin on that
     // event, so without the reload it stays at the old gap.
-    Quickshell.execDetached([
-      "sh", "-c",
-      "mkdir -p \"$HOME/.local/state/omarchy-x-mode\" && printf '%s\\n' " + shellQuote(json) + " > \"$HOME/.local/state/omarchy-x-mode/options.json\" && hyprctl eval 'hl.config({ input = { natural_scroll = " + on + ", touchpad = { natural_scroll = " + on + " } } })' >/dev/null && hyprctl reload >/dev/null"
-    ])
+    writeSettings("hyprctl eval 'hl.config({ input = { natural_scroll = " + on + ", touchpad = { natural_scroll = " + on + " } })' >/dev/null && hyprctl reload >/dev/null")
   }
 
   function rebuildRunning(clients) {
@@ -183,7 +183,9 @@ Panel {
   function parseApps(raw) {
     var set = {}
     try {
-      var d = JSON.parse(raw)
+      // The merged settings file hands the apps object over already parsed;
+      // the old standalone apps.json was a JSON string.
+      var d = typeof raw === "string" ? JSON.parse(raw) : raw
       if (Array.isArray(d)) {
         for (var i = 0; i < d.length; i++)
           set[String(d[i]).toLowerCase()] = { chrome: false, alwaysTabbar: false }
@@ -208,40 +210,32 @@ Panel {
   }
 
   FileView {
-    id: appsFile
-    path: root.appsPath
-    watchChanges: true
-    printErrors: false
-    onFileChanged: reload()
-    onLoaded: {
-      root.appsCfg = root.parseApps(text())
-      root.refreshClients()
-    }
-    onLoadFailed: root.appsCfg = {}
-  }
-
-  FileView {
-    id: optionsFile
-    path: root.optionsPath
+    id: settingsFile
+    path: root.settingsPath
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
     onLoaded: {
       try {
         var d = JSON.parse(text())
-        root.nativeScroll = !!(d && d.nativeScroll)
-        root.ctrlTabSwitch = !!(d && d.ctrlTabSwitch)
-        root.noGaps = !!(d && d.noGaps)
+        var o = (d && d.options) || {}
+        root.nativeScroll = !!o.nativeScroll
+        root.ctrlTabSwitch = !!o.ctrlTabSwitch
+        root.noGaps = !!o.noGaps
+        root.appsCfg = root.parseApps((d && d.apps) || {})
       } catch (e) {
         root.nativeScroll = false
         root.ctrlTabSwitch = false
         root.noGaps = false
+        root.appsCfg = {}
       }
+      root.refreshClients()
     }
     onLoadFailed: {
       root.nativeScroll = false
       root.ctrlTabSwitch = false
       root.noGaps = false
+      root.appsCfg = {}
     }
   }
 

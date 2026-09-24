@@ -1172,26 +1172,62 @@ local function ws_id(w)
   return nil
 end
 
--- Per-app chrome: ~/.local/state/omarchy-x-mode/apps.json
--- { "class": { "chrome": true, "alwaysTabbar": false } }
+-- The panel's settings, options and per-app chrome in one file:
+-- ~/.local/state/omarchy-x-mode/settings.json
+-- { "options": { "nativeScroll": ..., ... },
+--   "apps": { "class": { "chrome": true, "alwaysTabbar": false } } }
 -- chrome=false → no titlebar/tabbar/grouping. alwaysTabbar → tab strip even
 -- when the window is not grouped. Missing entries mean chrome on.
-local APPS_PATH = X_MODE_STATE .. "/apps.json"
+--
+-- The bar panel is the only writer. The runtime on/off flag stays a separate
+-- plain file (`enabled`): the plugin reads that one with stdio, before any Lua
+-- runs, and a broken settings file must not decide whether x-mode loads.
+local SETTINGS_PATH = X_MODE_STATE .. "/settings.json"
+-- Folded into settings.json; read once to migrate, never written again.
+local LEGACY_OPTIONS_PATH = X_MODE_STATE .. "/options.json"
+local LEGACY_APPS_PATH = X_MODE_STATE .. "/apps.json"
+
+local function slurp(path)
+  local file = io.open(path, "r")
+  if file == nil then
+    return nil
+  end
+  local raw = file:read("*a") or ""
+  file:close()
+  if raw:match("^%s*$") then
+    return nil
+  end
+  return raw
+end
+
+-- The whole settings file, migrating the two old files into it on first run.
+-- A missing or empty settings.json is rebuilt instead of erroring, so a
+-- truncated write self-heals into defaults.
+local function read_settings()
+  local raw = slurp(SETTINGS_PATH)
+  if raw ~= nil then
+    return raw
+  end
+  raw = '{"options":' .. (slurp(LEGACY_OPTIONS_PATH) or "{}") ..
+    ',"apps":' .. (slurp(LEGACY_APPS_PATH) or "{}") .. '}'
+  local out = io.open(SETTINGS_PATH, "w")
+  if out then
+    out:write(raw, "\n")
+    out:close()
+  end
+  return raw
+end
+
+-- Just the apps object. The class scan below takes every "key": { ... } it
+-- finds, so it must not be pointed at the whole file: "options" would come
+-- back as an app class.
+local function apps_raw()
+  local raw = read_settings()
+  return raw:match('"apps"%s*:%s*(%b{})') or raw:match('"apps"%s*:%s*(%b[])') or ""
+end
 
 local function load_apps()
-  local file = io.open(APPS_PATH, "r")
-  local raw = ""
-  if file then
-    raw = file:read("*a") or ""
-    file:close()
-  else
-    -- Old list of chrome-off classes.
-    local oldf = io.open(X_MODE_STATE .. "/apps-off.json", "r")
-    if oldf then
-      raw = oldf:read("*a") or ""
-      oldf:close()
-    end
-  end
+  local raw = apps_raw()
   local cfg = {}
   -- Object form: "class": { ... "chrome": false ... }
   for cls, body in raw:gmatch('"([^"]+)"%s*:%s*(%b{})') do
@@ -1298,35 +1334,22 @@ function x_mode.refresh_apps_off()
   regroup_chrome_on()
 end
 
--- Desktop options (native scroll, Ctrl+1..9 tab switching, no gaps). Written
--- by the bar panel. Ctrl+1..9 switches group tabs when the focused app has
+-- Desktop options (native scroll, Ctrl+1..9 tab switching, no gaps), read
+-- from settings.json. Ctrl+1..9 switches group tabs when the focused app has
 -- chrome/titlebar on; otherwise the key is passed through to the app. Off by
 -- default, so those shortcuts reach the app. Cmd+1..9 stay as Omarchy
 -- workspace binds either way. No gaps zeroes the outer and inner gaps and
 -- keeps a hairline border.
-local OPTIONS_PATH = X_MODE_STATE .. "/options.json"
 local native_scroll = false
 local ctrl_tab_switch = false
 local ctrl_tab_binds = {}
 local no_gaps = false
 
 local function load_options()
-  native_scroll = false
-  local file = io.open(OPTIONS_PATH, "r")
-  if not file then
-    return
-  end
-  local raw = file:read("*a") or ""
-  file:close()
-  if raw:find('"nativeScroll"%s*:%s*true') then
-    native_scroll = true
-  end
-  if raw:find('"ctrlTabSwitch"%s*:%s*true') then
-    ctrl_tab_switch = true
-  end
-  if raw:find('"noGaps"%s*:%s*true') then
-    no_gaps = true
-  end
+  local raw = read_settings()
+  native_scroll = raw:find('"nativeScroll"%s*:%s*true') ~= nil
+  ctrl_tab_switch = raw:find('"ctrlTabSwitch"%s*:%s*true') ~= nil
+  no_gaps = raw:find('"noGaps"%s*:%s*true') ~= nil
 end
 
 -- gaps_* only schedule a layout refresh, and `hyprctl eval` returns before
