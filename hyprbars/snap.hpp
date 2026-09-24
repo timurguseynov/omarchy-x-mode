@@ -38,6 +38,10 @@ namespace Snap {
 
     CBox               monitorBox(PHLMONITOR mon);
     CBox               usable(PHLMONITOR mon);
+    // The top usable() resolves for a monitor: the reserved top, or the last
+    // non-zero one while the bar is gone for a moment (shell restart). Lua
+    // clamps windows itself in a few places and needs the same number.
+    double             barTop(PHLMONITOR mon);
     // Full snap zone (titlebar + tabbar + content). Preview draws this.
     std::optional<CBox> zoneBox(eKind kind, PHLMONITOR mon);
     // Content box written to the layout target (zone shifted down by chrome).

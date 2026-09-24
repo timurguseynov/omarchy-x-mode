@@ -280,6 +280,21 @@ static int luaZone(lua_State* L) {
     return 1;
 }
 
+// The top the bar currently reserves, with the shell-restart fallback applied
+// (see Snap::barTop). Lua clamps windows itself in a few places and has to lift
+// a group's tabbar out from under the bar with the same number the snap used.
+static int luaBarTop(lua_State* L) {
+    const char* name = lua_isstring(L, 1) ? lua_tostring(L, 1) : nullptr;
+    for (const auto& m : State::monitorState()->monitors()) {
+        if (!m || (name && m->m_name != name))
+            continue;
+        lua_pushnumber(L, Snap::barTop(m));
+        return 1;
+    }
+    lua_pushnil(L);
+    return 1;
+}
+
 static int luaDragging(lua_State* L) {
     lua_pushboolean(L, g_pDragSession && g_pDragSession->inProgress());
     return 1;
@@ -526,6 +541,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "add_button", ::newLuaButton);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "snap", ::luaSnap);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "zone", ::luaZone);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "bar_top", ::luaBarTop);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "dragging", ::luaDragging);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_window", ::luaDragWindow);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_owns", ::luaDragOwns);

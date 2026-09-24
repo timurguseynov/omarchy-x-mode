@@ -132,6 +132,10 @@ static double resolvedTop(PHLMONITOR mon) {
     return top;
 }
 
+double Snap::barTop(PHLMONITOR mon) {
+    return mon ? resolvedTop(mon) : 0.0;
+}
+
 CBox Snap::usable(PHLMONITOR mon) {
     if (!mon)
         return {};

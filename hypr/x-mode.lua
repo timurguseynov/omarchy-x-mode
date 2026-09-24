@@ -432,7 +432,20 @@ end
 
 local function usable(monitor)
   local left, top, right, bottom = reserved(monitor)
-  top = resolved_top(monitor, top)
+  -- Use the plugin's number when it is there: it keeps the bar's height through
+  -- the shell restart at install, and this Lua clamp has to lift a group's
+  -- tabbar out from under the bar with the same value the snap used. The Lua
+  -- memory below is only for a plugin that is not loaded.
+  local p = bars()
+  local ok, plugin_top = false, nil
+  if p ~= nil and p.bar_top ~= nil then
+    ok, plugin_top = pcall(p.bar_top, monitor.name)
+  end
+  if ok and type(plugin_top) == "number" then
+    top = plugin_top
+  else
+    top = resolved_top(monitor, top)
+  end
   -- Rectangle's visibleFrame already excludes a right-edge dock, and every
   -- fraction (1/2, 2/3, 1/3) is taken from that narrower frame. Reserving the
   -- dock here is what keeps a left half and a right half from overlapping.
