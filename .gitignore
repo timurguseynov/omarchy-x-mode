@@ -24,8 +24,6 @@ Icon
 *.o
 build/
 
-# pi session dumps (keep extensions)
-.pi/sessions/
+.pi/sessions
 
-# Public GitHub mirror (own .git)
-publish/
+_docs
