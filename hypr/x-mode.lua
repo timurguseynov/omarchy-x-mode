@@ -122,9 +122,11 @@ hl.config({
     no_warps = true,
   },
   input = {
-    -- Click to focus: a window does not become active just because the pointer
-    -- is over it.
-    follow_mouse = 0,
+    -- Click to focus: keyboard focus never follows the pointer over a window
+    -- (that would be 1). 2 is Hyprland's "detached": pointer events still go to
+    -- the window under the cursor, so scrolling and the like work over a window
+    -- without focusing it, while focus itself still changes on click.
+    follow_mouse = 2,
   },
   binds = {
     -- Matches the drag threshold in the patched hyprbars titlebar drag.
