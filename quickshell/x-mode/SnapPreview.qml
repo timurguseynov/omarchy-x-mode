@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import QtQuick
 import qs.Commons
+import "logic.js" as Logic
 
 // Rectangle-style footprint preview: a border-only layer-shell overlay that
 // tracks the snap target while a floating window is dragged to a screen edge.
@@ -44,13 +45,12 @@ Item {
   }
 
   function applyXModeLine(raw) {
-    var s = String(raw || "").trim().toLowerCase()
-    if (s === "off" || s === "0" || s === "false") {
-      root.xModeOn = false
+    var on = Logic.parseEnabled(raw)
+    if (on === null)
+      return
+    root.xModeOn = on
+    if (!on)
       root.shown = false
-    } else if (s === "on" || s === "1" || s === "true" || s === "") {
-      root.xModeOn = true
-    }
   }
 
   function applyCmd(raw) {

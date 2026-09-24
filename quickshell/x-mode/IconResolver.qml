@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import "logic.js" as Logic
 
 // Shared app resolution for the dock and the panel: window class -> desktop
 // entry -> icon, plus the bits the dock's context menu needs from the same
@@ -63,20 +64,6 @@ Item {
     ].join(' ')
   }
 
-  function cleanName(cls) {
-    return String(cls || "").toLowerCase().trim()
-      .replace(/^org\./, "").replace(/^com\./, "").replace(/^io\./, "")
-      .replace(/^dev\./, "").replace(/^net\./, "").replace(/^me\./, "")
-      .replace(/\.desktop$/, "")
-  }
-
-  // Last reverse-DNS segment: "dev.zed.Zed" -> "zed", "org.gnome.Nautilus" ->
-  // "Nautilus". Used as the loosest icon-name candidate.
-  function lastSegment(name) {
-    var parts = String(name || "").split(".")
-    return parts.length > 1 ? parts[parts.length - 1] : String(name || "")
-  }
-
   // Resolve an icon *name* (desktop entry Icon= value) to a loadable URL, going
   // through the on-disk index first: Qt's themed lookup misses icons installed
   // after the shell started (its theme cache never rescans).
@@ -106,22 +93,6 @@ Item {
     var seg = k.split(".").pop()
     if (seg !== "" && seg !== k && map[seg] === undefined)
       map[seg] = icon
-  }
-
-  // Host of a web app's start URL, from the Exec of its desktop entry. Only
-  // entries that actually launch a web app (omarchy-launch-webapp or --app=) are
-  // considered, so a regular app with a URL argument cannot match.
-  function webappHostFromExec(execString) {
-    var s = String(execString || "")
-    if (s.indexOf("--app=") === -1 && s.indexOf("omarchy-launch-webapp") === -1)
-      return ""
-    var m = s.match(/https?:\/\/[^\s"']+/)
-    if (!m)
-      return ""
-    var host = m[0].replace(/^https?:\/\//, "").split("/")[0].split(":")[0].toLowerCase()
-    if (host.indexOf("www.") === 0)
-      host = host.slice(4)
-    return host
   }
 
   function hostIconFor(cls) {
@@ -213,7 +184,7 @@ Item {
         continue
       root.addDesktopIconKey(map, e.id, icon)
       root.addDesktopIconKey(map, e.startupClass, icon)
-      var host = root.webappHostFromExec(e.execString)
+      var host = Logic.webappHostFromExec(e.execString)
       if (host !== "")
         hosts.push({ host: host, icon: icon, id: entry.id, name: name, cmd: entry.cmd })
     }
@@ -259,7 +230,7 @@ Item {
       c = c.slice(0, -8)
       raw = raw.slice(0, -8)
     }
-    return root.lastSegment(raw) || c
+    return Logic.lastSegment(raw) || c
   }
 
   // True when the app's desktop entry declares it single-instance, so a launch
@@ -299,10 +270,10 @@ Item {
 
   function iconFor(cls) {
     var raw = String(cls || "")
-    var cleaned = root.cleanName(raw)
+    var cleaned = Logic.cleanName(raw)
     // Direct candidates first (a class that already is the icon name), then the
     // desktop entry's Icon= value, then the loose last segment.
-    var candidates = [raw, cleaned, root.lastSegment(cleaned)]
+    var candidates = [raw, cleaned, Logic.lastSegment(cleaned)]
     for (var i = 0; i < candidates.length; i++) {
       var p = root.resolveIconName(candidates[i])
       if (p !== "")

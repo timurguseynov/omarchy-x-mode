@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import QtQuick
 import qs.Commons
+import "logic.js" as Logic
 
 // Vertical app dock on the right edge. Shows pinned + running apps (one icon
 // per app class) and focuses the app's group on click.
@@ -459,11 +460,9 @@ Item {
   }
 
   function applyXModeLine(raw) {
-    var s = String(raw || "").trim().toLowerCase()
-    if (s === "off" || s === "0" || s === "false")
-      root.xModeOn = false
-    else if (s === "on" || s === "1" || s === "true" || s === "")
-      root.xModeOn = true
+    var on = Logic.parseEnabled(raw)
+    if (on !== null)
+      root.xModeOn = on
   }
 
   FileView {

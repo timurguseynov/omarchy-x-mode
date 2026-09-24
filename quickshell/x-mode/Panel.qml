@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "logic.js" as Logic
 
 // X Mode settings, laid out like the Omarchy Bluetooth panel: a hero header
 // with the on/off switch, settings rows, then the app list. Opening an app
@@ -111,10 +112,6 @@ Panel {
     writeSettings("hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null")
   }
 
-  function shellQuote(s) {
-    return "'" + String(s).replace(/'/g, "'\\''") + "'"
-  }
-
   // The panel's whole state in one file, so the options and the app list can
   // never drift apart. `followUp` is the hyprctl call the change needs.
   function writeSettings(followUp) {
@@ -130,7 +127,7 @@ Panel {
     })
     Quickshell.execDetached([
       "sh", "-c",
-      "mkdir -p \"$HOME/.local/state/omarchy-x-mode\" && printf '%s\\n' " + shellQuote(json) + " > \"$HOME/.local/state/omarchy-x-mode/settings.json\" && " + followUp
+      "mkdir -p \"$HOME/.local/state/omarchy-x-mode\" && printf '%s\\n' " + Logic.shellQuote(json) + " > \"$HOME/.local/state/omarchy-x-mode/settings.json\" && " + followUp
     ])
   }
 
@@ -181,28 +178,6 @@ Panel {
     clientsProc.running = true
   }
 
-  function parseApps(raw) {
-    var set = {}
-    try {
-      // The merged settings file hands the apps object over already parsed;
-      // the old standalone apps.json was a JSON string.
-      var d = typeof raw === "string" ? JSON.parse(raw) : raw
-      if (Array.isArray(d)) {
-        for (var i = 0; i < d.length; i++)
-          set[String(d[i]).toLowerCase()] = { chrome: false, alwaysTabbar: false }
-      } else if (d && typeof d === "object") {
-        for (var k in d) {
-          var e = d[k]
-          if (e && typeof e === "object")
-            set[String(k).toLowerCase()] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar }
-          else
-            set[String(k).toLowerCase()] = { chrome: false, alwaysTabbar: false }
-        }
-      }
-    } catch (err) {}
-    return set
-  }
-
   onOpenedChanged: {
     if (opened) {
       openCls = ""
@@ -223,7 +198,7 @@ Panel {
         root.nativeScroll = !!o.nativeScroll
         root.ctrlTabSwitch = !!o.ctrlTabSwitch
         root.noGaps = !!o.noGaps
-        root.appsCfg = root.parseApps((d && d.apps) || {})
+        root.appsCfg = Logic.parseApps((d && d.apps) || {})
       } catch (e) {
         root.nativeScroll = false
         root.ctrlTabSwitch = false

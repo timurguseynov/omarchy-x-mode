@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import QtQuick
 import qs.Commons
+import "logic.js" as Logic
 
 // Cmd+Tab app switcher preview: a centered row of app icons with the active app
 // highlighted. Driven by the command file x-mode.lua writes:
@@ -32,13 +33,12 @@ Item {
   }
 
   function applyXModeLine(raw) {
-    var s = String(raw || "").trim().toLowerCase()
-    if (s === "off" || s === "0" || s === "false") {
-      root.xModeOn = false
+    var on = Logic.parseEnabled(raw)
+    if (on === null)
+      return
+    root.xModeOn = on
+    if (!on)
       root.shown = false
-    } else if (s === "on" || s === "1" || s === "true" || s === "") {
-      root.xModeOn = true
-    }
   }
 
   function applyCmd(raw) {
