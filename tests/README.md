@@ -25,7 +25,10 @@ bash tests/qml/run.sh   # pure JS only
 
 The nest layer builds `hyprbars` first (incrementally) and needs a running
 Hyprland session (for the nest) plus the hyprpm headers. It starts one nest for
-the whole run and cleans the windows between files.
+the whole run. Between files it closes the windows and restores a clean
+`settings.json`, and a fresh run starts from an empty state dir: a test that
+fails midway otherwise leaves settings behind that change how the next one lays
+out windows.
 
 Requirements: `hyprpm` headers (`hyprpm update`), `quickshell`/`qs` (the fake top
 bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
@@ -40,6 +43,7 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `topbar_test.sh` | with the bar gone (shell restart) a snap still clears where it was |
 | `nogaps_test.sh` | the panel's file + reload zeroes the gaps and re-lays the snapped windows |
 | `focus_test.sh` | the focused window ends up topmost, including after a same-app window joins |
+| `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
 
 `focus_test.sh` relies on `hyprctl clients -j` being in z-order (topmost last),
 which is what `lib.sh`'s helpers read.
@@ -83,11 +87,21 @@ Same idea for the shell plugin: the pure JS it shares lives in
 
 | file | covers |
 |---|---|
-| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, invalid), `cleanName`, `lastSegment`, `webappHostFromExec` |
+| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, invalid), `cleanName`, `lastSegment`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect` |
 
 What is *not* unit-testable this way: the components themselves. `import
 Quickshell` fails under `qmltestrunner` (`plugin "quickshell-coreplugin" not
-found`) — the Quickshell types live in the Quickshell binary. Component and
-behaviour tests need a real Quickshell, i.e. the nest or the VM (drive via the
-plugin's IPC and check the state files / `hyprctl`). Add to `logic.js` to make
-more of the plugin testable.
+found`) — the Quickshell types are linked into the Quickshell binary, there is no
+plugin to dlopen.
+
+So a component is exercised by `nest/qml_test.sh`, which starts a real
+Quickshell with a minimal config that instantiates the plugin's Dock against the
+nest and checks it comes up. That catches what `qmllint` cannot: a broken
+import, a binding that throws, a missing property.
+
+The config folder has to provide the `qs.*` modules the plugin imports
+(`Quickshell` resolves them relative to the config), so the test symlinks
+Omarchy's `Commons`/`Ui` into it, and imports the plugin by `file:` URL (an
+absolute path import is rejected).
+
+Add to `logic.js` to make more of the plugin testable without a compositor.

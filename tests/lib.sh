@@ -39,8 +39,11 @@ build_plugin() {
 
 nest_start() {
   build_plugin
-  mkdir -p "$NEST_STATE/state" "$NEST_STATE/home"
   nest_stop
+  # Start from a clean state dir: a run that fails midway can leave settings.json
+  # behind, and the next run would inherit it.
+  rm -rf "$NEST_STATE/state" "$NEST_STATE/home"
+  mkdir -p "$NEST_STATE/state" "$NEST_STATE/home"
 
   setsid env \
     HOME="$NEST_STATE/home" \
@@ -73,7 +76,13 @@ nest_bar_start() {
   env WAYLAND_DISPLAY="$(nest_socket)" setsid qs -p "$TESTS_DIR/bar.qml" \
     > "$NEST_STATE/bar.log" 2>&1 < /dev/null &
   echo $! > "$NEST_STATE/bar.pid"
-  sleep 1
+  # Wait for the bar to reserve the top instead of a fixed sleep: the geometry
+  # tests are meaningless until the nest reports a reserved top.
+  for _ in $(seq 1 40); do
+    [ "$(bar_top 2>/dev/null)" -ge 24 ] 2>/dev/null && return 0
+    sleep 0.25
+  done
+  return 0
 }
 
 nest_bar_stop() {
@@ -129,6 +138,10 @@ print(' '.join(c['address'] for c in json.load(sys.stdin)))")"
   for a in $addrs; do
     nest_ctl dispatch "hl.dsp.window.close({ window = 'address:$a' })" >/dev/null 2>&1 || true
   done
+  # Settings are written by the panel, and by the tests that drive it. Reset them
+  # so a test that fails midway cannot change how the next one lays out windows.
+  printf '%s\n' '{"options":{},"apps":{}}' > "$NEST_STATE/state/settings.json"
+  nest_ctl reload >/dev/null 2>&1 || true
   sleep 0.4
 }
 
