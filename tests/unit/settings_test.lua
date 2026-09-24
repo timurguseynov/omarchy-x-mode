@@ -46,6 +46,26 @@ local merged = settings.merge('{"nativeScroll":true}', '{"chromium":{"chrome":fa
 check("merge.options", settings.parse_options(merged).native_scroll, true)
 check("merge.apps", settings.parse_apps(settings.apps_section(merged))["chromium"].chrome, false)
 
+-- The rule effects the app config drives. chrome off wins over always-tabbar.
+local nobar, always = settings.desired_rules({
+  chromium = { chrome = false, always_tabbar = true },
+  zed = { chrome = true, always_tabbar = true },
+  foot = { chrome = true, always_tabbar = false },
+})
+check("rules.nobar.chromium", nobar["chromium"], true)
+check("rules.always.chromium", always["chromium"], nil)
+check("rules.always.zed", always["zed"], true)
+check("rules.nobar.zed", nobar["zed"], nil)
+check("rules.foot", nobar["foot"] == nil and always["foot"] == nil, true)
+
+-- The diff: enable what is new, disable what is gone, nothing for unchanged.
+local add, drop = settings.rule_diff({ a = true, b = true }, { b = true, c = true })
+check("diff.add", table.concat(add, ","), "a")
+check("diff.drop", table.concat(drop, ","), "c")
+local add2, drop2 = settings.rule_diff({ b = true }, { b = true })
+check("diff.unchanged.add", #add2, 0)
+check("diff.unchanged.drop", #drop2, 0)
+
 if failures > 0 then
   os.exit(1)
 end

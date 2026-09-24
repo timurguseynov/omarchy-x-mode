@@ -1192,29 +1192,23 @@ end
 local function apply_apps()
   apps_cfg = load_apps()
   sync_apps_off()
-  local seen_nobar, seen_always = {}, {}
-  for cls, e in pairs(apps_cfg) do
-    if e.chrome == false then
-      seen_nobar[cls] = true
-      set_rule("x-mode-nobar-", cls, "hyprbars:no_bar", true)
-    end
-    if e.always_tabbar and e.chrome ~= false then
-      seen_always[cls] = true
-      set_rule("x-mode-always-tabbar-", cls, "hyprbars:always_tabbar", true)
-    end
+  local wanted_nobar, wanted_always = settings.desired_rules(apps_cfg)
+  local add_nobar, drop_nobar = settings.rule_diff(wanted_nobar, nobar_applied)
+  local add_always, drop_always = settings.rule_diff(wanted_always, always_applied)
+  for _, cls in ipairs(add_nobar) do
+    set_rule("x-mode-nobar-", cls, "hyprbars:no_bar", true)
   end
-  for cls, _ in pairs(nobar_applied) do
-    if not seen_nobar[cls] then
-      set_rule("x-mode-nobar-", cls, "hyprbars:no_bar", false)
-    end
+  for _, cls in ipairs(drop_nobar) do
+    set_rule("x-mode-nobar-", cls, "hyprbars:no_bar", false)
   end
-  for cls, _ in pairs(always_applied) do
-    if not seen_always[cls] then
-      set_rule("x-mode-always-tabbar-", cls, "hyprbars:always_tabbar", false)
-    end
+  for _, cls in ipairs(add_always) do
+    set_rule("x-mode-always-tabbar-", cls, "hyprbars:always_tabbar", true)
   end
-  nobar_applied = seen_nobar
-  always_applied = seen_always
+  for _, cls in ipairs(drop_always) do
+    set_rule("x-mode-always-tabbar-", cls, "hyprbars:always_tabbar", false)
+  end
+  nobar_applied = wanted_nobar
+  always_applied = wanted_always
 end
 
 local function ungroup_chrome_off()

@@ -41,4 +41,39 @@ function M.merge(options_raw, apps_raw)
   return '{"options":' .. (options_raw or "{}") .. ',"apps":' .. (apps_raw or "{}") .. '}'
 end
 
+-- The two window-rule effects the app config drives: chrome off (no titlebar at
+-- all) and always-tabbar. chrome off wins, so a class with both only gets the
+-- first.
+function M.desired_rules(cfg)
+  local nobar, always = {}, {}
+  for cls, e in pairs(cfg or {}) do
+    if e.chrome == false then
+      nobar[cls] = true
+    elseif e.always_tabbar then
+      always[cls] = true
+    end
+  end
+  return nobar, always
+end
+
+-- What to turn on and off for one effect: `desired` is the set the config wants
+-- now, `applied` what was set last time. Returns two sorted class lists.
+function M.rule_diff(desired, applied)
+  desired, applied = desired or {}, applied or {}
+  local enable, disable = {}, {}
+  for cls in pairs(desired) do
+    if not applied[cls] then
+      enable[#enable + 1] = cls
+    end
+  end
+  for cls in pairs(applied) do
+    if not desired[cls] then
+      disable[#disable + 1] = cls
+    end
+  end
+  table.sort(enable)
+  table.sort(disable)
+  return enable, disable
+end
+
 return M
