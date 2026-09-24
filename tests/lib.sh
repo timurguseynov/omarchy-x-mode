@@ -223,6 +223,31 @@ d = json.load(sys.stdin) or {}
 print(d.get('class') or '')"
 }
 
+active_address() {
+  nest_ctl activewindow -j | python3 -c "
+import json, sys
+d = json.load(sys.stdin) or {}
+print(d.get('address') or '')"
+}
+
+# Like win_geom, but skips the hidden tabs of a group: an inactive tab stays
+# mapped, and its box is not the one on screen, so win_geom can report a window
+# nobody can see.
+visible_geom() { # CLASS
+  nest_ctl clients -j | python3 -c "
+import json, sys
+for c in json.load(sys.stdin):
+    if c['class'] == '$1' and c['mapped'] and not c['hidden']:
+        print(c['at'][0], c['at'][1], c['size'][0], c['size'][1], len(c.get('grouped') or []))
+        break"
+}
+
+# Switch a group to tab INDEX (1-based), the dispatcher the pack's Ctrl+N uses.
+group_tab() { # INDEX CLASS
+  nest_ctl dispatch "hl.dsp.group.active({ index = $1, window = 'class:$2' })" >/dev/null
+  sleep 0.2
+}
+
 # Snap the first floating window of CLASS to KIND (left/right/maximize/...).
 snap() { # CLASS KIND
   nest_ctl eval "for _,w in ipairs(hl.get_windows()) do

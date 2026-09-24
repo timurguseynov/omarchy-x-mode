@@ -61,6 +61,9 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
 | `integration/no_gaps_keeps_border_test.sh` | No gaps collapses the gaps, keeps the 1px border, and restores both |
 | `integration/group_close_focus_test.sh` | closing the active tab keeps focus in the group, not on a foreign app |
+| `integration/join_same_app_focus_test.sh` | a new same-app window becomes the active tab, not a hidden one |
+| `integration/group_join_keeps_visual_top_test.sh` | joining a group pushes the box down instead of pinning it to the top |
+| `integration/group_tab_switch_no_resize_test.sh` | switching tabs leaves the geometry alone |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
@@ -80,10 +83,13 @@ snap foot left
 assert_ge "$(visual_top foot)" 36 "the titlebar clears the bar"
 ```
 
-Helpers: `open_window`, `nest_clean`, `win_geom`, `visual_top`, `group_size`,
-`active_class`, `snap`, `bar_top`, `gaps_out`, `border_size`, `nest_ctl`,
-`nest_socket`, `titlebar_point`, the `pointer_*` family below, and
-`assert_eq/ne/ge/le/between`.
+Helpers: `open_window`, `nest_clean`, `win_geom`, `visible_geom`, `visual_top`,
+`group_size`, `active_class`, `active_address`, `group_tab`, `snap`, `bar_top`,
+`gaps_out`, `border_size`, `nest_ctl`, `nest_socket`, `titlebar_point`, the
+`pointer_*` family below, and `assert_eq/ne/ge/le/between`.
+
+`visible_geom` is `win_geom` for a group: an inactive tab stays mapped, so
+`win_geom` can read a window nobody can see.
 
 `hyprctl dispatch` here takes a dispatcher object, not the legacy string: use
 `hl.dsp.window.close({ window = 'address:$addr' })`, not `killactive`.
