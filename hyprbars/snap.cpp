@@ -310,6 +310,31 @@ void Snap::moveDrag(PHLWINDOW w, Vector2D pos) {
     each([](PHLWINDOW win) { g_pHyprRenderer->damageWindow(win, true); });
 }
 
+Snap::eKind Snap::kindOf(PHLWINDOW w, int slop) {
+    if (!w)
+        return eKind::None;
+    const auto mon = w->m_monitor.lock();
+    const auto TARGET = w->layoutTarget();
+    if (!mon || !TARGET)
+        return eKind::None;
+
+    const CBox got = TARGET->position();
+    static constexpr eKind KINDS[] = {
+        eKind::Left, eKind::Right, eKind::Top, eKind::Bottom,
+        eKind::TopLeft, eKind::TopRight, eKind::BottomLeft, eKind::BottomRight,
+        eKind::Maximize, eKind::AlmostMaximize,
+    };
+    for (const auto kind : KINDS) {
+        const auto box = contentBox(kind, mon, w);
+        if (!box)
+            continue;
+        if (std::abs(got.x - box->x) <= slop && std::abs(got.y - box->y) <= slop &&
+            std::abs(got.w - box->w) <= slop && std::abs(got.h - box->h) <= slop)
+            return kind;
+    }
+    return eKind::None;
+}
+
 bool Snap::applyKind(PHLWINDOW w, eKind kind) {
     if (!xModeEnabled() || !w || kind == eKind::None)
         return false;

@@ -48,6 +48,11 @@ namespace Snap {
     bool               applyContent(PHLWINDOW w, const CBox& content);
     bool               applyKind(PHLWINDOW w, eKind kind);
 
+    // The zone a window currently occupies, or None. Compared in the same
+    // logical pixels applyKind writes, so a window snapped by the plugin is
+    // recognised again. `slop` absorbs the one pixel a layout round can move.
+    eKind              kindOf(PHLWINDOW w, int slop = 2);
+
     // Titlebar-drag move: compositor-only (no client configure), position
     // warped so chrome and the surface share the same pixel this frame.
     void               moveDrag(PHLWINDOW w, Vector2D pos);

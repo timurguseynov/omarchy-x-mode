@@ -246,6 +246,25 @@ static int luaSnap(lua_State* L) {
     return 0;
 }
 
+// The snap zone a window currently fills, or nil. Lua uses it to re-snap
+// windows after the gaps change: it asks with the old gaps still set, then
+// snaps again once the new gaps are in.
+static int luaZone(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.zone");
+    if (!w)
+        w = Desktop::focusState()->window();
+
+    const auto kind = Snap::kindOf(w);
+    if (kind == Snap::eKind::None) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushstring(L, Snap::kindToString(kind));
+    return 1;
+}
+
 static int luaDragging(lua_State* L) {
     lua_pushboolean(L, g_pDragSession && g_pDragSession->inProgress());
     return 1;
@@ -491,6 +510,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     else {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "add_button", ::newLuaButton);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "snap", ::luaSnap);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "zone", ::luaZone);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "dragging", ::luaDragging);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_window", ::luaDragWindow);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_owns", ::luaDragOwns);
