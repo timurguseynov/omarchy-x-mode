@@ -990,20 +990,22 @@ local function raise_active(w)
   end
   raise_pending = true
   hl.timer(function()
-    -- Raise the window the event named, not the live active one. alter_zorder
-    -- ends with simulateMouseMovement(), which synchronously re-emits
-    -- input.mouse.move and re-enters the patched hyprbars tab reorder; by the
-    -- time this timer runs, that can have moved focus to a tab. Re-reading the
-    -- active window therefore raised that tab instead of the window that was
-    -- actually clicked (a foot tab surfacing on a click of another window).
+    -- Raise the window the event named, not the live active one: alter_zorder
+    -- ends with simulateMouseMovement(), which re-enters the patched hyprbars
+    -- tab reorder, and by the time this runs that can have moved focus to a tab.
     -- If several windows took focus before the timer ran, the newest wins.
-    local target = raise_target
-    raise_target = nil
-    if target ~= nil and target.floating then
-      pcall(function()
+    --
+    -- Everything is inside the pcall so raise_pending always clears: the target
+    -- can be a window that closed since the event, and an error reading it would
+    -- otherwise leave the flag set and swallow every later raise (a focused
+    -- window then never comes to the front).
+    pcall(function()
+      local target = raise_target
+      raise_target = nil
+      if target ~= nil and target.floating then
         hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
-      end)
-    end
+      end
+    end)
     raise_pending = false
   end, { timeout = 1, type = "oneshot" })
 end
