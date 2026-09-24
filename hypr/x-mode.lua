@@ -1,16 +1,22 @@
--- omarchy-x-mode: the macOS-like desktop layer, single file.
+-- omarchy-x-mode: the macOS-like desktop layer.
 --
 -- Loaded from a sentinel block at the end of ~/.config/hypr/hyprland.lua:
 --   -- >>> omarchy-x-mode >>>
 --   dofile((os.getenv("HOME") or "") .. "/.config/hypr/x-mode.lua")
 --   -- <<< omarchy-x-mode <<<
 --
--- This file holds everything the pack needs to work (never "taste"): the
--- floating desktop, the Mac titlebar/tabbar (patched hyprbars), and the
--- Rectangle-style snap + same-app grouping engine. Personal look'n'feel
--- (input, monitors, decoration, native snap, ...) lives in a separate file the
--- pack does not own — see omarchy-x-vm/taste.lua — so uninstalling the pack
--- never removes it.
+-- This file holds the pack: the floating desktop, the Mac titlebar/tabbar
+-- (patched hyprbars), and the Rectangle-style snap + same-app grouping engine.
+-- Pure geometry lives next to it in x-mode/geom.lua so it can be tested on its
+-- own (tests/unit). Personal look'n'feel (input, monitors, decoration, native
+-- snap, ...) lives in a separate file the pack does not own — see
+-- omarchy-x-vm/taste.lua — so uninstalling the pack never removes it.
+
+-- Resolve this chunk's directory so the sibling module is found both installed
+-- (~/.config/hypr/x-mode.lua) and straight from the repo (the tests load this
+-- file out of hypr/).
+local X_MODE_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "./"
+local geom = dofile(X_MODE_DIR .. "x-mode/geom.lua")
 
 -- ---------------------------------------------------------------------------
 -- Runtime on/off. The bar widget writes ~/.local/state/omarchy-x-mode/enabled
@@ -389,31 +395,6 @@ local function vec(value)
   return value[1] or 0, value[2] or 0
 end
 
-local function reserved(monitor)
-  local r = monitor.reserved
-  if type(r) ~= "table" then
-    return 0, 0, 0, 0
-  end
-  if r.left ~= nil then
-    return r.left or 0, r.top or 0, r.right or 0, r.bottom or 0
-  end
-  return r[1] or 0, r[2] or 0, r[3] or 0, r[4] or 0
-end
-
-local function monitor_box(monitor)
-  local scale = tonumber(monitor.scale) or 1
-  if scale <= 0 then
-    scale = 1
-  end
-  local x, y = monitor.x, monitor.y
-  if x == nil then
-    x, y = vec(monitor.position)
-  end
-  local width = (monitor.width or select(1, vec(monitor.size))) / scale
-  local height = (monitor.height or select(2, vec(monitor.size))) / scale
-  return x, y, width, height
-end
-
 -- The top the bar reserves. It is a layer-shell surface and is gone for a
 -- moment while the shell restarts, so a snap in that window saw a zero top and
 -- put the window under the bar. Remember the last non-zero top per monitor and
@@ -435,7 +416,7 @@ local function resolved_top(monitor, top)
 end
 
 local function usable(monitor)
-  local left, top, right, bottom = reserved(monitor)
+  local _, top = geom.reserved(monitor)
   -- Use the plugin's number when it is there: it keeps the bar's height through
   -- the shell restart at install, and this Lua clamp has to lift a group's
   -- tabbar out from under the bar with the same value the snap used. The Lua
@@ -450,12 +431,9 @@ local function usable(monitor)
   else
     top = resolved_top(monitor, top)
   end
-  -- Rectangle's visibleFrame already excludes a right-edge dock, and every
-  -- fraction (1/2, 2/3, 1/3) is taken from that narrower frame. Reserving the
-  -- dock here is what keeps a left half and a right half from overlapping.
-  right = right + DOCK_PULL()
-  local x, y, width, height = monitor_box(monitor)
-  return x + left, y + top, width - left - right, height - top - bottom
+  -- The frame already excludes the dock inset (see geom.frame), so the zone
+  -- fractions taken from it keep a left and a right half from overlapping.
+  return geom.frame(monitor, top, DOCK_PULL())
 end
 
 local function window_class(w)
@@ -507,65 +485,9 @@ local find_peer
 local join_same_app
 local apps_off = {}
 
--- Fraction of the screen frame each action occupies, plus which raw edges
--- sit against a neighbouring window (those get half the inner gap).
-local ZONES = {
-  ["left"] = { h = "left", v = nil, hf = 0.5, vf = 1, inner = { r = true } },
-  ["right"] = { h = "right", v = nil, hf = 0.5, vf = 1, inner = { l = true } },
-  ["top"] = { h = nil, v = "top", hf = 1, vf = 0.5, inner = { b = true } },
-  ["bottom"] = { h = nil, v = "bottom", hf = 1, vf = 0.5, inner = { t = true } },
-  ["top-left"] = { h = "left", v = "top", hf = 0.5, vf = 0.5, inner = { r = true, b = true } },
-  ["top-right"] = { h = "right", v = "top", hf = 0.5, vf = 0.5, inner = { l = true, b = true } },
-  ["bottom-left"] = { h = "left", v = "bottom", hf = 0.5, vf = 0.5, inner = { r = true, t = true } },
-  ["bottom-right"] = { h = "right", v = "bottom", hf = 0.5, vf = 0.5, inner = { l = true, t = true } },
-  ["maximize"] = { h = nil, v = nil, hf = 1, vf = 1, inner = {} },
-}
-
--- Rectangle's HalfSplitFrameCalculation, adapted to a top-left origin.
-local function fractional_rect(frame, hside, vside, hf, vf)
-  local w = math.floor(frame.w * hf + 0.0001)
-  local h = math.floor(frame.h * vf + 0.0001)
-  local x = frame.x
-  local y = frame.y
-  if hside == "right" then
-    x = frame.x + frame.w - w
-  end
-  if vside == "bottom" then
-    y = frame.y + frame.h - h
-  end
-  return x, y, w, h
-end
-
--- The border is drawn outside the window box and reserves its own space, so it
--- comes off every side of the frame once. GAP_OUT is inset on top of that: a
--- full outer gap on the screen edges, half on an edge shared with another
--- window, so two snapped windows end up exactly GAP_OUT apart. The dock is
--- already gone from the frame (see usable), as Rectangle's visibleFrame excludes
--- it, so the gaps below are the only inset.
-local function apply_gaps(x, y, w, h, inner)
-  local gap = GAP_OUT()
-  local half = math.floor(gap / 2)
-  local border = BORDER()
-  local left = border + (inner.l and half or gap)
-  local right = border + (inner.r and half or gap)
-  local top = border + (inner.t and half or gap)
-  local bottom = border + (inner.b and half or gap)
-  return x + left, y + top, w - left - right, h - top - bottom
-end
-
 local function snap_geom(kind, monitor)
   local fx, fy, fw, fh = usable(monitor)
-  if kind == "almost-maximize" then
-    local w = math.floor(fw * ALMOST_MAXIMIZE + 0.5)
-    local h = math.floor(fh * ALMOST_MAXIMIZE + 0.5)
-    return fx + math.floor((fw - w) / 2 + 0.5), fy + math.floor((fh - h) / 2 + 0.5), w, h
-  end
-  local z = ZONES[kind]
-  if z == nil then
-    return nil
-  end
-  local x, y, w, h = fractional_rect({ x = fx, y = fy, w = fw, h = fh }, z.h, z.v, z.hf, z.vf)
-  return apply_gaps(x, y, w, h, z.inner)
+  return geom.zone_geom(kind, { x = fx, y = fy, w = fw, h = fh }, GAP_OUT(), BORDER(), ALMOST_MAXIMIZE)
 end
 
 local function window_by_addr(addr)
@@ -666,9 +588,7 @@ local CYCLE_HF = { 0.5, 2 / 3, 1 / 3 }
 
 local function cycle_geom(side, hf, monitor)
   local fx, fy, fw, fh = usable(monitor)
-  local inner = side == "left" and { r = true } or { l = true }
-  local x, y, w, h = fractional_rect({ x = fx, y = fy, w = fw, h = fh }, side, nil, hf, 1)
-  return apply_gaps(x, y, w, h, inner)
+  return geom.cycle_geom(side, hf, { x = fx, y = fy, w = fw, h = fh }, GAP_OUT(), BORDER())
 end
 
 local function snap_or_expand(side)
