@@ -216,6 +216,13 @@ for c in json.load(sys.stdin):
 print(n)"
 }
 
+active_class() {
+  nest_ctl activewindow -j | python3 -c "
+import json, sys
+d = json.load(sys.stdin) or {}
+print(d.get('class') or '')"
+}
+
 # Snap the first floating window of CLASS to KIND (left/right/maximize/...).
 snap() { # CLASS KIND
   nest_ctl eval "for _,w in ipairs(hl.get_windows()) do

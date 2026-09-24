@@ -47,6 +47,9 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `pointer_test.sh` | a titlebar drag moves the window through the drag session, and a click does not |
 | `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
 | `integration/no_gaps_keeps_border_test.sh` | No gaps collapses the gaps, keeps the 1px border, and restores both |
+| `integration/group_close_focus_test.sh` | closing the active tab keeps focus in the group, not on a foreign app |
+| `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
+| `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
 
 `focus_test.sh` relies on `hyprctl clients -j` being in z-order (topmost last),
@@ -65,8 +68,12 @@ assert_ge "$(visual_top foot)" 36 "the titlebar clears the bar"
 ```
 
 Helpers: `open_window`, `nest_clean`, `win_geom`, `visual_top`, `group_size`,
-`snap`, `bar_top`, `gaps_out`, `border_size`, `nest_ctl`, `nest_socket`,
-`titlebar_point`, the `pointer_*` family below, and `assert_eq/ne/ge/le/between`.
+`active_class`, `snap`, `bar_top`, `gaps_out`, `border_size`, `nest_ctl`,
+`nest_socket`, `titlebar_point`, the `pointer_*` family below, and
+`assert_eq/ne/ge/le/between`.
+
+`hyprctl dispatch` here takes a dispatcher object, not the legacy string: use
+`hl.dsp.window.close({ window = 'address:$addr' })`, not `killactive`.
 
 ## nest scenarios and integration scenarios
 
