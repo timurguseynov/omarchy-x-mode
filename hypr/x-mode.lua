@@ -1913,6 +1913,12 @@ local function consolidate()
       end
     end
   end
+
+  -- Joining a group adds the tabbar, which grows the chrome upward. Move every
+  -- window down into the space that leaves, or a group formed while the bar was
+  -- momentarily gone (the shell restart at install) stays with its tabbar under
+  -- the top bar. This is the walk the comment above keep_below_topbar promises.
+  keep_below_topbar()
 end
 
 -- hyprbars draws the titlebar (and the tabbar, once a window is grouped)
