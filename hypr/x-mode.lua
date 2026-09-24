@@ -19,6 +19,7 @@ local X_MODE_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "./"
 local geom = dofile(X_MODE_DIR .. "x-mode/geom.lua")
 local settings = dofile(X_MODE_DIR .. "x-mode/settings.lua")
 local theme = dofile(X_MODE_DIR .. "x-mode/theme.lua")
+local mru = dofile(X_MODE_DIR .. "x-mode/mru.lua")
 
 -- ---------------------------------------------------------------------------
 -- Runtime on/off. The bar widget writes ~/.local/state/omarchy-x-mode/enabled
@@ -705,16 +706,7 @@ local switcher_index = 0
 local switcher_mru = {}
 
 local function switcher_touch(cls)
-  cls = tostring(cls or "")
-  if cls == "" then
-    return
-  end
-  for i = #switcher_mru, 1, -1 do
-    if switcher_mru[i] == cls then
-      table.remove(switcher_mru, i)
-    end
-  end
-  table.insert(switcher_mru, 1, cls)
+  mru.touch(switcher_mru, cls)
 end
 
 -- Raise + focus the most recently focused window of a class (any workspace;
@@ -761,26 +753,8 @@ local function switcher_step(step)
     for cls, e in pairs(by_class) do
       table.insert(entries, { cls = cls, focus = e.focus, addr = e.addr })
     end
-    -- Most recently used first (like macOS Cmd+Tab): the remembered MRU order
-    -- ranks the classes we have seen, and focus_history_id only breaks ties for
-    -- classes that have not been used yet (e.g. right after a config reload).
-    local mru_rank = {}
-    for i, cls in ipairs(switcher_mru) do
-      mru_rank[cls] = i
-    end
-    table.sort(entries, function(a, b)
-      local ra, rb = mru_rank[a.cls], mru_rank[b.cls]
-      if ra ~= nil or rb ~= nil then
-        if ra == nil then
-          return false
-        end
-        if rb == nil then
-          return true
-        end
-        return ra < rb
-      end
-      return a.focus < b.focus
-    end)
+    -- Most recently used first (like macOS Cmd+Tab); see mru.sort.
+    mru.sort(entries, switcher_mru)
     local classes = {}
     local tokens = {}
     for _, e in ipairs(entries) do
@@ -802,7 +776,7 @@ local function switcher_step(step)
   if n == 0 then
     return
   end
-  switcher_index = ((switcher_index - 1 + step) % n) + 1
+  switcher_index = mru.step(switcher_index, n, step)
   local cls = switcher_order[switcher_index]
   switcher_focus(cls)
   switcher_write("show " .. cls .. " " .. table.concat(switcher_tokens, " "))
