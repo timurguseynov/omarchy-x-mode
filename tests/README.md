@@ -220,27 +220,46 @@ The events a config can subscribe to on a window are: `open`, `open_early`,
 `active`, `class`, `title`, `update_rules`, `move_to_workspace`, `fullscreen`,
 `pin`, `urgent`, `close`, `destroy` and `kill`; alongside `config.reloaded`,
 `config.props_refreshed`, the `monitor.*` and `workspace.*` families, `layer.*`
-and `input.keyboard.key`. **There is no size or geometry event.** That is why the
-pack clamps an ungrouped window with one-shot timers at 60ms and 200ms after
-`window.open` rather than reacting to a resize, and why the pack subscribes to
-`window.open`, `window.open_early`, `window.active` and `window.close` only.
+and `input.keyboard.key`. **There is no size or geometry event.**
 
-Two things follow.
+Measuring the order for a window opened in the nest shows what that means. It
+reports `class` and `title` while it is still 0x0, then `open_early`, then
+`update_rules` with a provisional size, then `active`, then `open`, and then
+`title` and `update_rules` again once the geometry has settled:
 
-A window that is resized after those timers is not clamped again.
-`resize_after_open_clears_bar_test.sh` shows it: Hyprland resizes around the
+```
+window.class        y=0   size=0
+window.title        y=0   size=0
+window.open_early   y=0   size=0
+window.update_rules y=26  size=500
+window.active       y=26  size=500
+window.open         y=26  size=500
+window.title        y=64  size=424     <- the settled size
+window.update_rules y=64  size=424
+```
+
+A resize after that emits **nothing at all**. So `window.title` is not "the
+window is settled": it arrives before the window has a size, and it changes later
+for reasons of its own (a shell prompt, a document title). `update_rules` does
+fire again once the geometry settles, which makes it a usable *extra* trigger, but
+it is not a resize notification either. That is why the pack clamps an ungrouped
+window with one-shot timers at 60ms and 200ms after `window.open` instead of
+reacting to a resize, and why a window resized after those timers is not clamped
+again.
+
+`resize_after_open_clears_bar_test.sh` shows the gap: Hyprland resizes around the
 window's centre, so growing a window moves its top-left up (measured at -39 with
-the bar at 24). The test reports that as a known gap rather than failing, and
-says so the day it stops being one. If this is to be fixed on the pack's side, the
-hooks that exist are a longer timer after `open` (the shape the pack already
-uses), `window.title` or `window.update_rules` (a client usually sets its title
-right after its first resize, so both are proxies, not the event itself), and a
-clamp on `window.active` (which a resize without a focus change does not fire).
+the bar at 24). The test reports that as a known gap rather than failing, and says
+so the day it stops being one. What would actually cover it is a bounded poll —
+re-clamping until the geometry stops changing, for the second or so after a window
+appears — rather than any of the events above.
 
 Waiting on a fixed sleep is how a test turns flaky. `wait_for_count CLASS N
 [SECONDS]` is the helper for "until it appears": a window opened through
 `gtk-launch`, as the tabbar's `+` does, takes much longer on a cold start than a
-plain window.
+plain window. And note that the pack's own launch paths inherit the nest's `HOME`,
+so a window they open reads no user config at all — a `foot` launched that way has
+no `foot.ini` and is unthemed.
 
 ## The pointer
 
