@@ -104,6 +104,13 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/dock_click_same_app_no_tab_switch_test.sh` | clicking the focused app's icon does not switch tabs |
 | `integration/dock_right_click_menu_test.sh` | a right-click opens the context menu layer |
 | `integration/dock_snap_clears_dock_test.sh` | a right-snapped window stops before the dock |
+| `integration/dock_pinned_first_test.sh` | a pinned app's icon comes before the running ones |
+| `integration/dock_pinned_shown_when_not_running_test.sh` | a pinned app that is not running still gets an icon |
+| `integration/dock_pinned_drag_reorders_test.sh` | dragging an icon past its neighbour rewrites the pinned order |
+| `integration/dock_menu_pin_writes_file_test.sh` | the menu's Pin row writes the class, and Unpin clears it |
+| `integration/dock_menu_quit_closes_app_test.sh` | the menu's last row quits the app |
+| `integration/dock_hides_when_x_mode_off_test.sh` | the dock follows the x-mode on/off flag |
+| `integration/dock_offset_follows_gaps_test.sh` | the dock's edge inset follows the gaps |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
@@ -264,6 +271,23 @@ class, so with only foot and kitty the icons are 0 and 1.
 
 `dock_layer_box NAMESPACE` finds a layer's box; the menu is a layer called
 `x-mode-dock-menu`, which is how a right-click can be observed at all.
+
+`dock_pin '["kitty"]'` writes the pinned list the dock reads from its HOME (the
+nest's, thanks to the redirected HOME above), and `dock_menu_row_point`
+computes the middle of a menu row. Pass it the row-height list the test expects
+(26 for a row, 7 for a separator) so the click says which menu it is aiming at.
+For a running app with one window that is `"26 7 26 7 26 26"`: New, separator,
+the window row, separator, Pin/Unpin, Quit. `Quit` is the last row of every menu
+the dock builds, so it can be aimed at without knowing the rows above it.
+
+What the menu rows do is covered, but the ones that *launch* are not: they shell
+out through `uwsm-app` and `gtk-launch`, which hang in the nest (no uwsm session),
+so a test that clicked them would block instead of failing. Pin/Unpin and Quit act
+locally and are tested.
+
+`nest_clean()` also clears the pinned file: it lives in the dock's HOME, which
+outlives one scenario, so without that a dock test starts with the previous one's
+icons.
 
 Two things about running a Quickshell for the dock:
 

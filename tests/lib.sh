@@ -162,6 +162,10 @@ print(' '.join(c['address'] for c in json.load(sys.stdin)))")"
   # Settings are written by the panel, and by the tests that drive it. Reset them
   # so a test that fails midway cannot change how the next one lays out windows.
   printf '%s\n' '{"options":{},"apps":{}}' > "$NEST_STATE/state/settings.json"
+  # The dock's pinned list lives in the dock's HOME, which outlives a single
+  # scenario, so it has to be cleared too or the next dock test starts with
+  # someone else's icons.
+  rm -f "$NEST_STATE/home/.config/omarchy/x-mode-dock.json"
   nest_ctl reload >/dev/null 2>&1 || true
   sleep 0.4
 }
@@ -451,6 +455,10 @@ raise SystemExit(1)"
 # Middle of icon INDEX in the dock column. The card is iconSize + 2*pad wide,
 # the column is centred in it, and the icons stack with DOCK_SPACING between
 # them, so the first icon's centre is pad + iconSize/2 from the card's top.
+#
+# This only holds while the column is one block of icons: with both pinned and
+# running apps there is a 1px separator between them, and everything after it is
+# one separator plus two spacings lower.
 dock_icon_point() { # INDEX
   local x y w h
   read -r x y w h <<<"$(dock_box)"
@@ -460,6 +468,41 @@ dock_icon_point() { # INDEX
 # Wait for the dock to pick up the current window list (it re-queries on
 # Hyprland events and every 3s).
 dock_settle() { sleep 1.0; }
+
+# The dock's pinned list. HOME is the nest's for the dock process, so writing
+# this file is how a test pins without going through the menu. The dock watches
+# the file, so no restart is needed.
+dock_pinned_file() { printf '%s/.config/omarchy/x-mode-dock.json' "$NEST_STATE/home"; }
+dock_pin() {
+  mkdir -p "$(dirname "$(dock_pinned_file)")"
+  printf '%s\n' "$1" > "$(dock_pinned_file)"
+  sleep 0.6
+}
+
+# Middle of a row in the dock's context menu. ROWS is the row-height list the test
+# expects (26 for a row, 7 for a separator), so the click documents the structure
+# it is aiming at. The card is 240 wide and sits left of the dock, aligned with
+# the icon it was opened from.
+dock_menu_row_point() { # ICON_INDEX ROW_INDEX "26 7 26 ..."
+  local dx dy _ _
+  read -r dx dy _ _ <<<"$(dock_box)"
+  local screen_w
+  screen_w="$(dock_layer_box x-mode-dock-menu | awk '{print $3}')"
+  python3 -c "
+import sys
+rows = [int(x) for x in '$3'.split()]
+idx = $2
+screen_w, dock_x, dock_y = $screen_w, $dx, $dy
+gaps_out = 5           # Style.gapsOut: half of general:gaps_out
+card_w, card_h, pad = 240, 12, 7
+card_x = screen_w - gaps_out - 40 - card_w - gaps_out * 2
+card_y = dock_y + $1 * 32            # aligned with the icon, minus the pad
+offset = 6
+for i in range(idx):
+    offset += rows[i] + 2
+print(card_x + card_w // 2, card_y + offset + rows[idx] // 2)
+"
+}
 
 # --- pointer -----------------------------------------------------------------
 
