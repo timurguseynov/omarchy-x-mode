@@ -48,7 +48,7 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 `qmltestrunner` (in `/usr/lib/qt6/bin`). The pointer tool also needs
 `wayland-scanner` and the `wayland-client` headers.
 
-## nest scenarios
+## Scenarios
 
 | file | checks |
 |---|---|
