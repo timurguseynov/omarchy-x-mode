@@ -18,12 +18,14 @@ hl.config({
   misc = { disable_hyprland_logo = true },
 })
 
--- Omarchy binds Cmd+arrows to directional focus. The nest does not load
--- default/hypr/bindings, so plant them before x-mode: the pack must unbind
--- them, and arrow_keys_unbound_test.sh checks they are gone.
+-- Omarchy binds these. The nest does not load default/hypr/bindings, so plant
+-- them before x-mode: the pack must unbind them, and the unbound-key tests
+-- check they are gone.
 o.bind("SUPER + LEFT", "Focus on left window", hl.dsp.focus({ direction = "l" }))
 o.bind("SUPER + RIGHT", "Focus on right window", hl.dsp.focus({ direction = "r" }))
 o.bind("SUPER + UP", "Focus on above window", hl.dsp.focus({ direction = "u" }))
 o.bind("SUPER + DOWN", "Focus on below window", hl.dsp.focus({ direction = "d" }))
+o.bind("SUPER + G", "Toggle window grouping", hl.dsp.group.toggle())
+o.bind("SUPER + ALT + G", "Move active window out of group", hl.dsp.window.move({ out_of_group = true }))
 
 dofile(os.getenv("X_MODE_LUA") or ((os.getenv("HOME") or "") .. "/.config/hypr/x-mode.lua"))

@@ -1081,6 +1081,11 @@ end)
 hl.unbind("SUPER + ALT + UP")
 hl.unbind("SUPER + ALT + DOWN")
 
+-- Cmd+G toggles a Hyprland group, Cmd+Alt+G pulls the window out of one.
+-- Same-app tabs are made by the pack, so these keys should reach the app.
+hl.unbind("SUPER + G")
+hl.unbind("SUPER + ALT + G")
+
 -- Super+Alt+F was Hyprland "full width" (maximized). Match drag-to-top-center instead.
 hl.unbind("SUPER + ALT + F")
 o.bind("SUPER + ALT + F", "Maximize window", function()
