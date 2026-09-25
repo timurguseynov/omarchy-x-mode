@@ -109,7 +109,6 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/drag_up_clamps_to_bar_test.sh` | dragging up leaves the chrome below the bar |
 | `integration/arrow_keys_unbound_test.sh` | Cmd+arrows are unbound and do not move focus |
 | `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |
-| `integration/fullscreen_group_close_focus_test.sh` | closing a tab under fullscreen does not steal the focus |
 | `integration/fullscreen_holds_others_under_test.sh` | a fullscreen window keeps the others under it |
 | `integration/fullscreen_pinned_over_test.sh` | a pinned window stays above fullscreen and is raised |
 | `integration/fullscreen_switcher_exits_test.sh` | Super+Tab leaves fullscreen once another app is selected |
