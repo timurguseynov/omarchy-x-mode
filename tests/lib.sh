@@ -239,13 +239,14 @@ open_window() { # CLASS [COUNT]
 open_command() { # CLASS COMMAND...
   local cls="$1"
   shift
-  local i
+  local want i
+  want=$(( $(count_class "$cls") + 1 ))
   env WAYLAND_DISPLAY="$(nest_display)" setsid "$@" >/dev/null 2>&1 < /dev/null &
   for i in $(seq 1 60); do
-    [ "$(count_class "$cls")" -ge 1 ] && { sleep 0.5; return 0; }
+    [ "$(count_class "$cls")" -ge "$want" ] && { sleep 0.5; return 0; }
     sleep 0.1
   done
-  fail "command did not open a '$cls' window: $*"
+  fail "command did not open another '$cls' window: $*"
 }
 
 count_class() {
@@ -583,6 +584,37 @@ pointer_click() { pointer click "$1" "$2" "${3:-left}"; }
 pointer_drag() { pointer drag "$1" "$2" "$3" "$4" "${5:-left}"; }
 pointer_press() { pointer button "${1:-left}" press; }
 pointer_release() { pointer button "${1:-left}" release; }
+
+# --- screenshots --------------------------------------------------------------
+# What a scenario cannot ask Hyprland about, because it is only pixels: whether a
+# titlebar, a tab or the snap preview was actually drawn. grim talks to the nest,
+# so the picture is of the nested compositor and not of the desktop the user is
+# sitting in front of.
+# grim against a nested compositor occasionally fails to get a buffer, and a shot
+# taken mid-frame is not what a pixel comparison wants, so this settles first and
+# retries a few times.
+nest_screenshot() { # FILE
+  local attempt
+  sleep 0.4
+  for attempt in 1 2 3 4; do
+    if env WAYLAND_DISPLAY="$(nest_display)" grim "$1" 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.4
+  done
+  fail "grim could not capture the nest"
+}
+
+# Number of pixels that differ between two shots. magick prints the count
+# followed by the normalised value in brackets, so only the leading number is
+# taken.
+image_diff() { # FILE_A FILE_B
+  local out
+  out="$(magick compare -metric AE "$1" "$2" null: 2>&1 || true)"
+  # Only the leading count: with alpha the number can come out fractional, and the
+  # normalised value follows in brackets.
+  printf '%s' "$out" | sed -n 's/^\([0-9][0-9]*\).*/\1/p' 
+}
 
 # --- keyboard ----------------------------------------------------------------
 # Press a chord in the nest, e.g. key super+alt+left, key alt+tab, key o. Only

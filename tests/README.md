@@ -131,6 +131,10 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/alt_tab_switches_group_tab_test.sh` | Alt+Tab and Alt+Shift+Tab move through a group's tabs |
 | `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
 | `integration/super_w_closes_window_test.sh` | Super+W closes the window and keeps the focus in the group |
+| `integration/super_w_single_window_test.sh` | and closes an ungrouped window on its own |
+| `integration/snap_preview_layer_test.sh` | the preview layer is up inside a zone while dragging and gone outside |
+| `integration/small_window_still_tabs_test.sh` | a 120x90 window is still a tab, not a popup |
+| `integration/titlebar_drawn_test.sh` | the titlebar band is actually painted |
 | `integration/super_q_closes_app_test.sh` | Super+Q closes every tab of the app and nothing else |
 | `integration/focus_direction_keys_test.sh` | Super+Left/Right focus the window in that direction |
 | `integration/almost_maximize_key_test.sh` | Super+Alt+A is most of the workarea, not all of it |
@@ -254,6 +258,21 @@ the size from `pointer_extent` and use fractions of it.
 `nest/pointer_test.sh` guards the tool itself: if the protocol disappears or a
 warp stops reaching `input.mouse.move`, the window does not move and every
 scenario built on the pointer would fail for the wrong reason.
+
+## Screenshots
+
+`nest_screenshot FILE` captures the nest with `grim`, and `image_diff A B` returns
+how many pixels differ. That is the only way to check something that is only
+pixels — the titlebar is drawn into the window's own render pass, so there is no
+layer or property to ask about.
+
+Two things to know. grim captures the output in physical pixels while the geometry
+helpers are logical, so a region has to be scaled by the monitor's scale. And grim
+against a nested compositor sometimes fails to get a buffer, and a shot taken
+mid-frame is not what a comparison wants, so `nest_screenshot` settles and retries,
+and a test should take a shot it does not look at before the one it compares.
+Comparisons want a band that changes and a control band that does not, or a torn
+frame reads as a change.
 
 ## The keyboard
 
