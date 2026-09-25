@@ -741,7 +741,20 @@ end
 
 -- Raise + focus the most recently focused window of a class (any workspace;
 -- focusing it also switches to its workspace).
+-- Super+Tab focuses the chosen app on the key itself. A fullscreen window
+-- would take that focus straight back, so leave fullscreen on every other
+-- app first. The same app stays fullscreen: the key did not select anything
+-- else.
+local function leave_fullscreen_for(cls)
+  for _, w in ipairs(hl.get_windows() or {}) do
+    if w.fullscreen and w.fullscreen ~= 0 and tostring(w.class or "") ~= cls then
+      hl.dispatch(hl.dsp.window.fullscreen({ action = "unset", window = w }))
+    end
+  end
+end
+
 local function switcher_focus(cls)
+  leave_fullscreen_for(cls)
   local best = nil
   local best_focus = nil
   for _, w in ipairs(hl.get_windows()) do

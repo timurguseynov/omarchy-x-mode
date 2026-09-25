@@ -110,6 +110,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/arrow_keys_unbound_test.sh` | Cmd+arrows are unbound and do not move focus |
 | `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |
 | `integration/fullscreen_holds_others_under_test.sh` | a fullscreen window keeps the others under it |
+| `integration/fullscreen_switcher_exits_test.sh` | Super+Tab leaves fullscreen once another app is selected |
 | `integration/group_close_focus_test.sh` | closing the active tab keeps focus in the group, not on a foreign app |
 | `integration/group_join_keeps_visual_top_test.sh` | joining a group pushes the box down instead of pinning it to the top |
 | `integration/group_join_raises_test.sh` | a window joining a group raises it above another app |
