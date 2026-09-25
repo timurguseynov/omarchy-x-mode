@@ -3,7 +3,7 @@
   "id": "x-mode",
   "name": "X Mode",
   "version": "0.1.0",
-  "author": "tim",
+  "author": "Timur Guseynov",
   "license": "MIT",
   "description": "macOS-like desktop: dock, snap preview, and a bar toggle.",
   "kinds": [

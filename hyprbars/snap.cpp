@@ -12,10 +12,13 @@
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
+#include <hyprland/src/helpers/time/Time.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <unordered_map>
 
 using namespace Snap;
 
@@ -60,7 +63,14 @@ const char* Snap::kindToString(eKind k) {
     return "";
 }
 
+// Overridden while naming the zone a window occupied before the gaps
+// changed. Null means read the live config.
+static int s_gapOverride    = -1;
+static int s_borderOverride = -1;
+
 int Snap::gapOut() {
+    if (s_gapOverride >= 0)
+        return s_gapOverride;
     static auto PGAPSOUTDATA = CConfigValue<Config::IComplexConfigValue>("general:gaps_out");
     auto* const PGAPSOUT     = sc<Config::CCssGapData*>(PGAPSOUTDATA.ptr());
     if (!PGAPSOUT)
@@ -69,8 +79,15 @@ int Snap::gapOut() {
 }
 
 int Snap::border() {
+    if (s_borderOverride >= 0)
+        return s_borderOverride;
     static auto PBORDER = CConfigValue<Config::INTEGER>("general:border_size");
     return sc<int>(*PBORDER);
+}
+
+void Snap::assumeGaps(int gap, int border) {
+    s_gapOverride    = gap;
+    s_borderOverride = border;
 }
 
 int Snap::chromeH(PHLWINDOW w) {
@@ -93,11 +110,40 @@ CBox Snap::monitorBox(PHLMONITOR mon) {
     return {mon->m_position.x, mon->m_position.y, mon->m_size.x, mon->m_size.y};
 }
 
+// The top the bar reserves. The bar is a layer-shell surface and is gone for a
+// moment while the shell restarts, so a snap in that window saw a zero top and
+// sized the window to the full screen height. Remember the last non-zero top
+// per monitor and fall back to it for a few seconds: long enough to cover a
+// restart, short enough that a bar the user really moved away (bottom/left/
+// right, or none) stops applying and the top goes back to what the monitor
+// reports. A hardcoded height would leave a phantom inset over a bottom bar.
+static std::unordered_map<std::string, std::pair<double, Time::steady_tp>> s_lastBarTop;
+
+static double resolvedTop(PHLMONITOR mon) {
+    const double top = mon->m_reservedArea.top();
+    if (top > 0) {
+        s_lastBarTop[mon->m_name] = {top, Time::steadyNow()};
+        return top;
+    }
+    const auto it = s_lastBarTop.find(mon->m_name);
+    if (it != s_lastBarTop.end() &&
+        std::chrono::duration_cast<std::chrono::seconds>(Time::steadyNow() - it->second.second).count() < 10)
+        return it->second.first;
+    return top;
+}
+
+double Snap::barTop(PHLMONITOR mon) {
+    return mon ? resolvedTop(mon) : 0.0;
+}
+
 CBox Snap::usable(PHLMONITOR mon) {
     if (!mon)
         return {};
     const double left   = mon->m_reservedArea.left();
-    const double top    = mon->m_reservedArea.top();
+    const double top    = resolvedTop(mon);
+    // x-mode.lua publishes the dock card plus half of gaps_out. Rectangle's
+    // visibleFrame excludes a right-edge dock before any fraction is taken, so
+    // a left half and a right half split this narrower frame and never overlap.
     const double right  = mon->m_reservedArea.right() + sc<double>(g_pGlobalState->config.xModeDockInset->value());
     const double bottom = mon->m_reservedArea.bottom();
     const CBox   box    = monitorBox(mon);
@@ -116,14 +162,18 @@ static CBox fractionalRect(const CBox& frame, const char* hside, const char* vsi
     return {x, y, w, h};
 }
 
+// The border is drawn outside the window box and reserves its own space, so it
+// is taken off every side of the frame once. The gap is inset on top of that: a
+// full outer gap on the screen edges, half on an edge shared with the window
+// next to it, so two snapped windows end up exactly one gap apart.
 static CBox applyGaps(const CBox& box, bool innerL, bool innerR, bool innerT, bool innerB) {
     const int gap  = gapOut();
     const int half = gap / 2;
     const int b    = border();
-    const int left = (innerL ? half : gap) + b;
-    const int right = (innerR ? half : gap) + b;
-    const int top = (innerT ? half : gap) + b;
-    const int bottom = (innerB ? half : gap) + b;
+    const int left = b + (innerL ? half : gap);
+    const int right = b + (innerR ? half : gap);
+    const int top = b + (innerT ? half : gap);
+    const int bottom = b + (innerB ? half : gap);
     return {box.x + left, box.y + top, box.w - left - right, box.h - top - bottom};
 }
 
@@ -211,7 +261,7 @@ eKind Snap::zoneAtCursor(const Vector2D& cursor, PHLWINDOW dragged, bool activeD
     // Maximize only when the cursor is in the reserved top (the bar) plus a
     // small slop. If there is no bar and gaps_out is 0, reserved top is 0 and
     // this collapses to the screen edge + slop — like Rectangle on macOS.
-    const int topBand = sc<int>(mon->m_reservedArea.top())
+    const int topBand = std::max(sc<int>(mon->m_reservedArea.top()), 24)
         + std::max(0, sc<int>(g_pGlobalState->config.xModeSnapTopSlop->value()));
     const bool onTop = rely < std::max(margin, topBand);
 
@@ -301,6 +351,31 @@ void Snap::moveDrag(PHLWINDOW w, Vector2D pos) {
 
     // Damage the new content+chrome this frame (not on the next motion).
     each([](PHLWINDOW win) { g_pHyprRenderer->damageWindow(win, true); });
+}
+
+Snap::eKind Snap::kindOf(PHLWINDOW w, int slop) {
+    if (!w)
+        return eKind::None;
+    const auto mon = w->m_monitor.lock();
+    const auto TARGET = w->layoutTarget();
+    if (!mon || !TARGET)
+        return eKind::None;
+
+    const CBox got = TARGET->position();
+    static constexpr eKind KINDS[] = {
+        eKind::Left, eKind::Right, eKind::Top, eKind::Bottom,
+        eKind::TopLeft, eKind::TopRight, eKind::BottomLeft, eKind::BottomRight,
+        eKind::Maximize, eKind::AlmostMaximize,
+    };
+    for (const auto kind : KINDS) {
+        const auto box = contentBox(kind, mon, w);
+        if (!box)
+            continue;
+        if (std::abs(got.x - box->x) <= slop && std::abs(got.y - box->y) <= slop &&
+            std::abs(got.w - box->w) <= slop && std::abs(got.h - box->h) <= slop)
+            return kind;
+    }
+    return eKind::None;
 }
 
 bool Snap::applyKind(PHLWINDOW w, eKind kind) {

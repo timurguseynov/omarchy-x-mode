@@ -8,7 +8,7 @@ button, a tab strip for same-app groups (per-tab close + `+` to open another
 window), titlebar drag-to-edge snapping, and a clean unload path.
 
 Built automatically by the pack installer (`install.sh`). Skip with
-`--no-hyprbars`. Manual build:
+`--no-hyprbars` (no titlebar, tab strip, or drag-to-edge snap). Manual build:
 
 ```sh
 ./build.sh
@@ -17,9 +17,10 @@ Built automatically by the pack installer (`install.sh`). Skip with
 
 ## Config
 
-All options live under `plugin:hyprbars`. X Mode sets sensible defaults from
-`hypr/x-mode.lua` (theme colors, height, close button) — you usually don’t need
-to touch these.
+All options live under `plugin:hyprbars`. X Mode sets them from
+`hypr/x-mode.lua` (theme colors, height, one left-side close button) — you
+usually don’t need to touch these. The titlebar close button quits every tab
+in the group; a tab’s own ✕ closes that tab.
 
 ```lua
 hl.config({
@@ -27,19 +28,20 @@ hl.config({
         hyprbars = {
             bar_height = 28,
             tab_height = 24,
-            bar_color = "rgb(1e1e2e)",
-            ["col.text"] = "rgb(cdd6f4)",
-            on_double_click = [[hyprctl dispatch 'hl.dsp.window.fullscreen({ mode = "maximized", action = "toggle" })']],
+            bar_color = "rgb(55,55,58)",
+            ["col.text"] = "rgb(255,255,255)",
+            bar_buttons_alignment = "left",
+            tab_close_active_only = true,
         },
     },
 })
 
 hl.plugin.hyprbars.add_button({
-    bg_color = "rgb(ff4040)",
-    fg_color = "rgb(ffffff)",
-    size = 10,
-    icon = "󰖭",
-    action = "hyprctl dispatch 'hl.dsp.window.close()'",
+    bg_color = "rgb(255,255,255)",
+    fg_color = "rgb(255,255,255)",
+    size = 12,
+    icon = "",
+    action = [[hyprctl eval 'local w=hl.get_active_window(); if w then hl.dispatch(hl.dsp.window.close({window=w})) end']],
 })
 ```
 
@@ -63,13 +65,14 @@ hl.plugin.hyprbars.add_button({
 | `bar_button_padding` | int | padding between buttons | `5` |
 | `icon_on_hover` | bool | show button icons only on hover | `false` |
 | `inactive_button_color` | color | button bg when the window isn’t focused | |
-| `on_double_click` | str | command on double-click of the bar | |
+| `on_double_click` | str | command on double-click of the bar (unset by X Mode) | |
+| `tab_close_active_only` | bool | tab ✕ only on the focused group’s current tab | `false` |
 
 ### Snap / grouping (X Mode)
 
 | property | type | description | default |
 | --- | --- | --- | --- |
-| `x_mode_dock_inset` | int | right dock inset for snap zones | `46` |
+| `x_mode_dock_inset` | int | right snap inset, dock card plus half of `gaps_out`; set by `x-mode.lua` from the dock card (40) | `45` |
 | `x_mode_snap_margin` | int | edge strip that starts a snap (px) | `12` |
 | `x_mode_snap_corner` | int | corner square that picks a quarter (px) | `20` |
 | `x_mode_snap_short_edge` | int | side-edge px from top/bottom for half snaps | `145` |
@@ -79,6 +82,8 @@ hl.plugin.hyprbars.add_button({
 | `x_mode_almost_maximize_percent` | int | almost-maximize size (%) | `90` |
 | `x_mode_group_min_width` | int | don’t auto-group narrower windows | `400` |
 | `x_mode_group_min_height` | int | don’t auto-group shorter windows | `300` |
+
+Top and bottom half snaps exist, but both switches default to off, so a side-edge drag is a left or right half. Corners are quarters. The top edge maximizes.
 
 ## Buttons
 
@@ -107,7 +112,7 @@ Dynamic rules:
 o.window({ class = "chromium" }, { ["hyprbars:no_bar"] = true })
 ```
 
-X Mode’s settings panel writes these for you via per-app chrome toggles.
+X Mode’s settings panel writes `no_bar` and `always_tabbar` for you via the per-app toggles. The tab strip’s `+` opens another window of that app.
 
 ## License
 

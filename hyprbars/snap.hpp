@@ -31,8 +31,17 @@ namespace Snap {
     int                border();
     int                chromeH(PHLWINDOW w);
 
+    // Make gapOut() and border() report these instead of the live config, so a
+    // window can be matched against the zone it held under different gaps.
+    // Pass -1 to read the config again.
+    void               assumeGaps(int gap, int border);
+
     CBox               monitorBox(PHLMONITOR mon);
     CBox               usable(PHLMONITOR mon);
+    // The top usable() resolves for a monitor: the reserved top, or the last
+    // non-zero one while the bar is gone for a moment (shell restart). Lua
+    // clamps windows itself in a few places and needs the same number.
+    double             barTop(PHLMONITOR mon);
     // Full snap zone (titlebar + tabbar + content). Preview draws this.
     std::optional<CBox> zoneBox(eKind kind, PHLMONITOR mon);
     // Content box written to the layout target (zone shifted down by chrome).
@@ -47,6 +56,11 @@ namespace Snap {
     // and floats if needed.
     bool               applyContent(PHLWINDOW w, const CBox& content);
     bool               applyKind(PHLWINDOW w, eKind kind);
+
+    // The zone a window currently occupies, or None. Compared in the same
+    // logical pixels applyKind writes, so a window snapped by the plugin is
+    // recognised again. `slop` absorbs the one pixel a layout round can move.
+    eKind              kindOf(PHLWINDOW w, int slop = 2);
 
     // Titlebar-drag move: compositor-only (no client configure), position
     // warped so chrome and the surface share the same pixel this frame.

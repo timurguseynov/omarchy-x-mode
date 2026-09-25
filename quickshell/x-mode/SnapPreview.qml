@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import QtQuick
 import qs.Commons
+import "logic.js" as Logic
 
 // Rectangle-style footprint preview: a border-only layer-shell overlay that
 // tracks the snap target while a floating window is dragged to a screen edge.
@@ -36,50 +37,35 @@ Item {
   readonly property int animMs: 90
 
   function intersects(s) {
-    return root.shown
-      && root.rx < s.x + s.width
-      && root.rx + root.rw > s.x
-      && root.ry < s.y + s.height
-      && root.ry + root.rh > s.y
+    return root.shown && Logic.rectsIntersect({ x: root.rx, y: root.ry, w: root.rw, h: root.rh }, s)
   }
 
   function applyXModeLine(raw) {
-    var s = String(raw || "").trim().toLowerCase()
-    if (s === "off" || s === "0" || s === "false") {
-      root.xModeOn = false
+    var on = Logic.parseEnabled(raw)
+    if (on === null)
+      return
+    root.xModeOn = on
+    if (!on)
       root.shown = false
-    } else if (s === "on" || s === "1" || s === "true" || s === "") {
-      root.xModeOn = true
-    }
   }
 
   function applyCmd(raw) {
-    if (!root.xModeOn) {
+    var m = Logic.parseSnapCmd(raw, root.xModeOn)
+    if (!m.shown) {
       root.shown = false
       return
     }
-    var parts = String(raw || "").trim().split(/\s+/)
-    if (parts.length >= 5 && parts[0] === "show") {
-      var x = Number(parts[1])
-      var y = Number(parts[2])
-      var w = Number(parts[3])
-      var h = Number(parts[4])
-      if (isFinite(x) && isFinite(y) && isFinite(w) && isFinite(h) && w > 0 && h > 0) {
-        // Place without animating on the frame it appears (no fly-in from the
-        // previous snap), then animate while it follows the zones.
-        if (!root.shown)
-          root.geomAnim = false
-        root.rx = x
-        root.ry = y
-        root.rw = w
-        root.rh = h
-        root.shown = true
-        if (!root.geomAnim)
-          Qt.callLater(function() { root.geomAnim = true })
-        return
-      }
-    }
-    root.shown = false
+    // Place without animating on the frame it appears (no fly-in from the
+    // previous snap), then animate while it follows the zones.
+    if (!root.shown)
+      root.geomAnim = false
+    root.rx = m.x
+    root.ry = m.y
+    root.rw = m.w
+    root.rh = m.h
+    root.shown = true
+    if (!root.geomAnim)
+      Qt.callLater(function() { root.geomAnim = true })
   }
 
   FileView {

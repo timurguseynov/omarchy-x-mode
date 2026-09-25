@@ -2,10 +2,11 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import "logic.js" as Logic
 
-// Shared app-icon resolution, the same algorithm the dock uses:
-// window class -> desktop entry Icon= (or web-app URL host, or chromium
-// extension manifest) -> on-disk icon index -> Qt themed lookup.
+// Shared app resolution for the dock and the panel: window class -> desktop
+// entry -> icon, plus the bits the dock's context menu needs from the same
+// entry (display name, the "New Window" action, single-instance).
 //
 // Kept as a plain component (not a singleton) so both Dock.qml and Panel.qml
 // can instantiate it without a qmldir; each instance owns its own scan.
@@ -19,8 +20,15 @@ Item {
   property var pendingIconIndex: ({})
   // window class / app id -> icon name from the desktop entry's Icon=.
   property var desktopIconMap: ({})
-  // [ { host, icon } ] for Chromium web apps, longest host first.
+  // window class / app id -> { id, name, cmd } for the same entries. `cmd` is
+  // the "New Window" action's command when the entry declares one, else null.
+  property var desktopAppMap: ({})
+  // [ { host, icon, id, name, cmd } ] for Chromium web apps, longest host first.
   property var desktopHostIcons: []
+  // Desktop-entry ids (and their StartupWMClass) that declare a single main
+  // window, so launching one only focuses the running instance.
+  property var singleInstanceApps: ({})
+  property var pendingSingleInstance: ({})
   // chromium extension id (32 chars a..p) -> icon file path.
   property var extensionIcons: ({})
   property var pendingExtensionIcons: ({})
@@ -38,18 +46,22 @@ Item {
     ].join(' ')
   }
 
-  function cleanName(cls) {
-    return String(cls || "").toLowerCase().trim()
-      .replace(/^org\./, "").replace(/^com\./, "").replace(/^io\./, "")
-      .replace(/^dev\./, "").replace(/^net\./, "").replace(/^me\./, "")
-      .replace(/\.desktop$/, "")
-  }
-
-  // Last reverse-DNS segment: "dev.zed.Zed" -> "zed", "org.gnome.Nautilus" ->
-  // "Nautilus". Used as the loosest icon-name candidate.
-  function lastSegment(name) {
-    var parts = String(name || "").split(".")
-    return parts.length > 1 ? parts[parts.length - 1] : String(name || "")
+  // One id/StartupWMClass per desktop entry that declares it opens a single
+  // main window: launching such an app activates the existing instance instead
+  // of creating a new window, so there is no tab to open.
+  function singleInstanceScanCommand() {
+    return [
+      'for d in "$HOME/.local/share/applications" /usr/local/share/applications /usr/share/applications /var/lib/flatpak/exports/share/applications "$HOME/.local/share/flatpak/exports/share/applications" /var/lib/snapd/desktop/applications; do',
+      '  [[ -d $d ]] || continue;',
+      '  for f in "$d"/*.desktop; do',
+      '    [[ -f $f ]] || continue;',
+      '    grep -qiE "^(SingleMainWindow|X-GNOME-SingleWindow|X-KDE-SingleMainWindow)=true" "$f" || continue;',
+      '    id=$(basename "$f" .desktop);',
+      '    wm=$(grep -i "^StartupWMClass=" "$f" | head -1 | cut -d= -f2-);',
+      '    printf "%s\\t%s\\n" "$id" "$wm";',
+      '  done;',
+      'done'
+    ].join(' ')
   }
 
   // Resolve an icon *name* (desktop entry Icon= value) to a loadable URL, going
@@ -81,22 +93,6 @@ Item {
     var seg = k.split(".").pop()
     if (seg !== "" && seg !== k && map[seg] === undefined)
       map[seg] = icon
-  }
-
-  // Host of a web app's start URL, from the Exec of its desktop entry. Only
-  // entries that actually launch a web app (omarchy-launch-webapp or --app=) are
-  // considered, so a regular app with a URL argument cannot match.
-  function webappHostFromExec(execString) {
-    var s = String(execString || "")
-    if (s.indexOf("--app=") === -1 && s.indexOf("omarchy-launch-webapp") === -1)
-      return ""
-    var m = s.match(/https?:\/\/[^\s"']+/)
-    if (!m)
-      return ""
-    var host = m[0].replace(/^https?:\/\//, "").split("/")[0].split(":")[0].toLowerCase()
-    if (host.indexOf("www.") === 0)
-      host = host.slice(4)
-    return host
   }
 
   function hostIconFor(cls) {
@@ -140,8 +136,34 @@ Item {
     return Util.fileUrl(p)
   }
 
+  // Command of the desktop entry's "New Window" action, when it has one (e.g.
+  // Sublime Text's `subl --launch-or-new-window`). Launching the bare entry
+  // would just focus the running instance for such apps.
+  function newWindowActionCommand(e) {
+    var acts = (e && e.actions) || []
+    for (var j = 0; j < acts.length; j++) {
+      var a = acts[j]
+      if (!a)
+        continue
+      var id = String(a.id || "").toLowerCase().replace(/[\s_]+/g, "-")
+      var name = String(a.name || "").toLowerCase()
+      if (id.indexOf("new") === -1)
+        continue
+      if (id.indexOf("window") === -1 && name.indexOf("window") === -1)
+        continue
+      // Skip private / incognito variants — we want a plain new window.
+      if (id.indexOf("private") !== -1 || id.indexOf("incognito") !== -1)
+        continue
+      if (name.indexOf("private") !== -1 || name.indexOf("incognito") !== -1)
+        continue
+      return a.command
+    }
+    return null
+  }
+
   function rebuildDesktopIcons() {
     var map = {}
+    var apps = {}
     var hosts = []
     var values = []
     try {
@@ -152,17 +174,77 @@ Item {
     for (var i = 0; i < values.length; i++) {
       var e = values[i]
       var icon = String((e && e.icon) || "")
+      var name = String((e && e.name) || "")
+      var entry = { id: String((e && e.id) || ""), name: name, cmd: root.newWindowActionCommand(e) }
+      if (entry.id !== "") {
+        root.addDesktopIconKey(apps, entry.id, entry)
+        root.addDesktopIconKey(apps, e.startupClass, entry)
+      }
       if (icon === "")
         continue
       root.addDesktopIconKey(map, e.id, icon)
       root.addDesktopIconKey(map, e.startupClass, icon)
-      var host = root.webappHostFromExec(e.execString)
+      var host = Logic.webappHostFromExec(e.execString)
       if (host !== "")
-        hosts.push({ host: host, icon: icon })
+        hosts.push({ host: host, icon: icon, id: entry.id, name: name, cmd: entry.cmd })
     }
     hosts.sort(function(a, b) { return b.host.length - a.host.length })
     root.desktopIconMap = map
+    root.desktopAppMap = apps
     root.desktopHostIcons = hosts
+  }
+
+  // Desktop entry matching a window class: the key map first, then the URL host
+  // for Chromium web apps (whose class embeds it). Returns { id, name, cmd }.
+  function appEntryFor(cls) {
+    var c = String(cls || "").toLowerCase().trim()
+    if (c.slice(-8) === ".desktop")
+      c = c.slice(0, -8)
+    if (c === "")
+      return null
+    var e = root.desktopAppMap[c]
+    if (e === undefined) {
+      var seg = c.split(".").pop()
+      if (seg !== c)
+        e = root.desktopAppMap[seg]
+    }
+    if (e !== undefined)
+      return e
+    var hs = root.desktopHostIcons
+    for (var i = 0; i < hs.length; i++) {
+      if (c.indexOf(hs[i].host) !== -1)
+        return hs[i]
+    }
+    return null
+  }
+
+  // Human-readable app name, from the desktop entry keys used for icons; falls
+  // back to the last dotted class segment.
+  function appDisplayName(cls) {
+    var e = root.appEntryFor(cls)
+    if (e && e.name)
+      return e.name
+    var raw = String(cls || "").trim()
+    var c = raw.toLowerCase()
+    if (c.slice(-8) === ".desktop") {
+      c = c.slice(0, -8)
+      raw = raw.slice(0, -8)
+    }
+    return Logic.lastSegment(raw) || c
+  }
+
+  // True when the app's desktop entry declares it single-instance, so a launch
+  // would only focus the running window (nothing new to open as a tab).
+  function isSingleInstance(cls) {
+    var c = String(cls || "").toLowerCase().trim()
+    if (c.slice(-8) === ".desktop")
+      c = c.slice(0, -8)
+    if (c === "")
+      return false
+    if (root.singleInstanceApps[c])
+      return true
+    var seg = c.split(".").pop()
+    return seg !== c && !!root.singleInstanceApps[seg]
   }
 
   function desktopIconFor(cls) {
@@ -188,10 +270,10 @@ Item {
 
   function iconFor(cls) {
     var raw = String(cls || "")
-    var cleaned = root.cleanName(raw)
+    var cleaned = Logic.cleanName(raw)
     // Direct candidates first (a class that already is the icon name), then the
     // desktop entry's Icon= value, then the loose last segment.
-    var candidates = [raw, cleaned, root.lastSegment(cleaned)]
+    var candidates = [raw, cleaned, Logic.lastSegment(cleaned)]
     for (var i = 0; i < candidates.length; i++) {
       var p = root.resolveIconName(candidates[i])
       if (p !== "")
@@ -224,6 +306,28 @@ Item {
   }
 
   Process {
+    id: singleInstanceScan
+    command: ["bash", "-c", root.singleInstanceScanCommand()]
+    stdout: SplitParser {
+      onRead: function(line) {
+        var t = String(line || "").split("\t")
+        var id = String(t[0] || "").toLowerCase().trim()
+        if (id.slice(-8) === ".desktop")
+          id = id.slice(0, -8)
+        var wm = String(t.length > 1 ? t[1] : "").toLowerCase().trim()
+        if (wm.slice(-8) === ".desktop")
+          wm = wm.slice(0, -8)
+        if (id !== "")
+          root.pendingSingleInstance[id] = true
+        if (wm !== "")
+          root.pendingSingleInstance[wm] = true
+      }
+    }
+    onStarted: root.pendingSingleInstance = ({})
+    onExited: root.singleInstanceApps = root.pendingSingleInstance
+  }
+
+  Process {
     id: extensionScan
     command: ["bash", "-c", root.extensionScanCommand()]
     stdout: SplitParser {
@@ -249,6 +353,8 @@ Item {
       // on-disk icon index so it appears without a shell restart. Debounced
       // because a package install touches many entries at once.
       iconRescan.restart()
+      if (!singleInstanceScan.running)
+        singleInstanceScan.running = true
     }
   }
 
@@ -270,12 +376,15 @@ Item {
         iconScan.running = true
       if (!extensionScan.running)
         extensionScan.running = true
+      if (!singleInstanceScan.running)
+        singleInstanceScan.running = true
     }
   }
 
   Component.onCompleted: {
     iconScan.running = true
     extensionScan.running = true
+    singleInstanceScan.running = true
     root.rebuildDesktopIcons()
   }
 }

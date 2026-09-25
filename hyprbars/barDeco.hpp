@@ -36,6 +36,13 @@ namespace Event {
 // Defined in barDeco.cpp.
 void keepGroupFocusOnClose(PHLWINDOW w);
 
+// The covering fullscreen window owns the workspace. Returns true when w was
+// held under it (no raise). A group tab of that window is not held.
+bool holdUnderFullscreen(PHLWINDOW w);
+
+// Raise a floating window, unless holdUnderFullscreen claims it.
+void raiseFloating(PHLWINDOW w);
+
 class CHyprBar : public IHyprWindowDecoration {
   public:
     CHyprBar(PHLWINDOW);
@@ -104,7 +111,17 @@ class CHyprBar : public IHyprWindowDecoration {
     bool                       wantsTabbar();
     bool                       groupCurrent();
     int                        tabAt(const Vector2D& coords, bool& closeHit);
+    // Drag a tab sideways to reorder it. CGroup only exposes swapWithNext /
+    // swapWithLast and both move the *current* tab, so the dragged window is
+    // made current first and then walked to the slot under the pointer.
+    void                       updateTabDrag(const Vector2D& coords);
     void                       renderTabs(CBox* barBox, const float scale, const float a);
+
+    bool      m_bTabDragPending = false;
+    bool      m_bTabDragging    = false;
+    int       m_iTabDragFrom    = -1;
+    int       m_iTabDragOver    = -1;
+    Vector2D  m_tabDragStart;
     std::unordered_map<std::string, SP<Render::ITexture>> m_tabTexs;
 
     void                       renderPass(PHLMONITOR, float const& a);

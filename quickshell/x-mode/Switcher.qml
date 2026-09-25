@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import QtQuick
 import qs.Commons
+import "logic.js" as Logic
 
 // Cmd+Tab app switcher preview: a centered row of app icons with the active app
 // highlighted. Driven by the command file x-mode.lua writes:
@@ -15,9 +16,10 @@ Item {
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var shell: null
   property var manifest: null
-  // The dock owns the icon index / desktop-entry lookup; the switcher reuses it
-  // so its row shows real icons instead of blanks.
+  // `dock` is only kept so the existing `Switcher { dock: root }` in Dock.qml
+  // still binds. The icon lookup moved out of the dock into IconResolver.
   property var dock: null
+  IconResolver { id: icons }
 
   readonly property string cmdPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-switcher.cmd"
 
@@ -26,55 +28,24 @@ Item {
   property string activeClass: ""
   property var classes: []
 
-  function cleanName(cls) {
-    return String(cls || "").toLowerCase().trim()
-      .replace(/^org\./, "").replace(/^com\./, "").replace(/^io\./, "").replace(/^dev\./, "")
-      .replace(/\.desktop$/, "")
-  }
-
   function iconFor(cls) {
-    if (root.dock)
-      return root.dock.iconFor(cls)
-    var candidates = [String(cls || ""), cleanName(cls)]
-    for (var i = 0; i < candidates.length; i++) {
-      if (candidates[i] === "")
-        continue
-      var p = Quickshell.iconPath(candidates[i], true)
-      if (p && p.length > 0)
-        return p
-    }
-    var fb = Quickshell.iconPath("application-x-executable", true)
-    return fb && fb.length > 0 ? fb : ""
+    return icons.iconFor(cls)
   }
 
   function applyXModeLine(raw) {
-    var s = String(raw || "").trim().toLowerCase()
-    if (s === "off" || s === "0" || s === "false") {
-      root.xModeOn = false
+    var on = Logic.parseEnabled(raw)
+    if (on === null)
+      return
+    root.xModeOn = on
+    if (!on)
       root.shown = false
-    } else if (s === "on" || s === "1" || s === "true" || s === "") {
-      root.xModeOn = true
-    }
   }
 
   function applyCmd(raw) {
-    if (!root.xModeOn) {
-      root.shown = false
-      return
-    }
-    var parts = String(raw || "").trim().split(/\s+/)
-    if (parts.length >= 2 && parts[0] === "show") {
-      root.activeClass = parts[1]
-      var list = []
-      for (var i = 2; i < parts.length; i++) {
-        var t = parts[i].split("|")
-        list.push({ cls: t[0], addr: t[1] || "" })
-      }
-      root.classes = list
-      root.shown = true
-    } else {
-      root.shown = false
-    }
+    var m = Logic.parseSwitcherCmd(raw, root.xModeOn)
+    root.activeClass = m.activeClass
+    root.classes = m.classes
+    root.shown = m.shown
   }
 
   // Click an icon: raise + focus that window (by address, like the dock) and

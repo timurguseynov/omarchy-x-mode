@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "logic.js" as Logic
 
 // X Mode settings, laid out like the Omarchy Bluetooth panel: a hero header
 // with the on/off switch, settings rows, then the app list. Opening an app
@@ -19,8 +20,7 @@ Panel {
   property bool xModeOn: true
   readonly property var barIdentity: hostWidget || root
 
-  readonly property string appsPath: (Quickshell.env("HOME") || "") + "/.local/state/omarchy-x-mode/apps.json"
-  readonly property string optionsPath: (Quickshell.env("HOME") || "") + "/.local/state/omarchy-x-mode/options.json"
+  readonly property string settingsPath: (Quickshell.env("HOME") || "") + "/.local/state/omarchy-x-mode/settings.json"
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
@@ -28,7 +28,7 @@ Panel {
   // sized to the space actually left in the capped card. Excludes `listFlick`
   // itself -- referencing its height here would be circular.
   readonly property real listFixedHeight: {
-    var items = [hero, sepTop, scrollRow, sepMid, backRow, sectionHeader, searchField, detailColumn]
+    var items = [hero, sepTop, scrollRow, tabKeysRow, gapsRow, sepMid, backRow, sectionHeader, searchField, detailColumn]
     var h = 0
     var n = 0
     for (var i = 0; i < items.length; i++) {
@@ -44,6 +44,8 @@ Panel {
   }
 
   property bool nativeScroll: false
+  property bool ctrlTabSwitch: false
+  property bool noGaps: false
   property var appsCfg: ({})
   property var running: []
   property string query: ""
@@ -54,7 +56,7 @@ Panel {
     var out = []
     for (var i = 0; i < running.length; i++) {
       var a = running[i]
-      if (q === "" || String(a.cls).toLowerCase().indexOf(q) >= 0 || String(a.title || "").toLowerCase().indexOf(q) >= 0)
+      if (q === "" || String(a.cls).toLowerCase().indexOf(q) >= 0 || root.appName(a.cls).toLowerCase().indexOf(q) >= 0 || String(a.title || "").toLowerCase().indexOf(q) >= 0)
         out.push(a)
     }
     return out
@@ -76,6 +78,12 @@ Panel {
     return iconResolver.iconFor(cls)
   }
 
+  // The desktop entry's real name ("Files") rather than the window class
+  // ("org.gnome.Nautilus"). Falls back to the last dotted segment.
+  function appName(cls) {
+    return iconResolver.appDisplayName(cls)
+  }
+
   function cfgFor(cls) {
     var key = String(cls || "").toLowerCase()
     var e = appsCfg[key]
@@ -95,41 +103,44 @@ Panel {
     for (var k in appsCfg)
       next[k] = appsCfg[k]
     // Persist only non-default chrome (off) or alwaysTabbar; chrome-on alone
-    // is the implicit default and can be dropped from apps.json.
+    // is the implicit default and can be dropped from the app list.
     if (chrome && !alwaysTabbar)
       delete next[key]
     else
       next[key] = { chrome: chrome, alwaysTabbar: !!alwaysTabbar }
     appsCfg = next
-    writeApps()
+    writeSettings("hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null")
   }
 
-  function writeApps() {
-    var obj = {}
+  // The panel's whole state in one file, so the options and the app list can
+  // never drift apart. `followUp` is the hyprctl call the change needs.
+  function writeSettings(followUp) {
+    var apps = {}
     for (var k in appsCfg) {
       var e = appsCfg[k]
       if (e && (e.chrome === false || e.alwaysTabbar))
-        obj[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar }
+        apps[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar }
     }
-    var json = JSON.stringify(obj)
+    var json = JSON.stringify({
+      options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps },
+      apps: apps
+    })
     Quickshell.execDetached([
       "sh", "-c",
-      "mkdir -p \"$HOME/.local/state/omarchy-x-mode\" && printf '%s\\n' " + shellQuote(json) + " > \"$HOME/.local/state/omarchy-x-mode/apps.json\" && hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null"
+      "mkdir -p \"$HOME/.local/state/omarchy-x-mode\" && printf '%s\\n' " + Logic.shellQuote(json) + " > \"$HOME/.local/state/omarchy-x-mode/settings.json\" && " + followUp
     ])
   }
 
-  function shellQuote(s) {
-    return "'" + String(s).replace(/'/g, "'\\''") + "'"
-  }
-
-  function setOptions(nativeScroll) {
+  function setOptions(nativeScroll, ctrlTabSwitch, noGaps) {
     root.nativeScroll = !!nativeScroll
-    var json = JSON.stringify({ nativeScroll: root.nativeScroll })
-    var on = root.nativeScroll ? "true" : "false"
-    Quickshell.execDetached([
-      "sh", "-c",
-      "mkdir -p \"$HOME/.local/state/omarchy-x-mode\" && printf '%s\\n' " + shellQuote(json) + " > \"$HOME/.local/state/omarchy-x-mode/options.json\" && hyprctl eval 'hl.config({ input = { natural_scroll = " + on + ", touchpad = { natural_scroll = " + on + " } } })' >/dev/null && hyprctl eval 'if x_mode and x_mode.refresh_options then x_mode.refresh_options() end' >/dev/null"
-    ])
+    root.ctrlTabSwitch = !!ctrlTabSwitch
+    root.noGaps = !!noGaps
+    // The reload re-runs the config, which reapplies every option from
+    // settings.json, and emits configreloaded. The dock only re-reads its screen
+    // margin on that event, so without the reload it stays at the old gap. It is
+    // the only step: the natural-scroll eval that used to run first could fail,
+    // and with `&&` that skipped the reload and left the option unapplied.
+    writeSettings("hyprctl reload >/dev/null")
   }
 
   function rebuildRunning(clients) {
@@ -167,26 +178,6 @@ Panel {
     clientsProc.running = true
   }
 
-  function parseApps(raw) {
-    var set = {}
-    try {
-      var d = JSON.parse(raw)
-      if (Array.isArray(d)) {
-        for (var i = 0; i < d.length; i++)
-          set[String(d[i]).toLowerCase()] = { chrome: false, alwaysTabbar: false }
-      } else if (d && typeof d === "object") {
-        for (var k in d) {
-          var e = d[k]
-          if (e && typeof e === "object")
-            set[String(k).toLowerCase()] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar }
-          else
-            set[String(k).toLowerCase()] = { chrome: false, alwaysTabbar: false }
-        }
-      }
-    } catch (err) {}
-    return set
-  }
-
   onOpenedChanged: {
     if (opened) {
       openCls = ""
@@ -195,34 +186,32 @@ Panel {
   }
 
   FileView {
-    id: appsFile
-    path: root.appsPath
-    watchChanges: true
-    printErrors: false
-    onFileChanged: reload()
-    onLoaded: {
-      root.appsCfg = root.parseApps(text())
-      root.refreshClients()
-    }
-    onLoadFailed: root.appsCfg = {}
-  }
-
-  FileView {
-    id: optionsFile
-    path: root.optionsPath
+    id: settingsFile
+    path: root.settingsPath
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
     onLoaded: {
       try {
         var d = JSON.parse(text())
-        root.nativeScroll = !!(d && d.nativeScroll)
+        var o = (d && d.options) || {}
+        root.nativeScroll = !!o.nativeScroll
+        root.ctrlTabSwitch = !!o.ctrlTabSwitch
+        root.noGaps = !!o.noGaps
+        root.appsCfg = Logic.parseApps((d && d.apps) || {})
       } catch (e) {
         root.nativeScroll = false
+        root.ctrlTabSwitch = false
+        root.noGaps = false
+        root.appsCfg = {}
       }
+      root.refreshClients()
     }
     onLoadFailed: {
       root.nativeScroll = false
+      root.ctrlTabSwitch = false
+      root.noGaps = false
+      root.appsCfg = {}
     }
   }
 
@@ -376,7 +365,7 @@ Panel {
         anchors.verticalCenter: parent.verticalCenter
 
         Text {
-          text: arow.modelData.cls
+          text: root.appName(arow.modelData.cls)
           color: root.contentForeground
           font.family: root.contentFontFamily
           font.pixelSize: Style.font.body
@@ -489,7 +478,29 @@ Panel {
         description: "Natural (reversed) touchpad scrolling"
         checked: root.nativeScroll
         rowEnabled: root.xModeOn
-        onToggled: root.setOptions(!root.nativeScroll)
+        onToggled: root.setOptions(!root.nativeScroll, root.ctrlTabSwitch, root.noGaps)
+      }
+
+      SwitchRow {
+        id: tabKeysRow
+        width: parent.width
+        visible: root.openCls === ""
+        label: "Ctrl+1..9 switches tabs"
+        description: "Jump to a titlebar tab; off, the shortcut goes to the app"
+        checked: root.ctrlTabSwitch
+        rowEnabled: root.xModeOn
+        onToggled: root.setOptions(root.nativeScroll, !root.ctrlTabSwitch, root.noGaps)
+      }
+
+      SwitchRow {
+        id: gapsRow
+        width: parent.width
+        visible: root.openCls === ""
+        label: "No gaps"
+        description: "Remove the space between windows and their borders"
+        checked: root.noGaps
+        rowEnabled: root.xModeOn
+        onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, !root.noGaps)
       }
 
       PanelSeparator {
@@ -530,7 +541,7 @@ Panel {
 
       PanelSectionHeader {
         id: sectionHeader
-        text: root.openCls === "" ? "APPS" : String(root.openApp ? root.openApp.cls : root.openCls).toUpperCase()
+        text: root.openCls === "" ? "APPS" : root.appName(root.openApp ? root.openApp.cls : root.openCls).toUpperCase()
         foreground: root.contentForeground
         fontFamily: root.contentFontFamily
       }

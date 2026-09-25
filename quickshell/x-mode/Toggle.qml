@@ -4,6 +4,7 @@ import Quickshell.Io
 import Quickshell.Hyprland
 import qs.Commons
 import qs.Ui
+import "logic.js" as Logic
 
 // Bar button for the x-mode desktop. Click opens the settings panel
 // (global on/off + per-app chrome). Same popout contract as omarchy.clock.
@@ -25,11 +26,9 @@ BarWidget {
   implicitHeight: button.implicitHeight
 
   function applyLine(raw) {
-    var s = String(raw || "").trim().toLowerCase()
-    if (s === "off" || s === "0" || s === "false")
-      root.on = false
-    else if (s === "on" || s === "1" || s === "true" || s === "")
-      root.on = true
+    var on = Logic.parseEnabled(raw)
+    if (on !== null)
+      root.on = on
   }
 
   function setOn(value) {

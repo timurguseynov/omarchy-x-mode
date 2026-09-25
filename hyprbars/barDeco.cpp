@@ -12,6 +12,7 @@
 #include <hyprland/src/managers/SeatManager.hpp>
 #include <hyprland/src/managers/KeybindManager.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
+#include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>
 #include <hyprland/src/config/shared/animation/AnimationTree.hpp>
@@ -44,6 +45,40 @@ static uint32_t g_lastPressButton = 0;
 
 using namespace Render::GL;
 
+bool holdUnderFullscreen(PHLWINDOW w) {
+    if (!w || !w->m_workspace)
+        return false;
+
+    // covering=true: the window that currently owns the workspace, not a
+    // fullscreen state remembered on some other target.
+    const auto FS = Fullscreen::controller()->getFullscreenWindow(w->m_workspace, true);
+    if (!FS || FS == w)
+        return false;
+    if (FS->m_group && FS->m_group->has(w))
+        return false;
+
+    // WindowState::raise sets this true, and so does focusing a floating
+    // window while another is fullscreen. Either one draws w on top and gives
+    // it input. Put the flag, the fade and the input block back.
+    const bool focused = Desktop::focusState()->window() == w;
+    w->m_allowedOverFullscreen = false;
+    w->updateFullscreenInputState();
+    *w->alpha(Desktop::View::WINDOW_ALPHA_FULLSCREEN) = 0.F;
+    g_pHyprRenderer->damageWindow(w);
+
+    // Blocking input unfocuses w. fullWindowFocus on the way back would lift
+    // the next floating window over the fullscreen one again.
+    if (focused && Desktop::focusState()->window() != FS)
+        Desktop::focusState()->rawWindowFocus(FS, Desktop::FOCUS_REASON_SWITCH_TO_WINDOW_SOFT);
+    return true;
+}
+
+void raiseFloating(PHLWINDOW w) {
+    if (!w || !w->m_isFloating || holdUnderFullscreen(w))
+        return;
+    Desktop::windowState()->raise(w);
+}
+
 void keepGroupFocusOnClose(PHLWINDOW w) {
     if (!w)
         return;
@@ -54,8 +89,7 @@ void keepGroupFocusOnClose(PHLWINDOW w) {
 
     GROUP->moveCurrent(false); // previous tab
     if (const auto CUR = GROUP->current(); CUR) {
-        if (CUR->m_isFloating)
-            Desktop::windowState()->raise(CUR);
+        raiseFloating(CUR);
         if (Desktop::focusState()->window() != CUR)
             Desktop::focusState()->rawWindowFocus(CUR, Desktop::FOCUS_REASON_CLICK);
     }
@@ -248,6 +282,9 @@ void CHyprBar::onMouseMove(Vector2D coords) {
         handleMovement();
     }
 
+    if (m_bTabDragPending)
+        updateTabDrag(coords);
+
     // Mouse titlebar drag is driven by CDragSession (global mouse-move listener)
     // so it keeps going if focus or the pointer leaves this bar. Touch still
     // uses the per-bar path below.
@@ -353,23 +390,33 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
                 // Just close: the window.close listener keeps focus and stacking
                 // in the group (keepGroupFocusOnClose).
                 g_pXWaylandManager->sendCloseWindow(target);
-            } else if (PWINDOW->m_group) {
-                if (target != PWINDOW)
-                    PWINDOW->m_group->setCurrent(target);
-                if (Desktop::focusState()->window() != target)
-                    Desktop::focusState()->rawWindowFocus(target, Desktop::FOCUS_REASON_CLICK);
-                if (target->m_isFloating)
-                    Desktop::windowState()->raise(target);
+            } else if (PWINDOW->m_group && PWINDOW->m_group->size() > 1) {
+                // Don't switch yet: a small move turns this into a reorder. The
+                // switch happens on release if the pointer never left the tab.
+                m_bTabDragPending = true;
+                m_bTabDragging    = false;
+                m_iTabDragFrom    = TAB;
+                m_iTabDragOver    = TAB;
+                m_tabDragStart    = g_pInputManager->getMouseCoordsInternal();
             }
         }
         return;
     }
 
+    // rawWindowFocus, and only when the window is not already focused. fullWindowFocus
+    // re-runs activation even for the focused window, so clicking the bar of the
+    // front window (Zed's title bar, for one) dropped and restored focus and the
+    // app dimmed its own bar for a frame. The tab path above focuses exactly once.
+    //
+    // Changed in 0e460f4. Before that this was unconditional:
+    //   Desktop::focusState()->fullWindowFocus(PWINDOW, Desktop::FOCUS_REASON_CLICK);
+    // It had been that way since the first commit (ac899f9); the other two focus
+    // sites in this file (tab arrows, tab release) already used rawWindowFocus.
+    // The switch did not fix the dim, so reverting it is safe but won't either.
     if (Desktop::focusState()->window() != PWINDOW)
-        Desktop::focusState()->fullWindowFocus(PWINDOW, Desktop::FOCUS_REASON_CLICK);
+        Desktop::focusState()->rawWindowFocus(PWINDOW, Desktop::FOCUS_REASON_CLICK);
 
-    if (PWINDOW->m_isFloating)
-        Desktop::windowState()->raise(PWINDOW);
+    raiseFloating(PWINDOW);
 
     info.cancelled   = true;
     m_bCancelledDown = true;
@@ -397,6 +444,32 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
 }
 
 void CHyprBar::handleUpEvent(Event::SCallbackInfo& info) {
+    if (m_bTabDragPending) {
+        // Released without ever crossing the drag threshold: it was a click, so
+        // switch to the tab that was pressed. A reorder already happened live.
+        const auto PWINDOW = m_pWindow.lock();
+        if (!m_bTabDragging && PWINDOW && PWINDOW->m_group) {
+            const auto MEMBERS = PWINDOW->m_group->windows();
+            if (m_iTabDragFrom >= 0 && m_iTabDragFrom < (int)MEMBERS.size()) {
+                if (const auto target = MEMBERS[m_iTabDragFrom].lock()) {
+                    if (target != PWINDOW->m_group->current())
+                        PWINDOW->m_group->setCurrent(target);
+                    if (Desktop::focusState()->window() != target)
+                        Desktop::focusState()->rawWindowFocus(target, Desktop::FOCUS_REASON_CLICK);
+                    raiseFloating(target);
+                }
+            }
+        }
+        m_bTabDragPending = false;
+        m_bTabDragging    = false;
+        m_iTabDragFrom    = -1;
+        m_iTabDragOver    = -1;
+        info.cancelled    = true;
+        m_bCancelledDown  = false;
+        m_bTouchEv        = false;
+        return;
+    }
+
     if (m_pWindow.lock() != Desktop::focusState()->window() && !m_bDraggingThis && !m_bCancelledDown && !m_bDragPending)
         return;
 
@@ -669,6 +742,42 @@ int CHyprBar::tabAt(const Vector2D& coords, bool& closeHit) {
         }
     }
     return idx;
+}
+
+void CHyprBar::updateTabDrag(const Vector2D& coords) {
+    const auto PWINDOW = m_pWindow.lock();
+    if (!PWINDOW || !PWINDOW->m_group) {
+        m_bTabDragPending = false;
+        return;
+    }
+    auto& group = PWINDOW->m_group;
+
+    static auto PDRAGTHRESHOLD = CConfigValue<Config::INTEGER>("binds:drag_threshold");
+    if (!m_bTabDragging) {
+        const auto delta = g_pInputManager->getMouseCoordsInternal() - m_tabDragStart;
+        if (std::abs(delta.x) <= *PDRAGTHRESHOLD)
+            return;
+        // swapWithNext / swapWithLast only move the current tab, so the dragged
+        // one has to be current before it can walk anywhere.
+        if (group->getCurrentIdx() != (size_t)m_iTabDragFrom)
+            group->setCurrent((size_t)m_iTabDragFrom);
+        m_bTabDragging = true;
+    }
+
+    bool      closeHit = false;
+    const int over     = tabAt(cursorRelativeToBar(), closeHit);
+    if (over < 0 || over == m_iTabDragOver)
+        return;
+
+    const int dir = over > m_iTabDragOver ? 1 : -1;
+    while (m_iTabDragOver != over) {
+        if (dir > 0)
+            group->swapWithNext();
+        else
+            group->swapWithLast();
+        m_iTabDragOver += dir;
+    }
+    damageEntire();
 }
 
 void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {

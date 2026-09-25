@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # omarchy-x-mode installer.
 #
-# Additive by design: it only creates files in its own namespace (tim.*,
-# x-mode.lua, x-mode/) and makes a single, sentinel-marked edit to
+# Additive by design: it only creates files in its own namespace (x-mode,
+# x-mode.lua) and makes a single, sentinel-marked edit to
 # ~/.config/hypr/hyprland.lua. Uninstall removes exactly what it created and
 # leaves the user's own config untouched.
 set -euo pipefail
@@ -154,6 +154,12 @@ print(json.dumps(out))
     log "loading patched hyprbars"
     hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
     hyprctl plugin load "$HYPRBARS_SO" >/dev/null 2>&1 || warn "could not load hyprbars now (it will load on next login)"
+    # Before either reload: the config spreads the already-open windows across
+    # the left and right halves, then deletes the marker. Whichever of the two
+    # reloads parses the new config first does the arrange; the other, and
+    # every reload after, leaves windows where the user put them.
+    mkdir -p "$X_MODE_STATE_DIR"
+    : > "$X_MODE_STATE_DIR/arrange"
     log "reloading Hyprland to activate hyprbars"
     hyprctl reload >/dev/null 2>&1 || true
   fi
@@ -184,9 +190,17 @@ print(json.dumps(out))
   rm -f "$HYPR"/conf.d/5x-x-mode-*.lua 2>/dev/null || true
   rm -rf "$HYPR/x-mode" 2>/dev/null || true
   copy_file "$HERE/hypr/x-mode.lua" "$HYPR/x-mode.lua"
+  # Pure geometry lives next to it in x-mode/; x-mode.lua dofiles it relative to
+  # its own path, so the directory has to be installed too.
+  copy_tree "$HERE/hypr/x-mode" "$HYPR/x-mode"
 
   log "wiring x-mode into hyprland.lua"
   sentinel_add "$HYPR/hyprland.lua"
+
+  # Recreate the marker: the reload above may already have consumed it, and
+  # this reload is the one that parses the config just installed.
+  mkdir -p "$X_MODE_STATE_DIR"
+  : > "$X_MODE_STATE_DIR/arrange"
 
   log "reloading Hyprland"
   hyprctl reload >/dev/null 2>&1 || true
@@ -207,6 +221,11 @@ for c in json.load(sys.stdin):
         print(c["address"])
 ')
   fi
+
+  # The config's own arrange runs on a timer that races this re-float, so do
+  # it again now that every window is actually floating. Same shuffle, and it
+  # only changes which window lands on which half.
+  hyprctl eval 'if x_mode and x_mode.arrange_halves then x_mode.arrange_halves() end' >/dev/null 2>&1 || true
 
   # `rescanPlugins` + `plugin enable` only update the registry: a plugin that is
   # already loaded keeps the QML instance it was created with, so updated files

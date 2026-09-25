@@ -246,6 +246,55 @@ static int luaSnap(lua_State* L) {
     return 0;
 }
 
+// The snap zone a window currently fills, or nil. An optional { gap, border }
+// tests the position against the zones those gaps would produce, so a window
+// snapped with no gaps is still recognised after the gaps come back.
+static int luaZone(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.zone");
+    if (!w)
+        w = Desktop::focusState()->window();
+
+    int gap = -1, border = -1;
+    if (lua_istable(L, 2)) {
+        lua_getfield(L, 2, "gap");
+        if (lua_isnumber(L, -1))
+            gap = sc<int>(lua_tonumber(L, -1));
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "border");
+        if (lua_isnumber(L, -1))
+            border = sc<int>(lua_tonumber(L, -1));
+        lua_pop(L, 1);
+    }
+
+    Snap::assumeGaps(gap, border);
+    const auto kind = Snap::kindOf(w);
+    Snap::assumeGaps(-1, -1);
+
+    if (kind == Snap::eKind::None) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushstring(L, Snap::kindToString(kind));
+    return 1;
+}
+
+// The top the bar currently reserves, with the shell-restart fallback applied
+// (see Snap::barTop). Lua clamps windows itself in a few places and has to lift
+// a group's tabbar out from under the bar with the same number the snap used.
+static int luaBarTop(lua_State* L) {
+    const char* name = lua_isstring(L, 1) ? lua_tostring(L, 1) : nullptr;
+    for (const auto& m : State::monitorState()->monitors()) {
+        if (!m || (name && m->m_name != name))
+            continue;
+        lua_pushnumber(L, Snap::barTop(m));
+        return 1;
+    }
+    lua_pushnil(L);
+    return 1;
+}
+
 static int luaDragging(lua_State* L) {
     lua_pushboolean(L, g_pDragSession && g_pDragSession->inProgress());
     return 1;
@@ -266,6 +315,17 @@ static int luaDragOwns(lua_State* L) {
     if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
         w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.drag_owns");
     lua_pushboolean(L, g_pDragSession && g_pDragSession->owns(w));
+    return 1;
+}
+
+// Lua's raise runs on every focus. Hyprland has already marked a floating
+// window allowed-over by then; this clears it without alter_zorder's mouse
+// simulation, which would focus yet another window.
+static int luaHoldUnderFullscreen(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.hold_under_fullscreen");
+    lua_pushboolean(L, holdUnderFullscreen(w));
     return 1;
 }
 
@@ -435,7 +495,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_pGlobalState->config.tabCloseActiveOnly =
         makeShared<Config::Values::CBoolValue>("plugin:hyprbars:tab_close_active_only", "Only show and act on the close button of the current tab, and only while the group has focus", false);
     g_pGlobalState->config.xModeDockInset =
-        makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_dock_inset", "Right dock inset used by the snap zones", 46);
+        makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_dock_inset", "Right snap inset: dock card plus half of gaps_out (set by x-mode.lua)", 45);
     g_pGlobalState->config.xModeSnapMargin =
         makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_snap_margin", "Thickness (px) of the screen-edge strip that starts a snap", 12);
     g_pGlobalState->config.xModeSnapCorner =
@@ -491,10 +551,13 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     else {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "add_button", ::newLuaButton);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "snap", ::luaSnap);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "zone", ::luaZone);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "bar_top", ::luaBarTop);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "dragging", ::luaDragging);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_window", ::luaDragWindow);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_owns", ::luaDragOwns);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "groupable", ::luaGroupable);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "hold_under_fullscreen", ::luaHoldUnderFullscreen);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "x_mode", ::luaXMode);
     }
 
