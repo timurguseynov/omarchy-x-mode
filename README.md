@@ -2,9 +2,13 @@
 
 A macOS-like desktop layer for [Omarchy](https://omarchy.org): floating windows, a Mac titlebar with same-app tabs, Rectangle-style snapping, a right-edge dock, and an app switcher.
 
-https://github.com/user-attachments/assets/f4b7c208-6e6c-4880-a805-128d79c872e7
+https://github.com/user-attachments/assets/0d840197-4fcf-4000-ba25-4ebfc3ff6c65
 
 It is **additive**. The installer only creates files in its own namespace and one marked block in `~/.config/hypr/hyprland.lua`. Uninstall removes exactly what it installed.
+
+
+
+
 
 **Floating windows · Mac titlebars · App tabs · Window snapping · Dock · App switcher**
 
