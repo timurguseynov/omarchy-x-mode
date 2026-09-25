@@ -55,9 +55,11 @@ fails midway otherwise leaves settings behind that change how the next one lays
 out windows.
 
 Requirements: `hyprpm` headers (`hyprpm update`), `quickshell`/`qs` (the fake top
-bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
-`qmltestrunner` (in `/usr/lib/qt6/bin`). The pointer tool also needs
-`wayland-scanner` and the `wayland-client` headers.
+bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
+`qmllint` / `qmltestrunner` (in `/usr/lib/qt6/bin`). The two input tools need
+`wayland-scanner`, the `wayland-client` headers and, for the keyboard,
+`xkbcommon`. The one pixels test needs `grim` and ImageMagick's `compare`
+(`magick`).
 
 ## Scenarios
 
@@ -69,90 +71,102 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `nogaps_test.sh` | the panel's file + reload zeroes the gaps and re-lays the snapped windows |
 | `focus_test.sh` | the focused window ends up topmost, including after a same-app window joins |
 | `pointer_test.sh` | a titlebar drag moves the window through the drag session, and a click does not |
-| `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
-| `integration/no_gaps_keeps_border_test.sh` | No gaps collapses the gaps, keeps the 1px border, and restores both |
-| `integration/group_close_focus_test.sh` | closing the active tab keeps focus in the group, not on a foreign app |
-| `integration/join_same_app_focus_test.sh` | a new same-app window becomes the active tab, not a hidden one |
-| `integration/group_join_keeps_visual_top_test.sh` | joining a group pushes the box down instead of pinning it to the top |
-| `integration/group_tab_switch_no_resize_test.sh` | switching tabs leaves the geometry alone |
-| `integration/snap_cycle_chrome_off_test.sh` | re-snapping a window without chrome does not creep down |
-| `integration/no_gaps_free_window_stays_test.sh` | No gaps re-lays out a snapped window and leaves a free one alone |
-| `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |
-| `integration/snap_ungrouped_full_geometry_test.sh` | snapping one window keeps the client and makes no group |
-| `integration/install_arrange_halves_test.sh` | the arrange marker deals the open windows into halves once |
-| `integration/no_gaps_symmetric_insets_test.sh` | every inset changes with the gaps and every one comes back |
-| `integration/titlebar_rmb_no_drag_test.sh` | a right-button drag does nothing, a left-button drag moves |
-| `integration/drag_snap_zones_test.sh` | side strips give halves, the top strip maximizes, corners quarter |
-| `integration/drag_up_clamps_to_bar_test.sh` | dragging up leaves the chrome below the bar |
-| `integration/drag_follows_pointer_live_test.sh` | mid-drag the window follows and keeps its size |
-| `integration/snap_geometry_stable_over_cursor_test.sh` | a snapped window does not move under a still cursor |
-| `integration/titlebar_click_raises_test.sh` | clicking a titlebar focuses and raises that window |
-| `integration/titlebar_click_wrong_window_test.sh` | clicking the right window raises the right window |
-| `integration/group_tabbar_click_stable_test.sh` | clicking the tabbar leaves geometry and z-order alone |
-| `integration/snap_no_chrome_reaches_bar_test.sh` | without chrome a snap reaches the bar, not the titlebar inset |
-| `integration/chrome_off_no_group_test.sh` | a chrome-off window is never grouped |
-| `integration/tabbar_plus_opens_window_test.sh` | the + slot opens another window that joins the group |
-| `integration/tab_close_keeps_group_raised_test.sh` | closing the current tab keeps focus and the raise in the group |
-| `integration/tab_close_ignores_unfocused_group_test.sh` | a close button on an unfocused group closes nothing |
-| `integration/tab_close_active_only_test.sh` | only the current tab's close button closes |
-| `integration/tab_drag_reorder_test.sh` | dragging a tab rewrites the order without moving the group |
-| `integration/tab_drag_no_hang_test.sh` | a tab drag leaves the compositor answering and the group intact |
-| `integration/drag_snap_survives_new_window_test.sh` | a window opening mid-drag does not steal the snap |
-| `integration/maximize_top_slop_test.sh` | the top band maximizes only inside the slop |
-| `integration/snap_half_flags_test.sh` | x_mode_snap_top_half turns the strip's top into a top half |
-| `integration/chrome_off_drag_reaches_bar_test.sh` | without chrome the box reaches the bar |
-| `integration/always_tabbar_single_tab_test.sh` | alwaysTabbar pushes a lone window down by the tabbar |
-| `integration/titlebar_click_no_raise_other_test.sh` | a titlebar click still raises the right window with No gaps on |
-| `integration/snap_zone_tolerance_reload_test.sh` | a vertically shifted window is put back in its zone |
-| `integration/tiling_hotkeys_unbound_test.sh` | Super+O, Super+L and Super+T stay unbound |
-| `integration/ctrl_tab_switch_binds_test.sh` | Ctrl+1..9 binds are opt-in |
-| `integration/group_join_raises_test.sh` | a window joining a group raises it above another app |
-| `integration/drag_out_of_zone_test.sh` | a snapped window dragged out of its zone keeps its size |
-| `integration/dock_appears_test.sh` | the dock is a 40px card, centred, reserving nothing |
-| `integration/dock_icon_layout_test.sh` | the icon layout the click helpers assume |
-| `integration/dock_click_focuses_app_test.sh` | clicking an icon focuses and raises that app |
-| `integration/dock_click_switches_workspace_test.sh` | clicking an icon on another workspace moves there |
-| `integration/dock_click_same_app_no_tab_switch_test.sh` | clicking the focused app's icon does not switch tabs |
-| `integration/dock_right_click_menu_test.sh` | a right-click opens the context menu layer |
-| `integration/dock_snap_clears_dock_test.sh` | a right-snapped window stops before the dock |
-| `integration/dock_pinned_first_test.sh` | a pinned app's icon comes before the running ones |
-| `integration/dock_pinned_shown_when_not_running_test.sh` | a pinned app that is not running still gets an icon |
-| `integration/dock_pinned_drag_reorders_test.sh` | dragging an icon past its neighbour rewrites the pinned order |
-| `integration/dock_menu_pin_writes_file_test.sh` | the menu's Pin row writes the class, and Unpin clears it |
-| `integration/dock_menu_quit_closes_app_test.sh` | the menu's last row quits the app |
-| `integration/dock_menu_lists_windows_test.sh` | the menu lists every window and a row focuses that one |
-| `integration/dock_menu_focuses_other_workspace_test.sh` | a window row on another workspace moves there |
-| `integration/dock_menu_hides_new_for_single_instance_test.sh` | a single-instance app gets no New row |
-| `integration/dock_hides_when_x_mode_off_test.sh` | the dock follows the x-mode on/off flag |
-| `integration/dock_offset_follows_gaps_test.sh` | the dock's edge inset follows the gaps |
-| `integration/snap_cycle_thirds_test.sh` | Super+Alt+Left/Right cycle half, two thirds, a third |
-| `integration/snap_hotkeys_maximize_restore_test.sh` | Super+Alt+F fills the workarea and Ctrl+Alt+Down restores |
-| `integration/snap_hotkeys_quarters_test.sh` | Ctrl+Alt+U/I/J/K give the four quarters |
-| `integration/alt_tab_switches_group_tab_test.sh` | Alt+Tab and Alt+Shift+Tab move through a group's tabs |
-| `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
-| `integration/super_w_closes_window_test.sh` | Super+W closes the window and keeps the focus in the group |
-| `integration/super_w_single_window_test.sh` | and closes an ungrouped window on its own |
-| `integration/snap_preview_layer_test.sh` | the preview layer is up inside a zone while dragging and gone outside |
-| `integration/small_window_still_tabs_test.sh` | a 120x90 window is still a tab, not a popup |
-| `integration/titlebar_drawn_test.sh` | the titlebar band is actually painted |
-| `integration/super_q_closes_app_test.sh` | Super+Q closes every tab of the app and nothing else |
-| `integration/focus_direction_keys_test.sh` | Super+Left/Right focus the window in that direction |
+| `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
 | `integration/almost_maximize_key_test.sh` | Super+Alt+A is most of the workarea, not all of it |
 | `integration/alt_tab_no_resize_test.sh` | Alt+Tab leaves the geometry alone |
+| `integration/alt_tab_switches_group_tab_test.sh` | Alt+Tab and Alt+Shift+Tab move through a group's tabs |
+| `integration/always_tabbar_single_tab_test.sh` | alwaysTabbar pushes a lone window down by the tabbar |
+| `integration/arrange_counts_group_once_test.sh` | a group of tabs takes one half, not two |
+| `integration/arrange_keeps_workspaces_test.sh` | the arrange arranges a window where it already is |
+| `integration/chrome_off_drag_reaches_bar_test.sh` | without chrome the box reaches the bar |
+| `integration/chrome_off_no_group_test.sh` | a chrome-off window is never grouped |
+| `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
+| `integration/ctrl_tab_switch_binds_test.sh` | Ctrl+1..9 binds are opt-in |
+| `integration/dock_appears_test.sh` | the dock is a 40px card, centred, reserving nothing |
+| `integration/dock_click_focuses_app_test.sh` | clicking an icon focuses and raises that app |
+| `integration/dock_click_same_app_no_tab_switch_test.sh` | clicking the focused app's icon does not switch tabs |
+| `integration/dock_click_switches_workspace_test.sh` | clicking an icon on another workspace moves there |
+| `integration/dock_hides_when_x_mode_off_test.sh` | the dock follows the x-mode on/off flag |
+| `integration/dock_icon_layout_test.sh` | the icon layout the click helpers assume |
+| `integration/dock_menu_focuses_other_workspace_test.sh` | a window row on another workspace moves there |
+| `integration/dock_menu_hides_new_for_single_instance_test.sh` | a single-instance app gets no New row |
+| `integration/dock_menu_lists_windows_test.sh` | the menu lists every window and a row focuses that one |
+| `integration/dock_menu_pin_writes_file_test.sh` | the menu's Pin row writes the class, and Unpin clears it |
+| `integration/dock_menu_quit_closes_app_test.sh` | the menu's last row quits the app |
+| `integration/dock_offset_follows_gaps_test.sh` | the dock's edge inset follows the gaps |
+| `integration/dock_pinned_drag_reorders_test.sh` | dragging an icon past its neighbour rewrites the pinned order |
+| `integration/dock_pinned_first_test.sh` | a pinned app's icon comes before the running ones |
+| `integration/dock_pinned_shown_when_not_running_test.sh` | a pinned app that is not running still gets an icon |
+| `integration/dock_right_click_menu_test.sh` | a right-click opens the context menu layer |
+| `integration/dock_snap_clears_dock_test.sh` | a right-snapped window stops before the dock |
+| `integration/drag_follows_pointer_live_test.sh` | mid-drag the window follows and keeps its size |
+| `integration/drag_out_of_zone_test.sh` | a snapped window dragged out of its zone keeps its size |
+| `integration/drag_snap_survives_new_window_test.sh` | a window opening mid-drag does not steal the snap |
+| `integration/drag_snap_zones_test.sh` | side strips give halves, the top strip maximizes, corners quarter |
+| `integration/drag_up_clamps_to_bar_test.sh` | dragging up leaves the chrome below the bar |
+| `integration/focus_direction_keys_test.sh` | Super+Left/Right focus the window in that direction |
+| `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |
+| `integration/group_close_focus_test.sh` | closing the active tab keeps focus in the group, not on a foreign app |
+| `integration/group_join_keeps_visual_top_test.sh` | joining a group pushes the box down instead of pinning it to the top |
+| `integration/group_join_raises_test.sh` | a window joining a group raises it above another app |
+| `integration/group_tab_switch_no_resize_test.sh` | switching tabs leaves the geometry alone |
+| `integration/group_tabbar_click_stable_test.sh` | clicking the tabbar leaves geometry and z-order alone |
+| `integration/install_arrange_halves_test.sh` | the arrange marker deals the open windows into halves once |
+| `integration/join_same_app_focus_test.sh` | a new same-app window becomes the active tab, not a hidden one |
+| `integration/maximize_top_slop_test.sh` | the top band maximizes only inside the slop |
+| `integration/maximize_via_two_bindings_test.sh` | Super+Alt+F and Ctrl+Alt+Up maximize alike |
+| `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
+| `integration/no_gaps_free_window_stays_test.sh` | No gaps re-lays out a snapped window and leaves a free one alone |
+| `integration/no_gaps_keeps_border_test.sh` | No gaps collapses the gaps, keeps the 1px border, and restores both |
+| `integration/no_gaps_symmetric_insets_test.sh` | every inset changes with the gaps and every one comes back |
+| `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
+| `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
+| `integration/same_app_across_workspaces_no_group_test.sh` | a same-app window on another space is not a tab |
+| `integration/small_window_still_tabs_test.sh` | a 120x90 window is still a tab, not a popup |
+| `integration/snap_cycle_chrome_off_keys_test.sh` | the cycle by key does not creep on a window without chrome |
+| `integration/snap_cycle_chrome_off_test.sh` | re-snapping a window without chrome does not creep down |
+| `integration/snap_cycle_thirds_test.sh` | Super+Alt+Left/Right cycle half, two thirds, a third |
+| `integration/snap_geometry_stable_over_cursor_test.sh` | a snapped window does not move under a still cursor |
+| `integration/snap_half_flags_test.sh` | x_mode_snap_top_half turns the strip's top into a top half |
+| `integration/snap_hotkeys_maximize_restore_test.sh` | Super+Alt+F fills the workarea and Ctrl+Alt+Down restores |
+| `integration/snap_hotkeys_quarters_test.sh` | Ctrl+Alt+U/I/J/K give the four quarters |
+| `integration/snap_no_chrome_reaches_bar_test.sh` | without chrome a snap reaches the bar, not the titlebar inset |
+| `integration/snap_preview_layer_test.sh` | the preview layer is up inside a zone while dragging and gone outside |
+| `integration/snap_ungrouped_full_geometry_test.sh` | snapping one window keeps the client and makes no group |
+| `integration/snap_zone_tolerance_reload_test.sh` | a vertically shifted window is put back in its zone |
+| `integration/super_q_closes_app_test.sh` | Super+Q closes every tab of the app and nothing else |
+| `integration/super_q_single_window_test.sh` | Super+Q on an ungrouped window closes just it |
+| `integration/super_w_closes_window_test.sh` | Super+W closes the window and keeps the focus in the group |
+| `integration/super_w_single_window_test.sh` | and closes an ungrouped window on its own |
 | `integration/switcher_cycles_apps_test.sh` | Super+Tab cycles apps and writes the switcher's command file |
 | `integration/switcher_mru_order_test.sh` | the switcher's next app is the one used before this one |
-| `integration/super_q_single_window_test.sh` | Super+Q on an ungrouped window closes just it |
-| `integration/snap_cycle_chrome_off_keys_test.sh` | the cycle by key does not creep on a window without chrome |
-| `integration/maximize_via_two_bindings_test.sh` | Super+Alt+F and Ctrl+Alt+Up maximize alike |
-| `integration/arrange_keeps_workspaces_test.sh` | the arrange arranges a window where it already is |
-| `integration/arrange_counts_group_once_test.sh` | a group of tabs takes one half, not two |
-| `integration/same_app_across_workspaces_no_group_test.sh` | a same-app window on another space is not a tab |
-| `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
-| `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
-| `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
+| `integration/tab_close_active_only_test.sh` | only the current tab's close button closes |
+| `integration/tab_close_ignores_unfocused_group_test.sh` | a close button on an unfocused group closes nothing |
+| `integration/tab_close_keeps_group_raised_test.sh` | closing the current tab keeps focus and the raise in the group |
+| `integration/tab_drag_no_hang_test.sh` | a tab drag leaves the compositor answering and the group intact |
+| `integration/tab_drag_reorder_test.sh` | dragging a tab rewrites the order without moving the group |
+| `integration/tabbar_plus_opens_window_test.sh` | the + slot opens another window that joins the group |
+| `integration/tiling_hotkeys_unbound_test.sh` | Super+O, Super+L and Super+T stay unbound |
+| `integration/titlebar_click_no_raise_other_test.sh` | a titlebar click still raises the right window with No gaps on |
+| `integration/titlebar_click_raises_test.sh` | clicking a titlebar focuses and raises that window |
+| `integration/titlebar_click_wrong_window_test.sh` | clicking the right window raises the right window |
+| `integration/titlebar_drawn_test.sh` | the titlebar band is actually painted |
+| `integration/titlebar_rmb_no_drag_test.sh` | a right-button drag does nothing, a left-button drag moves |
 
 `focus_test.sh` relies on `hyprctl clients -j` being in z-order (topmost last),
 which is what `lib.sh`'s helpers read.
+
+## nest scenarios and integration scenarios
+
+`nest/*_test.sh` checks the mechanism: a snap keeps its inset, a same-app window
+joins, focus raises. `nest/integration/*_test.sh` are regressions for bugs that
+actually happened, each naming the symptom in its header. Both run in the same
+nest, so `run.sh` picks up both and nothing needs a second compositor.
+
+When an assertion here hard-codes a number, say which configuration it belongs
+to: `visual_top >= 36` is the gaps-on inset (bar 24 + gap 12), while with gaps
+off the titlebar sits at 25 and the contract is `>= bar_top`. Comparing against
+`bar_top` states the rule; a literal only states one case.
 
 ## Writing a test
 
@@ -171,9 +185,10 @@ that needs arguments, like a zenity dialog), `nest_clean`, `win_geom`, `visible_
 `group_size`, `group_order`, `active_class`, `active_address`,
 `active_tab_index`, `group_tab`, `topmost`, `bind_count`, `bind_count_desc`,
 `snap`, `bar_top`, `bar_height`, `tab_height`, `tab_point`, `tab_close_point`,
-`plus_point`, `gaps_out`, `border_size`, `plugin_option`, `nest_ctl`,
-`nest_socket`, `titlebar_point`, `drag_to`, `place_frac`, the `pointer_*` family
-below, and `assert_eq/ne/ge/le/between`.
+`plus_point`, `viewed_workspace`, `gaps_out`, `border_size`, `plugin_option`,
+`nest_ctl`, `nest_socket`, `nest_display`, `titlebar_point`, `drag_to`,
+`place_frac`, `nest_screenshot`, `image_diff`, the `pointer_*` and `dock_*`
+families below, and `assert_eq/ne/ge/le/between`.
 
 Three things about the tabbar, all found the hard way:
 
@@ -194,18 +209,6 @@ Three things about the tabbar, all found the hard way:
 
 `hyprctl dispatch` here takes a dispatcher object, not the legacy string: use
 `hl.dsp.window.close({ window = 'address:$addr' })`, not `killactive`.
-
-## nest scenarios and integration scenarios
-
-`nest/*_test.sh` checks the mechanism: a snap keeps its inset, a same-app window
-joins, focus raises. `nest/integration/*_test.sh` are regressions for bugs that
-actually happened, each naming the symptom in its header. Both run in the same
-nest, so `run.sh` picks up both and nothing needs a second compositor.
-
-When an assertion here hard-codes a number, say which configuration it belongs
-to: `visual_top >= 36` is the gaps-on inset (bar 24 + gap 12), while with gaps
-off the titlebar sits at 25 and the contract is `>= bar_top`. Comparing against
-`bar_top` states the rule; a literal only states one case.
 
 ## The pointer
 
@@ -358,18 +361,10 @@ switches workspace decides where the next one opens its windows — two same-app
 windows that land on one space group instead of staying apart, which is how the
 workspace test above failed in a full run while passing alone.
 
-Two things about running a Quickshell for the dock:
-
-- Its `XDG_RUNTIME_DIR` is redirected to a short path in `/tmp` with the real
-  `hypr/` symlinked into it. The plugin reads
-  `$XDG_RUNTIME_DIR/omarchy-x-mode.state` for its on/off flag and the live
-  session keeps its own there, while Quickshell still has to find the nest's
-  Hyprland socket under `$XDG_RUNTIME_DIR/hypr`. It has to be short because a
-  unix socket path tops out around 108 bytes, and
-  `$XDG_RUNTIME_DIR/hypr/<signature>/.socket.sock` under `tests/.nest` runs past
-  that: Quickshell reports it as `QLocalSocket::ServerNotFoundError`.
-- `WAYLAND_DISPLAY` is then the absolute path to the nest socket, which wayland
-  accepts.
+The dock runs with the nest's own runtime directory and `HOME` (see the Run
+section): the same-isolation reasons apply, and it needs both, because the state
+file the plugin reads and the command files it writes all live there, and because
+the pinned list belongs in the nest's HOME rather than the user's.
 
 `nest/run.sh` stops the dock on exit, so a scenario that fails midway cannot
 leave a Quickshell running against the nest.

@@ -34,9 +34,12 @@ Pack code, in this repo:
   without a compositor: `geom.lua` (frame and zone math, window fit),
   `settings.lua` (option/app parsing, rule diff), `theme.lua` (colors.toml),
   `mru.lua` (switcher order).
-- `tests/` — the test suite. `tests/run.sh` runs `unit/` (plain lua, no
-  compositor) then `nest/` (a nested Hyprland running the real config and a
-  freshly built plugin); `tests/README.md` has the details.
+- `tests/` — the test suite. `tests/run.sh` runs lint (`qmllint`), `unit/` (plain
+  lua, no compositor), `qml/` (`logic.js` under `qmltestrunner`) and `nest/` (a
+  nested Hyprland running the real config and a freshly built plugin, with
+  `nest/integration/` holding the regressions). `tests/pointer/` and
+  `tests/keyboard/` are the tools that let a scenario click, drag and press keys,
+  and the dock runs a Quickshell of its own; `tests/README.md` has the details.
 - `hyprbars/` — vendored patched hyprbars (titlebar, tabbar, drag, snap).
   `build.sh` builds it; `README.md` lists its config keys.
 - `quickshell/x-mode/` — the shell plugin.
@@ -64,8 +67,10 @@ Sandbox, under `_docs/`, read-only unless a note is being written:
   there, say so and wait: the user will check it. If you need log output, ask
   for it instead of collecting it yourself.
 - `tests/run.sh` is the sanctioned check, and it is automated and isolated: the
-  unit layer is plain lua, the nest layer is a nested Hyprland with its own
-  state dir. Run it before committing a change to `x-mode.lua`, a module, the
+  unit layer is plain lua, the nest layer is a nested Hyprland with its own state
+  directory and a runtime directory of its own, so nothing the pack writes (the
+  state file, the switcher and preview command files) reaches the running
+  session. Run it before committing a change to `x-mode.lua`, a module, the
   plugin or an install file.
 - Editing and installing are separate steps: make the change in this repo, run
   `tests/run.sh`, and only then install. Never hand-edit or copy over the
