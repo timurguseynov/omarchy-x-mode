@@ -248,6 +248,15 @@ group_tab() { # INDEX CLASS
   sleep 0.2
 }
 
+# Class of the topmost visible window. `hyprctl clients -j` is in z-order, with
+# the topmost last.
+topmost() {
+  nest_ctl clients -j | python3 -c "
+import json, sys
+ws = [c for c in json.load(sys.stdin) if c['mapped'] and not c['hidden']]
+print(ws[-1]['class'] if ws else '')"
+}
+
 # Snap the first floating window of CLASS to KIND (left/right/maximize/...).
 snap() { # CLASS KIND
   nest_ctl eval "for _,w in ipairs(hl.get_windows()) do

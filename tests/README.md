@@ -67,6 +67,9 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/snap_cycle_chrome_off_test.sh` | re-snapping a window without chrome does not creep down |
 | `integration/no_gaps_free_window_stays_test.sh` | No gaps re-lays out a snapped window and leaves a free one alone |
 | `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |
+| `integration/snap_ungrouped_full_geometry_test.sh` | snapping one window keeps the client and makes no group |
+| `integration/install_arrange_halves_test.sh` | the arrange marker deals the open windows into halves once |
+| `integration/no_gaps_symmetric_insets_test.sh` | every inset changes with the gaps and every one comes back |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
@@ -87,9 +90,10 @@ assert_ge "$(visual_top foot)" 36 "the titlebar clears the bar"
 ```
 
 Helpers: `open_window`, `nest_clean`, `win_geom`, `visible_geom`, `visual_top`,
-`group_size`, `active_class`, `active_address`, `group_tab`, `snap`, `bar_top`,
-`gaps_out`, `border_size`, `nest_ctl`, `nest_socket`, `titlebar_point`, the
-`pointer_*` family below, and `assert_eq/ne/ge/le/between`.
+`group_size`, `active_class`, `active_address`, `group_tab`, `topmost`, `snap`,
+`bar_top`, `gaps_out`, `border_size`, `nest_ctl`, `nest_socket`,
+`titlebar_point`, the `pointer_*` family below, and
+`assert_eq/ne/ge/le/between`.
 
 `visible_geom` is `win_geom` for a group: an inactive tab stays mapped, so
 `win_geom` can read a window nobody can see.
@@ -142,6 +146,19 @@ the size from `pointer_extent` and use fractions of it.
 `nest/pointer_test.sh` guards the tool itself: if the protocol disappears or a
 warp stops reaching `input.mouse.move`, the window does not move and every
 scenario built on the pointer would fail for the wrong reason.
+
+## What needs more than the pointer
+
+Some scenarios drive a keybinding, and there is no way to press a key here yet:
+the tab switch that has to raise its group, and the tiling hotkeys that must
+stay unbound. Both were reported live and are not covered.
+
+`hl.dsp.group.active`, the dispatcher the pack's Ctrl+N handler calls, switches
+the tab but does not focus the group: the focus and the raise come from the
+focus handler, which only runs when the group already has focus. So driving the
+dispatcher from a test does not reproduce the Alt+Tab case. A virtual keyboard
+(`zwp_virtual_keyboard_manager_v1`) is the same trick as the pointer and is what
+this needs.
 
 ## unit layer
 

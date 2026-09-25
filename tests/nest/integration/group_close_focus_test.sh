@@ -33,4 +33,5 @@ sleep 0.4
 
 assert_eq "$(active_class)" foot "focus stays in the group after the active tab closes"
 assert_eq "$(group_size foot)" 2 "the group keeps its remaining windows"
+assert_eq "$(topmost)" foot "the group is raised after a tab closes"
 assert_ge "$(visual_top foot)" "$(bar_top)" "the tabbar stays below the bar"
