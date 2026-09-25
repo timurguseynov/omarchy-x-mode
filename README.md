@@ -74,7 +74,10 @@ It is **additive**. The installer only creates files in its own namespace and on
 
 ## Installation
 
+X Mode reloads hyprpm plugins on startup. If the Hyprland header cache is missing or stale, that reload reports `Failed to load plugins: Outdated headers. Please run hyprpm update manually.` Refresh the cache first, as your own user. `hyprpm` refuses to run under `sudo` (`Don't run hyprpm as a superuser`) and asks for your password itself when it needs to write `/var/cache/hyprpm`.
+
 ```bash
+hyprpm update
 git clone https://github.com/timurguseynov/omarchy-x-mode.git ~/omarchy-x-mode
 ~/omarchy-x-mode/install.sh
 ```
