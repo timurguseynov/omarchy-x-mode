@@ -164,8 +164,11 @@ print(' '.join(c['address'] for c in json.load(sys.stdin)))")"
   printf '%s\n' '{"options":{},"apps":{}}' > "$NEST_STATE/state/settings.json"
   # The dock's pinned list lives in the dock's HOME, which outlives a single
   # scenario, so it has to be cleared too or the next dock test starts with
-  # someone else's icons.
+  # someone else's icons. Desktop entries written there are cleared for the same
+  # reason: a leftover single-instance entry changes the dock's menu for the
+  # class it names, which shifts the rows the menu tests click on.
   rm -f "$NEST_STATE/home/.config/omarchy/x-mode-dock.json"
+  rm -rf "$NEST_STATE/home/.local/share/applications"
   nest_ctl reload >/dev/null 2>&1 || true
   sleep 0.4
 }

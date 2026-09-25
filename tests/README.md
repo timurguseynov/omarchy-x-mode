@@ -109,6 +109,9 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/dock_pinned_drag_reorders_test.sh` | dragging an icon past its neighbour rewrites the pinned order |
 | `integration/dock_menu_pin_writes_file_test.sh` | the menu's Pin row writes the class, and Unpin clears it |
 | `integration/dock_menu_quit_closes_app_test.sh` | the menu's last row quits the app |
+| `integration/dock_menu_lists_windows_test.sh` | the menu lists every window and a row focuses that one |
+| `integration/dock_menu_focuses_other_workspace_test.sh` | a window row on another workspace moves there |
+| `integration/dock_menu_hides_new_for_single_instance_test.sh` | a single-instance app gets no New row |
 | `integration/dock_hides_when_x_mode_off_test.sh` | the dock follows the x-mode on/off flag |
 | `integration/dock_offset_follows_gaps_test.sh` | the dock's edge inset follows the gaps |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
@@ -285,9 +288,10 @@ out through `uwsm-app` and `gtk-launch`, which hang in the nest (no uwsm session
 so a test that clicked them would block instead of failing. Pin/Unpin and Quit act
 locally and are tested.
 
-`nest_clean()` also clears the pinned file: it lives in the dock's HOME, which
-outlives one scenario, so without that a dock test starts with the previous one's
-icons.
+`nest_clean()` also clears the pinned file and any desktop entries written into
+the dock's HOME: both outlive one scenario. Without that a dock test starts with
+the previous one's icons, and a leftover single-instance entry changes the menu
+for the class it names, shifting the rows the menu tests click on.
 
 Two things about running a Quickshell for the dock:
 
