@@ -119,6 +119,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/group_tabbar_click_stable_test.sh` | clicking the tabbar leaves geometry and z-order alone |
 | `integration/install_arrange_halves_test.sh` | the arrange marker deals the open windows into halves once |
 | `integration/join_same_app_focus_test.sh` | a new same-app window becomes the active tab, not a hidden one |
+| `integration/lone_group_below_bar_test.sh` | a lone window turned into a group of one is pushed back below the bar |
 | `integration/maximize_top_slop_test.sh` | the top band maximizes only inside the slop |
 | `integration/maximize_via_two_bindings_test.sh` | Super+Alt+F and Ctrl+Alt+Up maximize alike |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
@@ -264,7 +265,9 @@ resize could land after. It hands the window over the moment `hyprbars.drag`
 reports a drag for it: a drag clamps itself in C++ and lets a window hang off an
 edge, and the Lua fit would pull it back — `pointer_test.sh` caught exactly that,
 which is why the handover is on the event and not on a check inside the tick.
-Grouped windows are skipped, their position coming from the join.
+Grouped windows are skipped, their position coming from the join; a group that
+changes shape afterwards is pushed back below the bar by `push_bars_below`,
+because `window.update_rules` is the only event a group change raises.
 
 `resize_after_open_clears_bar_test.sh` holds that down: Hyprland resizes around
 the window's centre, so growing a window moves its top-left up (measured at -39

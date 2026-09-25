@@ -676,6 +676,33 @@ local function keep_below_topbar(window)
   end
 end
 
+-- The downward-only half of clamp_window: no resize, and never a move up, so it
+-- is safe to run on any event. hyprbars draws the chrome above the box, so a
+-- window (or a group, once the tabbar appears) whose visual top is above the
+-- bar is pushed down until the chrome clears it. The open watch cannot cover
+-- this: it skips grouped windows, and a group that grows after it stopped has
+-- no geometry event of its own. window.update_rules is what a group change does
+-- raise, so this is called from there and on focus.
+local function push_bars_below(w)
+  if w == nil or drag_owns(w) then
+    return
+  end
+  if not (w.floating and w.mapped and not w.hidden and (not w.fullscreen or w.fullscreen == 0)) then
+    return
+  end
+  local chrome = chrome_h(w)
+  local mon = w.monitor
+  if chrome <= 0 or mon == nil then
+    return
+  end
+  local _, uy = usable(mon)
+  local x, y = vec(w.at)
+  local min_top = uy + GAP_OUT() + BORDER() + chrome
+  if y < min_top then
+    hl.dispatch(hl.dsp.window.move({ x = x, y = min_top, relative = false, window = w }))
+  end
+end
+
 -- keep_below_topbar is not polled: the drags clamp themselves (hyprbars in C++)
 -- and Hyprland's own placement respects float_gaps. On window.open / join it
 -- clamps only the window that changed. consolidate() still walks all windows
@@ -927,6 +954,9 @@ hl.on("window.active", function(w, reason)
   if w == nil then
     return
   end
+  -- A group can carry chrome the open watch never clamped (the watch skips
+  -- grouped windows); focusing it is where a lingering one is pulled back down.
+  push_bars_below(w)
   raise_active(w)
   if switcher_active then
     return
@@ -1899,21 +1929,19 @@ end
 -- windows a snap skips (hidden, fullscreen, still tiled, no monitor).
 local function clear_bars()
   for _, w in ipairs(hl.get_windows() or {}) do
-    w = refresh_window(w) or w
-    if w.floating and w.mapped and not w.hidden and (not w.fullscreen or w.fullscreen == 0) and not drag_owns(w) then
-      local chrome = chrome_h(w)
-      local mon = w.monitor
-      if chrome > 0 and mon ~= nil then
-        local _, uy = usable(mon)
-        local x, y = vec(w.at)
-        local min_top = uy + GAP_OUT() + BORDER() + chrome
-        if y < min_top then
-          hl.dispatch(hl.dsp.window.move({ x = x, y = min_top, relative = false, window = w }))
-        end
-      end
-    end
+    push_bars_below(refresh_window(w) or w)
   end
 end
+
+-- A group change (a second window joining, a tab closing, a lone window turned
+-- into a group) grows or shrinks the chrome with no geometry event, so the open
+-- watch, which skips grouped windows, never sees the tabbar. window.update_rules
+-- is what a rule change raises, and it also fires for every window on every
+-- open, so this runs often; push_bars_below is downward-only and idempotent, so
+-- a window already clear of the bar costs a comparison.
+hl.on("window.update_rules", function(w)
+  push_bars_below(refresh_window(w) or w)
+end)
 
 -- The marker comes from install.sh (a fresh install) or from the off path
 -- above (the desktop was just switched back on from the bar panel). Spread
