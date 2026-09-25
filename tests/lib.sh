@@ -230,6 +230,73 @@ d = json.load(sys.stdin) or {}
 print(d.get('address') or '')"
 }
 
+bar_height() { nest_ctl getoption plugin:hyprbars:bar_height | head -1 | awk '{print $2}'; }
+tab_height() { nest_ctl getoption plugin:hyprbars:tab_height | head -1 | awk '{print $2}'; }
+
+# Set a plugin:hyprbars:* option at runtime. `hyprctl keyword` refuses plugin
+# values ('non-legacy parsers'), so it has to go through the Lua config.
+plugin_option() { # NAME LUA_VALUE
+  nest_ctl eval "hl.config({ plugin = { hyprbars = { $1 = $2 } } })" >/dev/null
+  sleep 0.3
+}
+
+# Tab geometry, from CHyprBar::tabAt(): the tabbar is the band directly above
+# the window box and one tabbar tall, the + button owns the last 34px of the
+# width, and the rest is split evenly between the tabs. A tab's close button is
+# the last 24px of that tab.
+tab_point() { # CLASS INDEX TABS -> "X Y", the middle of that tab
+  _tab_xy "$1" "$2" "$3" "mid"
+}
+
+tab_close_point() { # CLASS INDEX TABS -> "X Y", the close button of that tab
+  _tab_xy "$1" "$2" "$3" "close"
+}
+
+_tab_xy() {
+  local bx by bw
+  read -r bx by bw _ _ <<<"$(visible_geom "$1")"
+  # int(), not round(): the close button is the last 24px of the tab, so a point
+  # rounded up past the tab's edge belongs to the next tab.
+  python3 -c "
+import math
+bx, by, bw, i, n, th, where = $bx, $by, $bw, $2, $3, $(tab_height), '$4'
+tabw = (bw - 34) / n
+x = bx + i * tabw + (tabw - 12 if where == 'close' else tabw / 2)
+print(math.floor(x), math.floor(by - th / 2))"
+}
+
+plus_point() { # CLASS -> "X Y", the + button on the tabbar
+  local bx by bw
+  read -r bx by bw _ _ <<<"$(visible_geom "$1")"
+  python3 -c "print(round($bx + $bw - 17), round($by - $(tab_height) / 2))"
+}
+
+# Index of the current tab, in tab order. Taken from the active window: both
+# members of a group report hidden:false in hyprctl, so "the visible one" is not
+# something this can lean on.
+active_tab_index() { # CLASS
+  local addr
+  addr="$(active_address)"
+  local order
+  order="$(group_order "$1")"
+  python3 -c "
+addr, order = '$addr', '$order'.split()
+print(order.index(addr) if addr in order else 0)"
+}
+
+# The group's member addresses, in tab order, as one line.
+group_order() { # CLASS
+  nest_ctl clients -j | python3 -c "
+import json, sys
+best = []
+for c in json.load(sys.stdin):
+    if c['class'] == '$1' and c['mapped']:
+        members = c.get('grouped') or []
+        if len(members) > len(best):
+            best = members
+print(' '.join(best))"
+}
+
 # Like win_geom, but skips the hidden tabs of a group: an inactive tab stays
 # mapped, and its box is not the one on screen, so win_geom can report a window
 # nobody can see.

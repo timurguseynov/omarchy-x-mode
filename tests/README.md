@@ -80,6 +80,19 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/group_tabbar_click_stable_test.sh` | clicking the tabbar leaves geometry and z-order alone |
 | `integration/snap_no_chrome_reaches_bar_test.sh` | without chrome a snap reaches the bar, not the titlebar inset |
 | `integration/chrome_off_no_group_test.sh` | a chrome-off window is never grouped |
+| `integration/tabbar_plus_opens_window_test.sh` | the + slot opens another window that joins the group |
+| `integration/tab_close_keeps_group_raised_test.sh` | closing the current tab keeps focus and the raise in the group |
+| `integration/tab_close_ignores_unfocused_group_test.sh` | a close button on an unfocused group closes nothing |
+| `integration/tab_close_active_only_test.sh` | only the current tab's close button closes |
+| `integration/tab_drag_reorder_test.sh` | dragging a tab rewrites the order without moving the group |
+| `integration/tab_drag_no_hang_test.sh` | a tab drag leaves the compositor answering and the group intact |
+| `integration/drag_snap_survives_new_window_test.sh` | a window opening mid-drag does not steal the snap |
+| `integration/maximize_top_slop_test.sh` | the top band maximizes only inside the slop |
+| `integration/snap_half_flags_test.sh` | x_mode_snap_top_half turns the strip's top into a top half |
+| `integration/chrome_off_drag_reaches_bar_test.sh` | without chrome the box reaches the bar |
+| `integration/always_tabbar_single_tab_test.sh` | alwaysTabbar pushes a lone window down by the tabbar |
+| `integration/titlebar_click_no_raise_other_test.sh` | a titlebar click still raises the right window with No gaps on |
+| `integration/snap_zone_tolerance_reload_test.sh` | a vertically shifted window is put back in its zone |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
@@ -100,10 +113,26 @@ assert_ge "$(visual_top foot)" 36 "the titlebar clears the bar"
 ```
 
 Helpers: `open_window`, `nest_clean`, `win_geom`, `visible_geom`, `visual_top`,
-`group_size`, `active_class`, `active_address`, `group_tab`, `topmost`, `snap`,
-`bar_top`, `gaps_out`, `border_size`, `nest_ctl`, `nest_socket`,
-`titlebar_point`, the `pointer_*` family below, and
+`group_size`, `group_order`, `active_class`, `active_address`,
+`active_tab_index`, `group_tab`, `topmost`, `snap`, `bar_top`, `bar_height`,
+`tab_height`, `tab_point`, `tab_close_point`, `plus_point`, `gaps_out`,
+`border_size`, `plugin_option`, `nest_ctl`, `nest_socket`, `titlebar_point`,
+`drag_to`, `place_frac`, the `pointer_*` family below, and
 `assert_eq/ne/ge/le/between`.
+
+Three things about the tabbar, all found the hard way:
+
+- The tabbar is the band directly above the window box and one `tab_height`
+  tall. The `+` button owns the last 34px of the width and the rest splits
+  evenly, so `tab_point CLASS I N` and `tab_close_point CLASS I N` give the
+  middle of a tab and of its close button (the last 24px of the tab).
+- Both members of a group report `hidden: false`, so the current tab cannot be
+  found that way; `active_tab_index` matches the active window's address against
+  the tab order instead. A click on a background tab focuses it, so the index has
+  to be re-read before the next click.
+- `hyprctl keyword` refuses plugin values ('non-legacy parsers').
+  `plugin_option x_mode_snap_top_half true` goes through `hyprctl eval` and
+  `hl.config` instead.
 
 `visible_geom` is `win_geom` for a group: an inactive tab stays mapped, so
 `win_geom` can read a window nobody can see.
