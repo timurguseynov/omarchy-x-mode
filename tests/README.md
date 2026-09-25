@@ -128,6 +128,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `integration/same_app_across_workspaces_no_group_test.sh` | a same-app window on another space is not a tab |
+| `integration/scratchpad_keys_unbound_test.sh` | Cmd+S and Cmd+Alt+S stay unbound |
 | `integration/small_window_still_tabs_test.sh` | a 120x90 window is still a tab, not a popup |
 | `integration/snap_cycle_chrome_off_keys_test.sh` | the cycle by key does not creep on a window without chrome |
 | `integration/snap_cycle_chrome_off_test.sh` | re-snapping a window without chrome does not creep down |

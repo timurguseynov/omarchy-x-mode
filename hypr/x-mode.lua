@@ -1086,6 +1086,11 @@ hl.unbind("SUPER + ALT + DOWN")
 hl.unbind("SUPER + G")
 hl.unbind("SUPER + ALT + G")
 
+-- Cmd+S toggles the scratchpad, Cmd+Alt+S moves the focused window into it.
+-- This desktop does not use a scratchpad, so the keys should reach the app.
+hl.unbind("SUPER + S")
+hl.unbind("SUPER + ALT + S")
+
 -- Super+Alt+F was Hyprland "full width" (maximized). Match drag-to-top-center instead.
 hl.unbind("SUPER + ALT + F")
 o.bind("SUPER + ALT + F", "Maximize window", function()
