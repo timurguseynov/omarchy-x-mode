@@ -716,7 +716,18 @@ local function push_bars_below(w, edge)
     return
   end
   edge = edge or BORDER()
-  local _, uy = usable(mon)
+  local _, uy, uw, uh = usable(mon)
+  local ww, wh = vec(w.size)
+  -- A window in the middle of a fullscreen transition still carries the
+  -- fullscreen size while its flags are already clear. Moving it here calls
+  -- moveTarget, which records that box as the floating one, so Hyprland's own
+  -- restore on exit (FloatingAlgorithm::recenter) puts the fullscreen box
+  -- right back -- and the window stays fullscreen-sized below the bar. Leave
+  -- anything bigger than the work area alone; once Hyprland has the floating
+  -- box back, the next event re-clamps it normally.
+  if ww > uw - edge - edge or wh > uh - edge - edge then
+    return
+  end
   local x, y = vec(w.at)
   local min_top = uy + edge + chrome
   if y < min_top then
