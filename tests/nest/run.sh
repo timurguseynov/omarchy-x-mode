@@ -50,7 +50,7 @@ fi
 [ "${#chosen[@]}" -gt 0 ] || { echo "no nest tests found in $HERE" >&2; exit 2; }
 
 nest_start
-trap nest_stop EXIT
+trap 'dock_stop; nest_stop' EXIT
 
 fail=0
 for t in "${chosen[@]}"; do

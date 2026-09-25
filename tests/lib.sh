@@ -223,6 +223,14 @@ d = json.load(sys.stdin) or {}
 print(d.get('class') or '')"
 }
 
+# Id of the workspace the user is looking at.
+viewed_workspace() {
+  nest_ctl activeworkspace -j | python3 -c "
+import json, sys
+d = json.load(sys.stdin) or {}
+print(d.get('id', ''))"
+}
+
 active_address() {
   nest_ctl activewindow -j | python3 -c "
 import json, sys
@@ -357,6 +365,101 @@ snap() { # CLASS KIND
 bar_top() {
   nest_ctl monitors -j | python3 -c "import json,sys;print(json.load(sys.stdin)[0]['reserved'][1])"
 }
+
+# --- dock ---------------------------------------------------------------------
+# The dock is a Quickshell layer surface in the nest, so it needs a Quickshell of
+# its own (the same trick as nest/qml_test.sh) and the pointer tool reaches its
+# icons, because both talk to the nest.
+#
+# XDG_RUNTIME_DIR is redirected for the dock, with the real hypr/ directory
+# symlinked into it: the plugin reads $XDG_RUNTIME_DIR/omarchy-x-mode.state for
+# its on/off flag, and the live session keeps its own there, while Quickshell
+# still has to find the nest's Hyprland socket under $XDG_RUNTIME_DIR/hypr.
+# WAYLAND_DISPLAY is then the absolute path to the nest socket, which wayland
+# accepts.
+#
+# It has to be a SHORT path: a unix socket path tops out around 108 bytes, and
+# $XDG_RUNTIME_DIR/hypr/<signature>/.socket.sock under tests/.nest runs past
+# that, which surfaces as QLocalSocket::ServerNotFoundError.
+DOCK_RUNTIME="/tmp/x-mode-dock-runtime"
+DOCK_CFG="$NEST_STATE/dock"
+DOCK_LOG="$NEST_STATE/dock.log"
+DOCK_ICON=26
+DOCK_PAD=7
+DOCK_SPACING=6
+
+dock_start() {
+  [ -d /usr/share/omarchy/shell/Commons ] || fail "Omarchy shell modules not found (needed for qs.Commons)"
+  command -v qs >/dev/null || fail "quickshell (qs) not found"
+  dock_stop
+  rm -rf "$DOCK_CFG" "$DOCK_LOG"
+  mkdir -p "$DOCK_CFG" "$NEST_STATE/home/.config/omarchy"
+  # qs.* resolve from the config folder, so Omarchy's modules have to be there.
+  ln -s /usr/share/omarchy/shell/Commons "$DOCK_CFG/Commons"
+  ln -s /usr/share/omarchy/shell/Ui "$DOCK_CFG/Ui"
+  local runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  rm -rf "$DOCK_RUNTIME"
+  mkdir -p "$DOCK_RUNTIME"
+  ln -sfn "$runtime/hypr" "$DOCK_RUNTIME/hypr"
+  echo on > "$DOCK_RUNTIME/omarchy-x-mode.state"
+  cat > "$DOCK_CFG/shell.qml" <<QML
+import Quickshell
+import "file:$REPO_DIR/quickshell/x-mode" as X
+
+ShellRoot {
+  X.Dock {}
+}
+QML
+  env HOME="$NEST_STATE/home" \
+    XDG_RUNTIME_DIR="$DOCK_RUNTIME" \
+    WAYLAND_DISPLAY="$runtime/$(nest_socket)" \
+    HYPRLAND_INSTANCE_SIGNATURE="$SIG" QT_QPA_PLATFORM=wayland \
+    setsid qs -p "$DOCK_CFG" > "$DOCK_LOG" 2>&1 < /dev/null &
+  echo $! > "$NEST_STATE/dock.pid"
+  local i
+  for i in $(seq 1 60); do
+    dock_box >/dev/null 2>&1 && { sleep 0.5; return 0; }
+    sleep 0.25
+  done
+  sed 's/^/       /' "$DOCK_LOG" >&2
+  fail "the dock never created its layer in the nest"
+}
+
+dock_stop() {
+  [ -f "$NEST_STATE/dock.pid" ] && kill "$(cat "$NEST_STATE/dock.pid")" 2>/dev/null || true
+  rm -f "$NEST_STATE/dock.pid"
+  sleep 0.3
+}
+
+dock_box() { # "X Y W H" of the dock's layer surface
+  dock_layer_box x-mode-dock
+}
+
+dock_layer_box() { # NAMESPACE
+  nest_ctl layers -j | python3 -c "
+import json, sys
+for output in (json.load(sys.stdin) or {}).values():
+    levels = (output or {}).get('levels') or {}
+    for key in sorted(levels):
+        for layer in levels[key] or []:
+            if layer.get('namespace') == '$1':
+                print(layer['x'], layer['y'], layer['w'], layer['h'])
+                raise SystemExit
+raise SystemExit(1)"
+}
+
+# Middle of icon INDEX in the dock column. The card is iconSize + 2*pad wide,
+# the column is centred in it, and the icons stack with DOCK_SPACING between
+# them, so the first icon's centre is pad + iconSize/2 from the card's top.
+dock_icon_point() { # INDEX
+  local x y w h
+  read -r x y w h <<<"$(dock_box)"
+  python3 -c "print($x + $w // 2, $y + $DOCK_PAD + $DOCK_ICON // 2 + $1 * ($DOCK_ICON + $DOCK_SPACING))"
+}
+
+# Wait for the dock to pick up the current window list (it re-queries on
+# Hyprland events and every 3s).
+dock_settle() { sleep 1.0; }
 
 # --- pointer -----------------------------------------------------------------
 

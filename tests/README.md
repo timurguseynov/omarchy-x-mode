@@ -97,6 +97,13 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/ctrl_tab_switch_binds_test.sh` | Ctrl+1..9 binds are opt-in |
 | `integration/group_join_raises_test.sh` | a window joining a group raises it above another app |
 | `integration/drag_out_of_zone_test.sh` | a snapped window dragged out of its zone keeps its size |
+| `integration/dock_appears_test.sh` | the dock is a 40px card, centred, reserving nothing |
+| `integration/dock_icon_layout_test.sh` | the icon layout the click helpers assume |
+| `integration/dock_click_focuses_app_test.sh` | clicking an icon focuses and raises that app |
+| `integration/dock_click_switches_workspace_test.sh` | clicking an icon on another workspace moves there |
+| `integration/dock_click_same_app_no_tab_switch_test.sh` | clicking the focused app's icon does not switch tabs |
+| `integration/dock_right_click_menu_test.sh` | a right-click opens the context menu layer |
+| `integration/dock_snap_clears_dock_test.sh` | a right-snapped window stops before the dock |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
@@ -231,6 +238,48 @@ there.
 A small tool that sends a keymap using the standard keycode numbering would fix
 this the way the pointer tool fixed gestures. The drafts waiting on it are the
 snap cycle (½ → ⅔ → ⅓) and the tab switch that has to raise its group.
+
+## The dock
+
+The dock is a Quickshell layer surface, so a scenario that needs it starts a
+Quickshell of its own against the nest (the same trick as `nest/qml_test.sh`),
+and the pointer tool reaches its icons because both talk to the nest:
+
+```sh
+dock_start
+open_window foot
+open_window kitty
+dock_settle
+read -r px py <<<"$(dock_icon_point 1)"
+pointer_click "$px" "$py"
+dock_stop
+```
+
+`dock_icon_point INDEX` computes the middle of the INDEXth icon: the card is
+`iconSize + 2*pad` wide (26 + 14), the column is centred in it, and icons stack
+with `iconSpacing` (6) between them, so the first centre is `pad + iconSize/2`
+below the card's top. `dock_icon_layout_test.sh` pins that arithmetic, because
+every other dock click depends on it. Icons are ordered pinned first, then by
+class, so with only foot and kitty the icons are 0 and 1.
+
+`dock_layer_box NAMESPACE` finds a layer's box; the menu is a layer called
+`x-mode-dock-menu`, which is how a right-click can be observed at all.
+
+Two things about running a Quickshell for the dock:
+
+- Its `XDG_RUNTIME_DIR` is redirected to a short path in `/tmp` with the real
+  `hypr/` symlinked into it. The plugin reads
+  `$XDG_RUNTIME_DIR/omarchy-x-mode.state` for its on/off flag and the live
+  session keeps its own there, while Quickshell still has to find the nest's
+  Hyprland socket under `$XDG_RUNTIME_DIR/hypr`. It has to be short because a
+  unix socket path tops out around 108 bytes, and
+  `$XDG_RUNTIME_DIR/hypr/<signature>/.socket.sock` under `tests/.nest` runs past
+  that: Quickshell reports it as `QLocalSocket::ServerNotFoundError`.
+- `WAYLAND_DISPLAY` is then the absolute path to the nest socket, which wayland
+  accepts.
+
+`nest/run.sh` stops the dock on exit, so a scenario that fails midway cannot
+leave a Quickshell running against the nest.
 
 ## unit layer
 
