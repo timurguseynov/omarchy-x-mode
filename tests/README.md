@@ -114,6 +114,12 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/dock_menu_hides_new_for_single_instance_test.sh` | a single-instance app gets no New row |
 | `integration/dock_hides_when_x_mode_off_test.sh` | the dock follows the x-mode on/off flag |
 | `integration/dock_offset_follows_gaps_test.sh` | the dock's edge inset follows the gaps |
+| `integration/snap_cycle_thirds_test.sh` | Super+Alt+Left/Right cycle half, two thirds, a third |
+| `integration/snap_hotkeys_maximize_restore_test.sh` | Super+Alt+F fills the workarea and Ctrl+Alt+Down restores |
+| `integration/snap_hotkeys_quarters_test.sh` | Ctrl+Alt+U/I/J/K give the four quarters |
+| `integration/alt_tab_switches_group_tab_test.sh` | Alt+Tab and Alt+Shift+Tab move through a group's tabs |
+| `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
+| `integration/super_w_closes_window_test.sh` | Super+W closes the window and keeps the focus in the group |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
@@ -133,7 +139,7 @@ snap foot left
 assert_ge "$(visual_top foot)" 36 "the titlebar clears the bar"
 ```
 
-Helpers: `open_window`, `nest_clean`, `win_geom`, `visible_geom`, `visual_top`,
+Helpers: `key` (a chord in the nest), `open_window`, `nest_clean`, `win_geom`, `visible_geom`, `visual_top`,
 `group_size`, `group_order`, `active_class`, `active_address`,
 `active_tab_index`, `group_tab`, `topmost`, `bind_count`, `bind_count_desc`,
 `snap`, `bar_top`, `bar_height`, `tab_height`, `tab_point`, `tab_close_point`,
@@ -225,29 +231,41 @@ the size from `pointer_extent` and use fractions of it.
 warp stops reaching `input.mouse.move`, the window does not move and every
 scenario built on the pointer would fail for the wrong reason.
 
-## Keybinds cannot be driven from here
+## The keyboard
 
-There is no way to press a modified keybinding in the nest. `wtype` is installed
-and typing works: characters reach the focused client, verified by typing a
-command into a shell inside the nest. But no keybind fires, not even an
-unmodified one.
+`tests/keyboard/` presses key combinations in the nest:
 
-The reason is in Hyprland. `CKeybindManager::onKeyEvent` resolves the pressed key
-through `m_xkbTranslationState`, the compositor's own keymap, while a client gets
-its keysym from the device's keymap. `wtype` sends a synthetic keymap of its own
-with its own keycode numbering, so the two disagree and nothing matches. `-P`
-sends a raw keycode but goes through the same translation, and no variant helped:
-`logo`, `win`, `mod4`, raw keycodes, delays between the modifier and the key.
+```sh
+key super+alt+left        # the snap cycle
+key alt+tab               # next tab of the group
+key o                     # a plain key
+key -d 5 a b c            # several keys, 5ms apart
+```
 
-So the tiling-hotkey and Ctrl+N contracts are pinned at the bind table instead
-(`bind_count`, `bind_count_desc`). That catches a bind coming back or never being
-installed, but not the keypress itself. Note that a bind made with a raw keycode
-(`CTRL + code:10`) reports an empty `key`, which is why the description is needed
-there.
+Why a tool of our own, when `wtype` is installed: `wtype` types into a client but
+no keybind fires. Hyprland's `CKeybindManager::onKeyEvent` resolves the pressed
+key through `m_xkbTranslationState`, the compositor's own keymap, while a client
+gets its keysym from the device's keymap, and `wtype` sends a synthetic keymap of
+its own with its own keycode numbering. So the two disagree and nothing matches —
+`logo`/`win`/`mod4`, raw keycodes and delays between the modifier and the key all
+made no difference.
 
-A small tool that sends a keymap using the standard keycode numbering would fix
-this the way the pointer tool fixed gestures. The drafts waiting on it are the
-snap cycle (½ → ⅔ → ⅓) and the tab switch that has to raise its group.
+So this sends the keymap `xkbcommon` builds from the system rules (pc105/us), the
+same layout Hyprland resolves against, and presses keys with libinput-style
+codes: Hyprland does `keycode + 8` before the xkb lookup, which lands on the
+standard XKB keycode only when the client sends the evdev code. The modifier mask
+comes from an xkb state built on that same keymap, so Mod4 really is 64, and the
+tool founds the keycode by looking for the key that produces the wanted symbol,
+so a test only names symbols.
+
+`lib.sh` builds it into `.nest/keyboard/` (`build_keyboard`) and exposes `key`.
+Requires the `xkbcommon` headers as well as `wayland-scanner`.
+
+The bind *table* is still worth checking where the behaviour is what matters
+(`bind_count`, `bind_count_desc`): those catch a bind coming back or never being
+installed, which a keypress test cannot see. Note that a bind made with a raw
+keycode (`CTRL + code:10`) reports an empty `key`, which is why the description is
+needed there.
 
 ## The dock
 

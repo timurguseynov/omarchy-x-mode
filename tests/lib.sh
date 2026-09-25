@@ -14,6 +14,8 @@ NEST_LUA="$REPO_DIR/hypr/x-mode.lua"
 PLUGIN_SO="$REPO_DIR/hyprbars/hyprbars.so"
 POINTER_DIR="$TESTS_DIR/pointer"
 POINTER_BIN="$NEST_STATE/pointer/pointer"
+KEYBOARD_DIR="$TESTS_DIR/keyboard"
+KEYBOARD_BIN="$NEST_STATE/keyboard/keyboard"
 SIG="${SIG:-$(cat "$TESTS_DIR/.nest/sig" 2>/dev/null || true)}"
 NEST_BAR="${NEST_BAR:-1}"
 
@@ -57,9 +59,30 @@ build_pointer() {
     || fail "pointer build failed"
 }
 
+# The keyboard sends a keymap built from the system rules and presses libinput
+# codes, so Hyprland's bind matching resolves the same keysyms it would for a real
+# keyboard. Built into .nest/ like the pointer.
+build_keyboard() {
+  local out="$NEST_STATE/keyboard"
+  command -v wayland-scanner >/dev/null || fail "wayland-scanner not found"
+  pkg-config --exists wayland-client || fail "wayland-client headers not found"
+  pkg-config --exists xkbcommon || fail "xkbcommon headers not found"
+  mkdir -p "$out"
+  wayland-scanner client-header "$KEYBOARD_DIR/virtual-keyboard-unstable-v1.xml" \
+    "$out/virtual-keyboard-unstable-v1-client-protocol.h"
+  wayland-scanner private-code "$KEYBOARD_DIR/virtual-keyboard-unstable-v1.xml" \
+    "$out/virtual-keyboard-unstable-v1-protocol.c"
+  # shellcheck disable=SC2046 - pkg-config output is a flag list on purpose
+  cc -O2 -Wall -Wextra -I"$out" -o "$KEYBOARD_BIN" "$KEYBOARD_DIR/keyboard.c" \
+    "$out/virtual-keyboard-unstable-v1-protocol.c" \
+    $(pkg-config --cflags --libs wayland-client xkbcommon) \
+    || fail "keyboard build failed"
+}
+
 nest_start() {
   build_plugin
   build_pointer
+  build_keyboard
   nest_stop
   # Start from a clean state dir: a run that fails midway can leave settings.json
   # behind, and the next run would inherit it.
@@ -530,6 +553,13 @@ pointer_click() { pointer click "$1" "$2" "${3:-left}"; }
 pointer_drag() { pointer drag "$1" "$2" "$3" "$4" "${5:-left}"; }
 pointer_press() { pointer button "${1:-left}" press; }
 pointer_release() { pointer button "${1:-left}" release; }
+
+# --- keyboard ----------------------------------------------------------------
+# Press a chord in the nest, e.g. key super+alt+left, key alt+tab, key o. Only
+# chords are needed: a single name is a chord of one.
+key() {
+  WAYLAND_DISPLAY="$(nest_socket)" "$KEYBOARD_BIN" "$@"
+}
 
 # A gesture that has to pause in the middle (open a window, read geometry) needs
 # the button to stay down across commands. A process per command cannot do that:
