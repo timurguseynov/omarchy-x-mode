@@ -9,6 +9,16 @@
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$TESTS_DIR/.." && pwd)"
 NEST_STATE="$TESTS_DIR/.nest"
+# The nest gets a runtime directory of its own, and it has to be SHORT: a unix
+# socket path tops out around 108 bytes, and $XDG_RUNTIME_DIR/hypr/<signature>/
+# .socket.sock under tests/.nest runs past that.
+#
+# This is also what keeps a test out of the live session. The pack's Lua writes
+# the switcher and snap-preview command files into $XDG_RUNTIME_DIR, and the
+# shell of the running session reads those same paths: with the real runtime
+# directory, a keypress or a drag in the nest would flash an overlay on the
+# desktop the user is sitting in front of.
+NEST_RUNTIME="/tmp/x-mode-nest-runtime"
 NEST_LOG="$NEST_STATE/nest.log"
 NEST_LUA="$REPO_DIR/hypr/x-mode.lua"
 PLUGIN_SO="$REPO_DIR/hyprbars/hyprbars.so"
@@ -84,6 +94,12 @@ nest_start() {
   build_pointer
   build_keyboard
   nest_stop
+  # The nest is a Wayland client of the host, so its own WAYLAND_DISPLAY has to be
+  # absolute once XDG_RUNTIME_DIR points elsewhere.
+  local host_socket="${WAYLAND_DISPLAY:-wayland-1}"
+  case "$host_socket" in /*) ;; *) host_socket="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$host_socket" ;; esac
+  rm -rf "$NEST_RUNTIME"
+  mkdir -p "$NEST_RUNTIME"
   # Start from a clean state dir: a run that fails midway can leave settings.json
   # behind, and the next run would inherit it.
   rm -rf "$NEST_STATE/state" "$NEST_STATE/home"
@@ -91,12 +107,14 @@ nest_start() {
 
   setsid env \
     HOME="$NEST_STATE/home" \
+    WAYLAND_DISPLAY="$host_socket" \
+    XDG_RUNTIME_DIR="$NEST_RUNTIME" \
     X_MODE_LUA="$NEST_LUA" \
     X_MODE_STATE="$NEST_STATE/state" \
     Hyprland -c "$TESTS_DIR/nest.lua" > "$NEST_LOG" 2>&1 < /dev/null &
   local pid=$! i
   for i in $(seq 1 60); do
-    SIG="$(hyprctl instances 2>/dev/null | awk -v pid="$pid" '
+    SIG="$(XDG_RUNTIME_DIR="$NEST_RUNTIME" hyprctl instances 2>/dev/null | awk -v pid="$pid" '
       /^instance / { n = $2; sub(/:$/, "", n) }
       /pid:/ { if ($2 == pid) print n }')"
     [ -n "$SIG" ] && break
@@ -117,7 +135,7 @@ nest_start() {
 }
 
 nest_bar_start() {
-  env WAYLAND_DISPLAY="$(nest_socket)" setsid qs -p "$TESTS_DIR/bar.qml" \
+  env WAYLAND_DISPLAY="$(nest_display)" setsid qs -p "$TESTS_DIR/bar.qml" \
     > "$NEST_STATE/bar.log" 2>&1 < /dev/null &
   echo $! > "$NEST_STATE/bar.pid"
   # Wait for the bar to reserve the top instead of a fixed sleep: the geometry
@@ -162,10 +180,14 @@ for c in json.load(sys.stdin):
   hyprctl dispatch "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"$w\" })" >/dev/null 2>&1 || true
 }
 
-nest_ctl() { hyprctl -i "$SIG" "$@"; }
+nest_ctl() { XDG_RUNTIME_DIR="$NEST_RUNTIME" hyprctl -i "$SIG" "$@"; }
+
+# Absolute path to the nest's Wayland socket. The nest's runtime directory is not
+# the test's, so a bare socket name would point a client at the live session.
+nest_display() { printf '%s/%s' "$NEST_RUNTIME" "$(nest_socket)"; }
 
 nest_socket() {
-  hyprctl instances 2>/dev/null | python3 -c "
+  XDG_RUNTIME_DIR="$NEST_RUNTIME" hyprctl instances 2>/dev/null | python3 -c "
 import sys, re
 for b in sys.stdin.read().split('instance ')[1:]:
     if '$SIG' in b:
@@ -200,7 +222,7 @@ print(' '.join(c['address'] for c in json.load(sys.stdin)))")"
 
 open_window() { # CLASS [COUNT]
   local cls="$1" want="${2:-1}" i
-  env WAYLAND_DISPLAY="$(nest_socket)" setsid "$cls" >/dev/null 2>&1 < /dev/null &
+  env WAYLAND_DISPLAY="$(nest_display)" setsid "$cls" >/dev/null 2>&1 < /dev/null &
   for i in $(seq 1 40); do
     [ "$(count_class "$cls")" -ge "$want" ] && { sleep 0.5; return 0; }
     sleep 0.1
@@ -401,17 +423,10 @@ bar_top() {
 # its own (the same trick as nest/qml_test.sh) and the pointer tool reaches its
 # icons, because both talk to the nest.
 #
-# XDG_RUNTIME_DIR is redirected for the dock, with the real hypr/ directory
-# symlinked into it: the plugin reads $XDG_RUNTIME_DIR/omarchy-x-mode.state for
-# its on/off flag, and the live session keeps its own there, while Quickshell
-# still has to find the nest's Hyprland socket under $XDG_RUNTIME_DIR/hypr.
-# WAYLAND_DISPLAY is then the absolute path to the nest socket, which wayland
-# accepts.
-#
-# It has to be a SHORT path: a unix socket path tops out around 108 bytes, and
-# $XDG_RUNTIME_DIR/hypr/<signature>/.socket.sock under tests/.nest runs past
-# that, which surfaces as QLocalSocket::ServerNotFoundError.
-DOCK_RUNTIME="/tmp/x-mode-dock-runtime"
+# The dock runs with the nest's runtime directory, which is where the plugin's
+# state file, the switcher's command file and the nest's Hyprland socket all are.
+# WAYLAND_DISPLAY is the absolute path to the nest socket, which wayland accepts.
+DOCK_RUNTIME="$NEST_RUNTIME"
 DOCK_CFG="$NEST_STATE/dock"
 DOCK_LOG="$NEST_STATE/dock.log"
 DOCK_ICON=26
@@ -427,10 +442,7 @@ dock_start() {
   # qs.* resolve from the config folder, so Omarchy's modules have to be there.
   ln -s /usr/share/omarchy/shell/Commons "$DOCK_CFG/Commons"
   ln -s /usr/share/omarchy/shell/Ui "$DOCK_CFG/Ui"
-  local runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-  rm -rf "$DOCK_RUNTIME"
   mkdir -p "$DOCK_RUNTIME"
-  ln -sfn "$runtime/hypr" "$DOCK_RUNTIME/hypr"
   echo on > "$DOCK_RUNTIME/omarchy-x-mode.state"
   cat > "$DOCK_CFG/shell.qml" <<QML
 import Quickshell
@@ -442,7 +454,7 @@ ShellRoot {
 QML
   env HOME="$NEST_STATE/home" \
     XDG_RUNTIME_DIR="$DOCK_RUNTIME" \
-    WAYLAND_DISPLAY="$runtime/$(nest_socket)" \
+    WAYLAND_DISPLAY="$DOCK_RUNTIME/$(nest_socket)" \
     HYPRLAND_INSTANCE_SIGNATURE="$SIG" QT_QPA_PLATFORM=wayland \
     setsid qs -p "$DOCK_CFG" > "$DOCK_LOG" 2>&1 < /dev/null &
   echo $! > "$NEST_STATE/dock.pid"
@@ -544,7 +556,7 @@ print(f\"{round(m['width'] / scale)}x{round(m['height'] / scale)}\")"
 }
 
 pointer() {
-  WAYLAND_DISPLAY="$(nest_socket)" X_MODE_POINTER_EXTENT="$(pointer_extent)" \
+  WAYLAND_DISPLAY="$(nest_display)" X_MODE_POINTER_EXTENT="$(pointer_extent)" \
     "$POINTER_BIN" "$@"
 }
 
@@ -558,7 +570,7 @@ pointer_release() { pointer button "${1:-left}" release; }
 # Press a chord in the nest, e.g. key super+alt+left, key alt+tab, key o. Only
 # chords are needed: a single name is a chord of one.
 key() {
-  WAYLAND_DISPLAY="$(nest_socket)" "$KEYBOARD_BIN" "$@"
+  WAYLAND_DISPLAY="$(nest_display)" "$KEYBOARD_BIN" "$@"
 }
 
 # A gesture that has to pause in the middle (open a window, read geometry) needs

@@ -30,7 +30,7 @@ ShellRoot {
 }
 QML
 
-env WAYLAND_DISPLAY="$(nest_socket)" HYPRLAND_INSTANCE_SIGNATURE="$SIG" QT_QPA_PLATFORM=wayland \
+env WAYLAND_DISPLAY="$(nest_display)" HYPRLAND_INSTANCE_SIGNATURE="$SIG" QT_QPA_PLATFORM=wayland \
   setsid qs -p "$CFG" > "$LOG" 2>&1 < /dev/null &
 
 cleanup() { pkill -f "qs -p $CFG" 2>/dev/null || true; }

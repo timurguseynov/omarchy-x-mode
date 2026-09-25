@@ -36,6 +36,17 @@ scenario is as isolated as it is in a full run. The startup is only a few
 seconds and the cost is per scenario, so selecting one is worth it: a single
 scenario runs in about 4s against about 30s for the whole nest layer.
 
+The nest runs with a runtime directory of its own, `/tmp/x-mode-nest-runtime`.
+That is where its Hyprland socket, the x-mode state file and the command files
+the pack writes for the switcher and the snap preview all land. It has to be
+short (a unix socket path tops out around 108 bytes, and
+`$XDG_RUNTIME_DIR/hypr/<signature>/.socket.sock` under `tests/.nest` runs past
+that) and it has to be separate: with the real one, a keypress or a drag in the
+nest would write the command files the shell of the session being used reads, and
+an overlay would flash on the desktop the user is sitting in front of. Because
+the directory is not the test's own, anything that connects to the nest needs
+`nest_display` (the absolute socket path) rather than a bare socket name.
+
 The nest layer builds `hyprbars` first (incrementally) and needs a running
 Hyprland session (for the nest) plus the hyprpm headers. It starts one nest for
 the whole run. Between files it closes the windows and restores a clean
@@ -120,6 +131,11 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/alt_tab_switches_group_tab_test.sh` | Alt+Tab and Alt+Shift+Tab move through a group's tabs |
 | `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
 | `integration/super_w_closes_window_test.sh` | Super+W closes the window and keeps the focus in the group |
+| `integration/super_q_closes_app_test.sh` | Super+Q closes every tab of the app and nothing else |
+| `integration/focus_direction_keys_test.sh` | Super+Left/Right focus the window in that direction |
+| `integration/almost_maximize_key_test.sh` | Super+Alt+A is most of the workarea, not all of it |
+| `integration/alt_tab_no_resize_test.sh` | Alt+Tab leaves the geometry alone |
+| `integration/switcher_cycles_apps_test.sh` | Super+Tab cycles apps and writes the switcher's command file |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
