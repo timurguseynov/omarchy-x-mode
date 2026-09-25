@@ -214,6 +214,10 @@ print(' '.join(c['address'] for c in json.load(sys.stdin)))")"
   # class it names, which shifts the rows the menu tests click on.
   rm -f "$NEST_STATE/home/.config/omarchy/x-mode-dock.json"
   rm -rf "$NEST_STATE/home/.local/share/applications"
+  # Back to the first workspace: a scenario that switches away (the dock menu one
+  # does) would otherwise decide where the next one opens its windows, and two
+  # same-app windows that land on one space group instead of staying apart.
+  nest_ctl dispatch "hl.dsp.focus({ workspace = \"1\" })" >/dev/null 2>&1 || true
   nest_ctl reload >/dev/null 2>&1 || true
   sleep 0.4
 }
@@ -228,6 +232,20 @@ open_window() { # CLASS [COUNT]
     sleep 0.1
   done
   fail "window '$cls' did not appear"
+}
+
+# Open a window by running a command, for windows that need arguments (a zenity
+# dialog, for instance). Waits for CLASS to appear, like open_window.
+open_command() { # CLASS COMMAND...
+  local cls="$1"
+  shift
+  local i
+  env WAYLAND_DISPLAY="$(nest_display)" setsid "$@" >/dev/null 2>&1 < /dev/null &
+  for i in $(seq 1 60); do
+    [ "$(count_class "$cls")" -ge 1 ] && { sleep 0.5; return 0; }
+    sleep 0.1
+  done
+  fail "command did not open a '$cls' window: $*"
 }
 
 count_class() {

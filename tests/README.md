@@ -136,6 +136,13 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/almost_maximize_key_test.sh` | Super+Alt+A is most of the workarea, not all of it |
 | `integration/alt_tab_no_resize_test.sh` | Alt+Tab leaves the geometry alone |
 | `integration/switcher_cycles_apps_test.sh` | Super+Tab cycles apps and writes the switcher's command file |
+| `integration/switcher_mru_order_test.sh` | the switcher's next app is the one used before this one |
+| `integration/super_q_single_window_test.sh` | Super+Q on an ungrouped window closes just it |
+| `integration/snap_cycle_chrome_off_keys_test.sh` | the cycle by key does not creep on a window without chrome |
+| `integration/maximize_via_two_bindings_test.sh` | Super+Alt+F and Ctrl+Alt+Up maximize alike |
+| `integration/arrange_keeps_workspaces_test.sh` | the arrange arranges a window where it already is |
+| `integration/arrange_counts_group_once_test.sh` | a group of tabs takes one half, not two |
+| `integration/same_app_across_workspaces_no_group_test.sh` | a same-app window on another space is not a tab |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
@@ -155,7 +162,8 @@ snap foot left
 assert_ge "$(visual_top foot)" 36 "the titlebar clears the bar"
 ```
 
-Helpers: `key` (a chord in the nest), `open_window`, `nest_clean`, `win_geom`, `visible_geom`, `visual_top`,
+Helpers: `key` (a chord in the nest), `open_window`, `open_command` (for a window
+that needs arguments, like a zenity dialog), `nest_clean`, `win_geom`, `visible_geom`, `visual_top`,
 `group_size`, `group_order`, `active_class`, `active_address`,
 `active_tab_index`, `group_tab`, `topmost`, `bind_count`, `bind_count_desc`,
 `snap`, `bar_top`, `bar_height`, `tab_height`, `tab_point`, `tab_close_point`,
@@ -323,9 +331,13 @@ so a test that clicked them would block instead of failing. Pin/Unpin and Quit a
 locally and are tested.
 
 `nest_clean()` also clears the pinned file and any desktop entries written into
-the dock's HOME: both outlive one scenario. Without that a dock test starts with
-the previous one's icons, and a leftover single-instance entry changes the menu
-for the class it names, shifting the rows the menu tests click on.
+the dock's HOME, and switches back to the first workspace: all three outlive one
+scenario. Without the first two a dock test starts with the previous one's icons,
+and a leftover single-instance entry changes the menu for the class it names,
+shifting the rows the menu tests click on. Without the third, a scenario that
+switches workspace decides where the next one opens its windows — two same-app
+windows that land on one space group instead of staying apart, which is how the
+workspace test above failed in a full run while passing alone.
 
 Two things about running a Quickshell for the dock:
 
