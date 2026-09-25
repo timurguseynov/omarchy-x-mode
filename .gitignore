@@ -26,6 +26,11 @@ build/
 
 .pi/sessions
 
+# Scratch scenario for a one-off look while working on a test. Not part of the
+# suite and never committed; if it is left behind it must not reach a commit.
+tests/nest/debug_tmp_test.sh
+tests/nest/integration/debug_tmp_test.sh
+
 # Test working dir (nest state, logs, socket)
 tests/.nest
 
