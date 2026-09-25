@@ -1649,6 +1649,83 @@ flush_pending_joins = function()
   end
 end
 
+-- Keep a fresh window below the top bar while it settles. Hyprland has no
+-- geometry event (hyprwm/Hyprland#15519 asks for one and is unanswered), and its
+-- own fit for floating windows — CDefaultFloatingAlgorithm::fitBoxInWorkArea,
+-- which does know about window extents — is only reached from placement and from
+-- moving between monitors/workspaces, never from a resize. So a window that
+-- changes size after it appears (a client sizing itself, or anything resizing it)
+-- is never refitted: growing it moves its top-left up, because Hyprland resizes
+-- around the centre.
+--
+-- Hence a watch rather than one clamp at a fixed delay: a single clamp can land
+-- while the window is mid-resize, and the next step moves it out again. This
+-- re-clamps while the geometry keeps changing and stops on its own two ticks
+-- after it stops — a settled window costs two or three ticks, and the ceiling
+-- bounds a window that never settles. Two seconds is long enough to cover a
+-- client that reports its class and size late, or a harness that resizes a window
+-- just after it opened.
+--
+-- Nothing else is needed to trigger this: window.update_rules fires for every
+-- window whenever any window opens, so it is a worse handle than the watch, and
+-- window.title can arrive before the window has a size at all.
+--
+-- Can go away if upstream ever refits on resize; then a plain clamp after open
+-- is enough again.
+local WATCH_MS, WATCH_TICKS = 50, 40 -- 40 * 50ms = 2s
+
+-- Watches in flight, by window address, so a drag can call one off.
+local watchers = {}
+
+local function stop_watch(w)
+  if w == nil or w.address == nil then
+    return
+  end
+  local watch = watchers[w.address]
+  if watch ~= nil then
+    watch:set_enabled(false)
+    watchers[w.address] = nil
+  end
+end
+
+local function watch_until_settled(w)
+  local addr = w.address
+  local last, stable, ticks = nil, 0, 0
+  local watch
+  local function stop()
+    watch:set_enabled(false)
+    if watchers[addr] == watch then
+      watchers[addr] = nil
+    end
+  end
+  watch = hl.timer(function()
+    ticks = ticks + 1
+    local cur = refresh_window(w)
+    -- Grouped windows get their position from join_same_app: clamping a group
+    -- here would pin the whole group to the top. Only one window is watched at a
+    -- time, so the grouped case is dropped rather than retried.
+    if cur == nil or cur.group ~= nil then
+      stop()
+      return
+    end
+    keep_below_topbar(cur) -- no-op unless the chrome actually sits above the bar
+    local box = tostring(cur.at) .. tostring(cur.size)
+    if box == last then
+      stable = stable + 1
+      if stable >= 2 then
+        stop()
+        return
+      end
+    else
+      stable, last = 0, box
+    end
+    if ticks >= WATCH_TICKS then
+      stop()
+    end
+  end, { timeout = WATCH_MS, type = "repeat" })
+  watchers[addr] = watch
+end
+
 hl.on("window.open", function(w)
   -- Group immediately to avoid a visible "ungrouped" flash, then retry shortly
   -- in case the window wasn't fully ready (class/size) on the first tick.
@@ -1672,21 +1749,7 @@ hl.on("window.open", function(w)
       reveal_if_hidden(w)
     end
   end, { timeout = 500, type = "oneshot" })
-  -- Ungrouped windows that ignore float_gaps can land under the top bar.
-  -- Grouped ones already have their position from join_same_app; clamping
-  -- them here would pin the whole group to the top.
-  hl.timer(function()
-    local cur = refresh_window(w)
-    if cur and cur.group == nil then
-      keep_below_topbar(cur)
-    end
-  end, { timeout = 60, type = "oneshot" })
-  hl.timer(function()
-    local cur = refresh_window(w)
-    if cur and cur.group == nil then
-      keep_below_topbar(cur)
-    end
-  end, { timeout = 200, type = "oneshot" })
+  watch_until_settled(w)
 end)
 
 hl.on("window.close", function(w)
@@ -1718,6 +1781,10 @@ local function bind_drag()
   end
   local ok, sub = pcall(hl.on, "hyprbars.drag", function(active, w)
     if active then
+      -- A drag clamps the window itself in C++, and it lets a window hang off an
+      -- edge. Re-clamping from Lua after that would pull it back, so the watch
+      -- hands the window over the moment it is dragged.
+      stop_watch(w)
       save(w)
     else
       flush_pending_joins()

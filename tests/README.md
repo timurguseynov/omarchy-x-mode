@@ -251,16 +251,28 @@ settling for all three clients, after as well as before the geometry stops
 changing — but it does not fire on that resize either, and it fires for *every*
 window whenever one opens, because Hyprland re-evaluates the rules.
 
-That is why the pack clamps an ungrouped window with one-shot timers at 60ms and
-200ms after `window.open` instead of reacting to a resize, and why a window
-resized after those timers is not clamped again.
+So the pack cannot react, and it watches instead: `watch_until_settled` in
+`x-mode.lua` runs a 50ms repeat timer for a fresh ungrouped window, re-clamps it,
+and stops once two samples in a row are identical, with a 2s ceiling for a window
+that never settles. That replaced two one-shot clamps at 60ms and 200ms, which a
+resize could land after. It hands the window over the moment `hyprbars.drag`
+reports a drag for it: a drag clamps itself in C++ and lets a window hang off an
+edge, and the Lua fit would pull it back — `pointer_test.sh` caught exactly that,
+which is why the handover is on the event and not on a check inside the tick.
+Grouped windows are skipped, their position coming from the join.
 
-`resize_after_open_clears_bar_test.sh` shows the gap: Hyprland resizes around the
-window's centre, so growing a window moves its top-left up (measured at -39 with
-the bar at 24). The test reports that as a known gap rather than failing, and says
-so the day it stops being one. What would actually cover it is a bounded poll —
-re-clamping until the geometry stops changing, for the second or so after a window
-appears — rather than any of the events above.
+`resize_after_open_clears_bar_test.sh` holds that down: Hyprland resizes around
+the window's centre, so growing a window moves its top-left up (measured at -39
+with the bar at 24 before the fix), and the window has to end up clear of the bar
+again.
+
+Upstream has the fitting code but does not call it here:
+`CDefaultFloatingAlgorithm::fitBoxInWorkArea()` clamps into `space->workArea(true)`
+and accounts for the window's chrome through `getWindowExtentsUnified`, but it is
+only reached from `newTarget()` (placement) and `movedTarget()` (moving between
+monitors or workspaces) — never from a resize. The event request is
+hyprwm/Hyprland#15519, unanswered. If upstream ever refits on resize, the watch
+can go and a single clamp after `open` will do again.
 
 Waiting on a fixed sleep is how a test turns flaky. `wait_for_count CLASS N
 [SECONDS]` is the helper for "until it appears": a window opened through
