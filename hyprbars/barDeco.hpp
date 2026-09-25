@@ -40,8 +40,11 @@ void keepGroupFocusOnClose(PHLWINDOW w);
 // held under it (no raise). A group tab of that window is not held.
 bool holdUnderFullscreen(PHLWINDOW w);
 
-// Raise a floating window, unless holdUnderFullscreen claims it.
-void raiseFloating(PHLWINDOW w);
+// Raise a floating window, unless holdUnderFullscreen claims it. Returns false
+// when the window was held under a fullscreen one (nothing raised, and the
+// caller must not focus it); true otherwise, including a non-floating window,
+// which the caller may still focus.
+bool raiseFloating(PHLWINDOW w);
 
 class CHyprBar : public IHyprWindowDecoration {
   public:

@@ -56,6 +56,12 @@ bool holdUnderFullscreen(PHLWINDOW w) {
         return false;
     if (FS->m_group && FS->m_group->has(w))
         return false;
+    // A pinned window is above fullscreen by design (CWindow::isAllowedOverFullscreen)
+    // and updateFullscreenInputState leaves it unblocked, so forcing the fade
+    // below would only hide a window that still takes input. Upstream's own
+    // fullscreen fade skips pinned windows the same way.
+    if (w->m_pinned)
+        return false;
 
     // WindowState::raise sets this true, and so does focusing a floating
     // window while another is fullscreen. Either one draws w on top and gives
@@ -73,10 +79,13 @@ bool holdUnderFullscreen(PHLWINDOW w) {
     return true;
 }
 
-void raiseFloating(PHLWINDOW w) {
-    if (!w || !w->m_isFloating || holdUnderFullscreen(w))
-        return;
+bool raiseFloating(PHLWINDOW w) {
+    if (!w || !w->m_isFloating)
+        return true; // nothing to raise; the caller may still focus it
+    if (holdUnderFullscreen(w))
+        return false;
     Desktop::windowState()->raise(w);
+    return true;
 }
 
 void keepGroupFocusOnClose(PHLWINDOW w) {
@@ -89,8 +98,10 @@ void keepGroupFocusOnClose(PHLWINDOW w) {
 
     GROUP->moveCurrent(false); // previous tab
     if (const auto CUR = GROUP->current(); CUR) {
-        raiseFloating(CUR);
-        if (Desktop::focusState()->window() != CUR)
+        // A hold moves focus to the fullscreen window and hides CUR; focusing
+        // CUR here would fight that and land on something invisible and input
+        // blocked, because rawWindowFocus skips the fullscreen guard.
+        if (raiseFloating(CUR) && Desktop::focusState()->window() != CUR)
             Desktop::focusState()->rawWindowFocus(CUR, Desktop::FOCUS_REASON_CLICK);
     }
 }

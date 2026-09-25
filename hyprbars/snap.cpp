@@ -214,6 +214,29 @@ std::optional<CBox> Snap::zoneBox(eKind kind, PHLMONITOR mon) {
     return applyGaps(fractionalRect(frame, z.hside, z.vside, z.hf, z.vf), z.innerL, z.innerR, z.innerT, z.innerB);
 }
 
+// When a window cannot shrink to its zone (the client minimum is bigger, e.g.
+// kdenlive is 1027 wide on a 938 half), the zone's far edge is the one that
+// overhangs. A right/bottom snap keeps that edge put and grows toward the
+// screen interior; every other zone keeps its left/top edge and overhangs right
+// /down. See contentBox.
+static bool zoneSnapsRight(Snap::eKind kind) {
+    switch (kind) {
+        case Snap::eKind::Right:
+        case Snap::eKind::TopRight:
+        case Snap::eKind::BottomRight: return true;
+        default: return false;
+    }
+}
+
+static bool zoneSnapsBottom(Snap::eKind kind) {
+    switch (kind) {
+        case Snap::eKind::Bottom:
+        case Snap::eKind::BottomLeft:
+        case Snap::eKind::BottomRight: return true;
+        default: return false;
+    }
+}
+
 std::optional<CBox> Snap::contentBox(eKind kind, PHLMONITOR mon, PHLWINDOW w) {
     auto box = zoneBox(kind, mon);
     if (!box)
@@ -221,6 +244,28 @@ std::optional<CBox> Snap::contentBox(eKind kind, PHLMONITOR mon, PHLWINDOW w) {
     const int chrome = chromeH(w);
     box->y += chrome;
     box->h -= chrome;
+
+    // A client can refuse to shrink below its own minimum (kdenlive is 1027
+    // wide). Hyprland then grows a floating box around its centre, which walks
+    // the left edge of a left snap off-screen (observed at x=-43 on a 1920
+    // monitor). Grow the target to the minimum here and keep the snapped edge
+    // put, so the window overhangs the far side of the zone instead.
+    if (w) {
+        if (const auto MIN = w->minSize(); MIN) {
+            const int minW = sc<int>(MIN->x);
+            const int minH = sc<int>(MIN->y);
+            if (box->w < minW) {
+                if (zoneSnapsRight(kind))
+                    box->x += box->w - minW; // keep the right edge
+                box->w = minW;
+            }
+            if (box->h < minH) {
+                if (zoneSnapsBottom(kind))
+                    box->y += box->h - minH; // keep the bottom edge
+                box->h = minH;
+            }
+        }
+    }
     return box;
 }
 
