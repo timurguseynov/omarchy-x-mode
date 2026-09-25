@@ -126,6 +126,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/no_gaps_keeps_border_test.sh` | No gaps collapses the gaps, keeps the 1px border, and restores both |
 | `integration/no_gaps_symmetric_insets_test.sh` | every inset changes with the gaps and every one comes back |
 | `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
+| `integration/oversized_window_test.sh` | a settled window grown to twice the monitor, and where it lands |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `integration/same_app_across_workspaces_no_group_test.sh` | a same-app window on another space is not a tab |
 | `integration/scratchpad_keys_unbound_test.sh` | Cmd+S and Cmd+Alt+S stay unbound |
