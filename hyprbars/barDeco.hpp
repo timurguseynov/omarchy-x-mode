@@ -36,6 +36,13 @@ namespace Event {
 // Defined in barDeco.cpp.
 void keepGroupFocusOnClose(PHLWINDOW w);
 
+// The covering fullscreen window owns the workspace. Returns true when w was
+// held under it (no raise). A group tab of that window is not held.
+bool holdUnderFullscreen(PHLWINDOW w);
+
+// Raise a floating window, unless holdUnderFullscreen claims it.
+void raiseFloating(PHLWINDOW w);
+
 class CHyprBar : public IHyprWindowDecoration {
   public:
     CHyprBar(PHLWINDOW);

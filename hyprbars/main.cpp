@@ -318,6 +318,17 @@ static int luaDragOwns(lua_State* L) {
     return 1;
 }
 
+// Lua's raise runs on every focus. Hyprland has already marked a floating
+// window allowed-over by then; this clears it without alter_zorder's mouse
+// simulation, which would focus yet another window.
+static int luaHoldUnderFullscreen(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.hold_under_fullscreen");
+    lua_pushboolean(L, holdUnderFullscreen(w));
+    return 1;
+}
+
 // Same classification Hyprland uses for auto-group / float: override-redirect,
 // modal, X11 menu/combo/tooltip types, transients, and xdg children. Size is
 // not a signal — a small document is still a document.
@@ -546,6 +557,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_window", ::luaDragWindow);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_owns", ::luaDragOwns);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "groupable", ::luaGroupable);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "hold_under_fullscreen", ::luaHoldUnderFullscreen);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "x_mode", ::luaXMode);
     }
 

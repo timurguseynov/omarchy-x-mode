@@ -12,6 +12,7 @@
 #include <hyprland/src/managers/SeatManager.hpp>
 #include <hyprland/src/managers/KeybindManager.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
+#include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>
 #include <hyprland/src/config/shared/animation/AnimationTree.hpp>
@@ -44,6 +45,40 @@ static uint32_t g_lastPressButton = 0;
 
 using namespace Render::GL;
 
+bool holdUnderFullscreen(PHLWINDOW w) {
+    if (!w || !w->m_workspace)
+        return false;
+
+    // covering=true: the window that currently owns the workspace, not a
+    // fullscreen state remembered on some other target.
+    const auto FS = Fullscreen::controller()->getFullscreenWindow(w->m_workspace, true);
+    if (!FS || FS == w)
+        return false;
+    if (FS->m_group && FS->m_group->has(w))
+        return false;
+
+    // WindowState::raise sets this true, and so does focusing a floating
+    // window while another is fullscreen. Either one draws w on top and gives
+    // it input. Put the flag, the fade and the input block back.
+    const bool focused = Desktop::focusState()->window() == w;
+    w->m_allowedOverFullscreen = false;
+    w->updateFullscreenInputState();
+    *w->alpha(Desktop::View::WINDOW_ALPHA_FULLSCREEN) = 0.F;
+    g_pHyprRenderer->damageWindow(w);
+
+    // Blocking input unfocuses w. fullWindowFocus on the way back would lift
+    // the next floating window over the fullscreen one again.
+    if (focused && Desktop::focusState()->window() != FS)
+        Desktop::focusState()->rawWindowFocus(FS, Desktop::FOCUS_REASON_SWITCH_TO_WINDOW_SOFT);
+    return true;
+}
+
+void raiseFloating(PHLWINDOW w) {
+    if (!w || !w->m_isFloating || holdUnderFullscreen(w))
+        return;
+    Desktop::windowState()->raise(w);
+}
+
 void keepGroupFocusOnClose(PHLWINDOW w) {
     if (!w)
         return;
@@ -54,8 +89,7 @@ void keepGroupFocusOnClose(PHLWINDOW w) {
 
     GROUP->moveCurrent(false); // previous tab
     if (const auto CUR = GROUP->current(); CUR) {
-        if (CUR->m_isFloating)
-            Desktop::windowState()->raise(CUR);
+        raiseFloating(CUR);
         if (Desktop::focusState()->window() != CUR)
             Desktop::focusState()->rawWindowFocus(CUR, Desktop::FOCUS_REASON_CLICK);
     }
@@ -382,8 +416,7 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
     if (Desktop::focusState()->window() != PWINDOW)
         Desktop::focusState()->rawWindowFocus(PWINDOW, Desktop::FOCUS_REASON_CLICK);
 
-    if (PWINDOW->m_isFloating)
-        Desktop::windowState()->raise(PWINDOW);
+    raiseFloating(PWINDOW);
 
     info.cancelled   = true;
     m_bCancelledDown = true;
@@ -423,8 +456,7 @@ void CHyprBar::handleUpEvent(Event::SCallbackInfo& info) {
                         PWINDOW->m_group->setCurrent(target);
                     if (Desktop::focusState()->window() != target)
                         Desktop::focusState()->rawWindowFocus(target, Desktop::FOCUS_REASON_CLICK);
-                    if (target->m_isFloating)
-                        Desktop::windowState()->raise(target);
+                    raiseFloating(target);
                 }
             }
         }

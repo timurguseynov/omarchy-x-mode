@@ -885,7 +885,22 @@ local function raise_active(w)
       pcall(function()
         for _, target in ipairs(queue) do
           if target ~= nil and target.floating then
-            hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
+            -- Fullscreen already covers the workspace. Raising that window
+            -- runs simulateMouseMovement and focuses whatever is under the
+            -- cursor; raising any other sets allowedOverFullscreen and draws
+            -- it on top, so the two fight for the screen. Hold the other one
+            -- under. The plugin clears the flag without the mouse simulation
+            -- alter_zorder would do.
+            local fullscreen = target.fullscreen and target.fullscreen ~= 0
+            local p = bars()
+            local held = false
+            if not fullscreen and p ~= nil and p.hold_under_fullscreen ~= nil then
+              local ok, ret = pcall(p.hold_under_fullscreen, target)
+              held = ok and ret
+            end
+            if not fullscreen and not held then
+              hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
+            end
           end
         end
       end)
