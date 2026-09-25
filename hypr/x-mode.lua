@@ -618,6 +618,19 @@ end
 -- lives in hyprbars (CDragSession).
 hl.unbind("SUPER + mouse:272")
 
+-- Hyprland tracks two fullscreen flags: the compositor's own (internal) and the
+-- client's xdg request. Either one means the window is not a normal floating
+-- window, and the pack must not move, resize or re-fit it. Checking only
+-- `fullscreen` left a client-fullscreen window (a video player, a game, or an
+-- app that stayed fullscreen after the compositor's flag was cleared) to be
+-- pushed below the top bar and off the bottom of the screen by the next clamp.
+local function is_fullscreen(w)
+  if w == nil then
+    return false
+  end
+  return (w.fullscreen ~= nil and w.fullscreen ~= 0) or (w.fullscreen_client ~= nil and w.fullscreen_client ~= 0)
+end
+
 -- Fit a floating window into the work area, keeping GAP_OUT + BORDER on every
 -- side. Hyprland fits a floating window to the work area, but hyprbars draws its
 -- titlebar *above* the window box (so the visual top is higher), and apps with an
@@ -631,7 +644,7 @@ local function clamp_window(w)
   if w == nil or drag_owns(w) then
     return
   end
-  if not (w.floating and w.mapped and not w.hidden and (not w.fullscreen or w.fullscreen == 0)) then
+  if not (w.floating and w.mapped and not w.hidden and not is_fullscreen(w)) then
     return
   end
   local mon = w.monitor
@@ -694,7 +707,7 @@ local function push_bars_below(w, edge)
   if w == nil or drag_owns(w) then
     return
   end
-  if not (w.floating and w.mapped and not w.hidden and (not w.fullscreen or w.fullscreen == 0)) then
+  if not (w.floating and w.mapped and not w.hidden and not is_fullscreen(w)) then
     return
   end
   local chrome = chrome_h(w)
@@ -1981,7 +1994,7 @@ function x_mode.arrange_halves()
   local by_space = {}
   for _, w in ipairs(windows) do
     w = refresh_window(w) or w
-    if w.mapped and not w.hidden and (not w.fullscreen or w.fullscreen == 0) and w.monitor ~= nil then
+    if w.mapped and not w.hidden and not is_fullscreen(w) and w.monitor ~= nil then
       local cls = window_class(w)
       local wid = tostring(ws_id(w) or "")
       local key = cls .. "@" .. wid
@@ -2036,7 +2049,7 @@ end)
 -- loads; re-float anything still tiled (same as install.sh).
 hl.timer(function()
   for _, w in ipairs(hl.get_windows() or {}) do
-    if w.mapped and not w.floating and (not w.fullscreen or w.fullscreen == 0) then
+    if w.mapped and not w.floating and not is_fullscreen(w) then
       hl.dispatch(hl.dsp.window.float({ action = "enable", window = w }))
     end
   end

@@ -83,6 +83,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/arrange_keeps_workspaces_test.sh` | the arrange arranges a window where it already is |
 | `integration/chrome_off_drag_reaches_bar_test.sh` | without chrome the box reaches the bar |
 | `integration/chrome_off_no_group_test.sh` | a chrome-off window is never grouped |
+| `integration/client_fullscreen_not_pushed_test.sh` | a window the app made fullscreen is not re-clamped below the bar |
 | `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
 | `integration/ctrl_tab_switch_binds_test.sh` | Ctrl+1..9 binds are opt-in |
 | `integration/dock_appears_test.sh` | the dock is a 40px card, centred, reserving nothing |
