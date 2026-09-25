@@ -292,6 +292,59 @@ pointer() {
 pointer_move() { pointer move "$1" "$2"; }
 pointer_click() { pointer click "$1" "$2" "${3:-left}"; }
 pointer_drag() { pointer drag "$1" "$2" "$3" "$4" "${5:-left}"; }
+pointer_press() { pointer button "${1:-left}" press; }
+pointer_release() { pointer button "${1:-left}" release; }
+
+# A gesture that has to pause in the middle (open a window, read geometry) needs
+# the button to stay down across commands. A process per command cannot do that:
+# the virtual pointer dies with the process and takes the held button with it. So
+# those scenarios drive one long-lived `pointer hold` instead.
+#
+#   pointer_begin
+#   pointer_do "move 100 100"
+#   pointer_do "press left"
+#   ... read geometry ...
+#   pointer_do "release left"
+#   pointer_end
+pointer_begin() {
+  coproc POINTER_HOLD { pointer hold; }
+  trap pointer_end EXIT
+  pointer_do "sleep 0"
+}
+
+pointer_do() {
+  printf '%s\n' "$1" >&"${POINTER_HOLD[1]}"
+  read -r -u "${POINTER_HOLD[0]}" _ || true
+}
+
+pointer_end() {
+  [ -n "${POINTER_HOLD_PID:-}" ] || return 0
+  printf 'exit\n' >&"${POINTER_HOLD[1]}" 2>/dev/null || true
+  wait "$POINTER_HOLD_PID" 2>/dev/null || true
+  POINTER_HOLD_PID=""
+}
+
+# Grab CLASS by its titlebar and let go at (X, Y): the gesture a user makes to
+# snap a window, rather than a call to the pack's snap function.
+drag_to() { # CLASS X Y
+  local tx ty
+  read -r tx ty <<<"$(titlebar_point "$1")"
+  pointer_drag "$tx" "$ty" "$2" "$3"
+  sleep 0.3
+}
+
+# Park a window at a fraction of the monitor (percent), so two windows do not
+# overlap and a click has one answer. Fractions, not pixels: the nest is a host
+# window, so its logical size follows the host scale.
+place_frac() { # CLASS FX FY FW FH
+  local extent mw mh
+  extent="$(pointer_extent)"
+  mw="${extent%x*}"
+  mh="${extent#*x}"
+  nest_ctl dispatch "hl.dsp.window.move({ x = $((mw * $2 / 100)), y = $((mh * $3 / 100)), relative = false, window = 'class:$1' })" >/dev/null
+  nest_ctl dispatch "hl.dsp.window.resize({ x = $((mw * $4 / 100)), y = $((mh * $5 / 100)), relative = false, window = 'class:$1' })" >/dev/null
+  sleep 0.2
+}
 
 # Middle of a window's titlebar: the bar occupies the 28px above the window box.
 titlebar_point() { # CLASS -> "X Y"

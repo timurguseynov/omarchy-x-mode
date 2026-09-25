@@ -113,7 +113,15 @@ usage(void) {
             "usage: pointer move X Y [BUTTON]\n"
             "       pointer click X Y [BUTTON]\n"
             "       pointer drag X1 Y1 X2 Y2 [BUTTON]\n"
-            "       pointer button BUTTON press|release\n");
+            "       pointer button BUTTON press|release\n"
+            "       pointer hold\n"
+            "\n"
+            "hold reads commands from stdin, one per line, printing 'ok' after each:\n"
+            "  move X Y | press [BUTTON] | release [BUTTON]\n"
+            "  click X Y [BUTTON] | drag X1 Y1 X2 Y2 [BUTTON] | sleep MS | exit\n"
+            "One process means one virtual pointer, so a button held down stays\n"
+            "held while the caller does something else, which a fresh process per\n"
+            "command cannot do: it would destroy the device and drop the button.\n");
     exit(2);
 }
 
@@ -150,6 +158,71 @@ drag_path(int x1, int y1, int x2, int y2) {
     }
 }
 
+static void
+click_at(int x, int y, uint32_t btn) {
+    warp(x, y);
+    sleep_ms(step_ms);
+    button(btn, 1);
+    sleep_ms(step_ms);
+    button(btn, 0);
+}
+
+/* One command per line on stdin, 'ok' per line on stdout so the caller can
+ * wait for each step. Keeps a single virtual pointer for the whole session. */
+static int
+hold(void) {
+    char line[256];
+
+    while (fgets(line, sizeof line, stdin)) {
+        char *nl = strchr(line, '\n');
+        if (nl)
+            *nl = '\0';
+
+        char *verb = strtok(line, " \t");
+        if (!verb || verb[0] == '\0') {
+            printf("ok\n");
+            fflush(stdout);
+            continue;
+        }
+        if (strcmp(verb, "exit") == 0)
+            break;
+
+        char *a1 = strtok(NULL, " \t");
+        char *a2 = strtok(NULL, " \t");
+        char *a3 = strtok(NULL, " \t");
+        char *a4 = strtok(NULL, " \t");
+        char *a5 = strtok(NULL, " \t");
+
+        if (strcmp(verb, "move") == 0 && a1 && a2)
+            warp(atoi(a1), atoi(a2));
+        else if (strcmp(verb, "press") == 0)
+            button(parse_button(a1), 1);
+        else if (strcmp(verb, "release") == 0)
+            button(parse_button(a1), 0);
+        else if (strcmp(verb, "click") == 0 && a1 && a2)
+            click_at(atoi(a1), atoi(a2), parse_button(a3));
+        else if (strcmp(verb, "drag") == 0 && a1 && a2 && a3 && a4)
+            {
+                const uint32_t btn = parse_button(a5);
+                warp(atoi(a1), atoi(a2));
+                sleep_ms(step_ms);
+                button(btn, 1);
+                sleep_ms(step_ms);
+                drag_path(atoi(a1), atoi(a2), atoi(a3), atoi(a4));
+                sleep_ms(step_ms);
+                button(btn, 0);
+            }
+        else if (strcmp(verb, "sleep") == 0 && a1)
+            sleep_ms(atoi(a1));
+        else
+            fprintf(stderr, "pointer: unknown command '%s'\n", verb);
+
+        printf("ok\n");
+        fflush(stdout);
+    }
+    return 0;
+}
+
 int
 main(int argc, char **argv) {
     if (argc < 2)
@@ -183,19 +256,16 @@ main(int argc, char **argv) {
     const char *cmd = argv[1];
     int         rc  = 0;
 
-    if (strcmp(cmd, "move") == 0) {
+    if (strcmp(cmd, "hold") == 0) {
+        rc = hold();
+    } else if (strcmp(cmd, "move") == 0) {
         if (argc < 4)
             usage();
         warp(atoi(argv[2]), atoi(argv[3]));
     } else if (strcmp(cmd, "click") == 0) {
         if (argc < 4)
             usage();
-        const uint32_t btn = parse_button(argc > 4 ? argv[4] : NULL);
-        warp(atoi(argv[2]), atoi(argv[3]));
-        sleep_ms(step_ms);
-        button(btn, 1);
-        sleep_ms(step_ms);
-        button(btn, 0);
+        click_at(atoi(argv[2]), atoi(argv[3]), parse_button(argc > 4 ? argv[4] : NULL));
     } else if (strcmp(cmd, "drag") == 0) {
         if (argc < 6)
             usage();

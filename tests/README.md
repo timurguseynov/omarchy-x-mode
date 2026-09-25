@@ -70,6 +70,16 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/snap_ungrouped_full_geometry_test.sh` | snapping one window keeps the client and makes no group |
 | `integration/install_arrange_halves_test.sh` | the arrange marker deals the open windows into halves once |
 | `integration/no_gaps_symmetric_insets_test.sh` | every inset changes with the gaps and every one comes back |
+| `integration/titlebar_rmb_no_drag_test.sh` | a right-button drag does nothing, a left-button drag moves |
+| `integration/drag_snap_zones_test.sh` | side strips give halves, the top strip maximizes, corners quarter |
+| `integration/drag_up_clamps_to_bar_test.sh` | dragging up leaves the chrome below the bar |
+| `integration/drag_follows_pointer_live_test.sh` | mid-drag the window follows and keeps its size |
+| `integration/snap_geometry_stable_over_cursor_test.sh` | a snapped window does not move under a still cursor |
+| `integration/titlebar_click_raises_test.sh` | clicking a titlebar focuses and raises that window |
+| `integration/titlebar_click_wrong_window_test.sh` | clicking the right window raises the right window |
+| `integration/group_tabbar_click_stable_test.sh` | clicking the tabbar leaves geometry and z-order alone |
+| `integration/snap_no_chrome_reaches_bar_test.sh` | without chrome a snap reaches the bar, not the titlebar inset |
+| `integration/chrome_off_no_group_test.sh` | a chrome-off window is never grouped |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
@@ -130,12 +140,30 @@ here exercises the same path a mouse does.
 pointer_move  X Y
 pointer_click X Y [BUTTON]
 pointer_drag  X1 Y1 X2 Y2 [BUTTON]
+pointer_press [BUTTON]
+pointer_release [BUTTON]
+pointer_begin / pointer_do "COMMAND" / pointer_end
 ```
 
 `BUTTON` is `left` (default), `right`, `middle`, or a numeric code. Coordinates
 are logical pixels in the nest's layout; the extent is taken from the monitor,
 so nothing in a test has to know the monitor size. `titlebar_point CLASS`
-returns the middle of a window's titlebar, which is where a drag has to start.
+returns the middle of a window's titlebar, which is where a drag has to start,
+and `drag_to CLASS X Y` is grab-by-titlebar-and-let-go, the gesture a user makes.
+`place_frac CLASS FX FY FW FH` parks a window at percentages of the monitor, so
+two windows do not overlap and a click has one answer.
+
+A process per command cannot hold a button down: the virtual pointer dies with
+the process and takes the held button with it, so the gesture ends before the
+next command. Scenarios that have to pause mid-gesture use one long-lived
+session instead, `pointer_begin` / `pointer_do` / `pointer_end`, which drives the
+tool's `hold` mode over a bash coprocess.
+
+Two details of the real gesture, both hit while writing these tests. The first
+motion after the press only crosses `binds:drag_threshold`, so the window starts
+moving on the second one. And the right half stops short of the dock inset, so
+its x is left of the midpoint: compare against `snap right` or check the side,
+not `mw/2`.
 
 The nest is a host window, so its logical size follows the host scale: the
 900x1000 the harness asks for is 450x500 at scale 2. A hard-coded coordinate
