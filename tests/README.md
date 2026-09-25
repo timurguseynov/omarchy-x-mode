@@ -238,14 +238,22 @@ window.title        y=64  size=424     <- the settled size
 window.update_rules y=64  size=424
 ```
 
-A resize after that emits **nothing at all**. So `window.title` is not "the
-window is settled": it arrives before the window has a size, and it changes later
-for reasons of its own (a shell prompt, a document title). `update_rules` does
-fire again once the geometry settles, which makes it a usable *extra* trigger, but
-it is not a resize notification either. That is why the pack clamps an ungrouped
-window with one-shot timers at 60ms and 200ms after `window.open` instead of
-reacting to a resize, and why a window resized after those timers is not clamped
-again.
+That second `title` is tempting as a "the window has settled" signal, and it is
+not one: it is the client writing its own title at that moment. Measured across
+three clients, `foot` and `kitty` do rewrite it after settling (kitty three times
+over) while `zenity` writes it once, before it has any geometry, and never again.
+
+A resize afterwards emits **nothing at all**. With a single window: 11 events while
+it opened, then 0 across a resize that moved it from y=64 to y=14 — above a bar at
+24. So neither `title` nor anything else tells a scenario that the geometry moved.
+`window.update_rules` is the best of a bad set — it fires repeatedly around
+settling for all three clients, after as well as before the geometry stops
+changing — but it does not fire on that resize either, and it fires for *every*
+window whenever one opens, because Hyprland re-evaluates the rules.
+
+That is why the pack clamps an ungrouped window with one-shot timers at 60ms and
+200ms after `window.open` instead of reacting to a resize, and why a window
+resized after those timers is not clamped again.
 
 `resize_after_open_clears_bar_test.sh` shows the gap: Hyprland resizes around the
 window's centre, so growing a window moves its top-left up (measured at -39 with
