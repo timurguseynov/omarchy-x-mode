@@ -683,7 +683,14 @@ end
 -- this: it skips grouped windows, and a group that grows after it stopped has
 -- no geometry event of its own. window.update_rules is what a group change does
 -- raise, so this is called from there and on focus.
-local function push_bars_below(w)
+--
+-- `edge` defaults to the border alone: on an event the only bound this may
+-- enforce is "the chrome does not reach the bar", the same one the C++ drag
+-- clamp uses. Pulling a window the user left flush to the bar down by the
+-- preferred gap as well would move a free window on the next rule change or
+-- focus. clear_bars() passes gap + border because it is the load walk that
+-- lands existing windows where float_gaps and snap put a new one.
+local function push_bars_below(w, edge)
   if w == nil or drag_owns(w) then
     return
   end
@@ -695,9 +702,10 @@ local function push_bars_below(w)
   if chrome <= 0 or mon == nil then
     return
   end
+  edge = edge or BORDER()
   local _, uy = usable(mon)
   local x, y = vec(w.at)
-  local min_top = uy + GAP_OUT() + BORDER() + chrome
+  local min_top = uy + edge + chrome
   if y < min_top then
     hl.dispatch(hl.dsp.window.move({ x = x, y = min_top, relative = false, window = w }))
   end
@@ -1929,7 +1937,7 @@ end
 -- windows a snap skips (hidden, fullscreen, still tiled, no monitor).
 local function clear_bars()
   for _, w in ipairs(hl.get_windows() or {}) do
-    push_bars_below(refresh_window(w) or w)
+    push_bars_below(refresh_window(w) or w, GAP_OUT() + BORDER())
   end
 end
 
