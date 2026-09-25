@@ -10,11 +10,8 @@ assert_eq "$(group_size foot)" 2 "two windows share the group"
 read -r px py <<<"$(plus_point foot)"
 pointer_click "$px" "$py"
 
-for _ in $(seq 1 40); do
-  [ "$(count_class foot)" -ge 3 ] && break
-  sleep 0.1
-done
+# The launch goes through gtk-launch, which is slow on a cold start.
+wait_for_count foot 3
 
 assert_eq "$(count_class foot)" 3 "the + slot opens another window of the app"
-sleep 0.4
 assert_eq "$(group_size foot)" 3 "the new window joins the group"

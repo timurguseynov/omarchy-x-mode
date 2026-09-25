@@ -31,6 +31,9 @@ tests/nest/run.sh integration/no_gaps snap   # several
 tests/nest/run.sh close                      # anything whose name matches
 ```
 
+A scenario's output is printed whether it passes or fails: a note it wants to
+make, or a message from a tool it ran, is exactly what swallowing would hide.
+
 The nest is one per run and `nest_clean()` runs between files, so a selected
 scenario is as isolated as it is in a full run. The startup is only a few
 seconds and the cost is per scenario, so selecting one is worth it: a single
@@ -151,6 +154,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/titlebar_click_raises_test.sh` | clicking a titlebar focuses and raises that window |
 | `integration/titlebar_click_wrong_window_test.sh` | clicking the right window raises the right window |
 | `integration/titlebar_drawn_test.sh` | the titlebar band is actually painted |
+| `integration/resize_after_open_clears_bar_test.sh` | a window resized after opening still clears the bar (known gap, reported) |
 | `integration/titlebar_rmb_no_drag_test.sh` | a right-button drag does nothing, a left-button drag moves |
 
 `focus_test.sh` relies on `hyprctl clients -j` being in z-order (topmost last),
@@ -209,6 +213,34 @@ Three things about the tabbar, all found the hard way:
 
 `hyprctl dispatch` here takes a dispatcher object, not the legacy string: use
 `hl.dsp.window.close({ window = 'address:$addr' })`, not `killactive`.
+
+## What there is to wait for, and what no event covers
+
+The events a config can subscribe to on a window are: `open`, `open_early`,
+`active`, `class`, `title`, `update_rules`, `move_to_workspace`, `fullscreen`,
+`pin`, `urgent`, `close`, `destroy` and `kill`; alongside `config.reloaded`,
+`config.props_refreshed`, the `monitor.*` and `workspace.*` families, `layer.*`
+and `input.keyboard.key`. **There is no size or geometry event.** That is why the
+pack clamps an ungrouped window with one-shot timers at 60ms and 200ms after
+`window.open` rather than reacting to a resize, and why the pack subscribes to
+`window.open`, `window.open_early`, `window.active` and `window.close` only.
+
+Two things follow.
+
+A window that is resized after those timers is not clamped again.
+`resize_after_open_clears_bar_test.sh` shows it: Hyprland resizes around the
+window's centre, so growing a window moves its top-left up (measured at -39 with
+the bar at 24). The test reports that as a known gap rather than failing, and
+says so the day it stops being one. If this is to be fixed on the pack's side, the
+hooks that exist are a longer timer after `open` (the shape the pack already
+uses), `window.title` or `window.update_rules` (a client usually sets its title
+right after its first resize, so both are proxies, not the event itself), and a
+clamp on `window.active` (which a resize without a focus change does not fire).
+
+Waiting on a fixed sleep is how a test turns flaky. `wait_for_count CLASS N
+[SECONDS]` is the helper for "until it appears": a window opened through
+`gtk-launch`, as the tabbar's `+` does, takes much longer on a cold start than a
+plain window.
 
 ## The pointer
 
@@ -338,6 +370,10 @@ class, so with only foot and kitty the icons are 0 and 1.
 
 `dock_layer_box NAMESPACE` finds a layer's box; the menu is a layer called
 `x-mode-dock-menu`, which is how a right-click can be observed at all.
+
+A third app for the switcher's order test comes from `foot --app-id=...`, which
+Hyprland reads as the class: a dialog would work too, but a `zenity --info` puts
+an "Information" window on screen for the whole run.
 
 `dock_pin '["kitty"]'` writes the pinned list the dock reads from its HOME (the
 nest's, thanks to the redirected HOME above), and `dock_menu_row_point`

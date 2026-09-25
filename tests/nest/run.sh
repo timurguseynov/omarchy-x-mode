@@ -58,6 +58,9 @@ for t in "${chosen[@]}"; do
   nest_clean
   if out="$(bash "$t" 2>&1)"; then
     echo "  ${GREEN}ok${RESET}   $name"
+    # A scenario that has something to say (a known gap, a stray message from a
+    # tool) prints it, and swallowing it on success hides exactly that.
+    [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/       /'
   else
     echo "  ${RED}FAIL${RESET} $name"
     printf '%s\n' "$out" | sed 's/^/       /'

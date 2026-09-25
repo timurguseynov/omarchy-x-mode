@@ -249,6 +249,18 @@ open_command() { # CLASS COMMAND...
   fail "command did not open another '$cls' window: $*"
 }
 
+# Wait until CLASS has COUNT windows, up to TIMEOUT seconds (10 by default). A
+# launch that goes through gtk-launch can take a while on a cold start, and a
+# fixed short wait turns that into a flaky test.
+wait_for_count() { # CLASS COUNT [TIMEOUT]
+  local cls="$1" want="$2" timeout="${3:-10}" i
+  for i in $(seq 1 $((timeout * 10))); do
+    [ "$(count_class "$cls")" -ge "$want" ] && { sleep 0.4; return 0; }
+    sleep 0.1
+  done
+  fail "waited ${timeout}s for $want '$cls' windows, saw $(count_class "$cls")"
+}
+
 count_class() {
   nest_ctl clients -j | python3 -c "
 import json, sys
