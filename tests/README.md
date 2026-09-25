@@ -109,7 +109,9 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/drag_up_clamps_to_bar_test.sh` | dragging up leaves the chrome below the bar |
 | `integration/arrow_keys_unbound_test.sh` | Cmd+arrows are unbound and do not move focus |
 | `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |
+| `integration/fullscreen_group_close_focus_test.sh` | closing a tab under fullscreen does not steal the focus |
 | `integration/fullscreen_holds_others_under_test.sh` | a fullscreen window keeps the others under it |
+| `integration/fullscreen_pinned_over_test.sh` | a pinned window stays above fullscreen and is raised |
 | `integration/fullscreen_switcher_exits_test.sh` | Super+Tab leaves fullscreen once another app is selected |
 | `integration/group_close_focus_test.sh` | closing the active tab keeps focus in the group, not on a foreign app |
 | `integration/group_keys_unbound_test.sh` | Cmd+G and Cmd+Alt+G stay unbound and do not group a window |
@@ -127,6 +129,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/no_gaps_keeps_border_test.sh` | No gaps collapses the gaps, keeps the 1px border, and restores both |
 | `integration/no_gaps_symmetric_insets_test.sh` | every inset changes with the gaps and every one comes back |
 | `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
+| `integration/oversized_snap_anchors_test.sh` | a snap smaller than the client minimum keeps the snapped edge and overhangs |
 | `integration/oversized_window_test.sh` | a settled window grown to twice the monitor, and where it lands |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `integration/same_app_across_workspaces_no_group_test.sh` | a same-app window on another space is not a tab |
@@ -273,6 +276,13 @@ because `window.update_rules` is the only event a group change raises.
 the window's centre, so growing a window moves its top-left up (measured at -39
 with the bar at 24 before the fix), and the window has to end up clear of the bar
 again.
+
+A client can also refuse to shrink below its own minimum (kdenlive is 1027 wide
+on a 938 half). Hyprland then grows the box around its centre, which walked the
+left edge of a left snap off-screen (observed at x=-43). `Snap::contentBox`
+grows the target to `CWindow::minSize()` and keeps the snapped edge put, so the
+window overhangs the far side of its zone instead; `oversized_snap_anchors_test.sh`
+holds that down.
 
 Upstream has the fitting code but does not call it here:
 `CDefaultFloatingAlgorithm::fitBoxInWorkArea()` clamps into `space->workArea(true)`
