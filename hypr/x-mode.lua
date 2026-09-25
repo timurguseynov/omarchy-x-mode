@@ -913,11 +913,13 @@ hl.on("input.keyboard.key", function(keycode, _, state)
   end
 end)
 
--- Restore Super+arrows to window focus (Omarchy default).
+-- Cmd+arrows focus the neighbour in Omarchy's defaults. This desktop does not
+-- tile, and the keys should reach the app, so drop them. Snap stays on
+-- Cmd+Alt+arrows.
 hl.unbind("SUPER + LEFT")
 hl.unbind("SUPER + RIGHT")
-o.bind("SUPER + LEFT", "Focus on left window", hl.dsp.focus({ direction = "l" }))
-o.bind("SUPER + RIGHT", "Focus on right window", hl.dsp.focus({ direction = "r" }))
+hl.unbind("SUPER + UP")
+hl.unbind("SUPER + DOWN")
 
 -- Cmd +/- (and Cmd+Shift+/-) resize the active window in Omarchy's defaults
 -- (resizeactive on code:20 = '-' and code:21 = '='). The desktop resizes by
