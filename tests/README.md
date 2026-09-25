@@ -64,6 +64,9 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/join_same_app_focus_test.sh` | a new same-app window becomes the active tab, not a hidden one |
 | `integration/group_join_keeps_visual_top_test.sh` | joining a group pushes the box down instead of pinning it to the top |
 | `integration/group_tab_switch_no_resize_test.sh` | switching tabs leaves the geometry alone |
+| `integration/snap_cycle_chrome_off_test.sh` | re-snapping a window without chrome does not creep down |
+| `integration/no_gaps_free_window_stays_test.sh` | No gaps re-lays out a snapped window and leaves a free one alone |
+| `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
@@ -129,6 +132,12 @@ pointer_drag  X1 Y1 X2 Y2 [BUTTON]
 are logical pixels in the nest's layout; the extent is taken from the monitor,
 so nothing in a test has to know the monitor size. `titlebar_point CLASS`
 returns the middle of a window's titlebar, which is where a drag has to start.
+
+The nest is a host window, so its logical size follows the host scale: the
+900x1000 the harness asks for is 450x500 at scale 2. A hard-coded coordinate
+can therefore land off the screen, and a warp past the edge is clamped, so the
+click quietly hits nothing. When a scenario has to place a window itself, take
+the size from `pointer_extent` and use fractions of it.
 
 `nest/pointer_test.sh` guards the tool itself: if the protocol disappears or a
 warp stops reaching `input.mouse.move`, the window does not move and every
