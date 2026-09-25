@@ -93,6 +93,10 @@ bar), a terminal to open test windows (`foot`, `kitty`), and Qt's `qmllint` /
 | `integration/always_tabbar_single_tab_test.sh` | alwaysTabbar pushes a lone window down by the tabbar |
 | `integration/titlebar_click_no_raise_other_test.sh` | a titlebar click still raises the right window with No gaps on |
 | `integration/snap_zone_tolerance_reload_test.sh` | a vertically shifted window is put back in its zone |
+| `integration/tiling_hotkeys_unbound_test.sh` | Super+O, Super+L and Super+T stay unbound |
+| `integration/ctrl_tab_switch_binds_test.sh` | Ctrl+1..9 binds are opt-in |
+| `integration/group_join_raises_test.sh` | a window joining a group raises it above another app |
+| `integration/drag_out_of_zone_test.sh` | a snapped window dragged out of its zone keeps its size |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
@@ -114,11 +118,11 @@ assert_ge "$(visual_top foot)" 36 "the titlebar clears the bar"
 
 Helpers: `open_window`, `nest_clean`, `win_geom`, `visible_geom`, `visual_top`,
 `group_size`, `group_order`, `active_class`, `active_address`,
-`active_tab_index`, `group_tab`, `topmost`, `snap`, `bar_top`, `bar_height`,
-`tab_height`, `tab_point`, `tab_close_point`, `plus_point`, `gaps_out`,
-`border_size`, `plugin_option`, `nest_ctl`, `nest_socket`, `titlebar_point`,
-`drag_to`, `place_frac`, the `pointer_*` family below, and
-`assert_eq/ne/ge/le/between`.
+`active_tab_index`, `group_tab`, `topmost`, `bind_count`, `bind_count_desc`,
+`snap`, `bar_top`, `bar_height`, `tab_height`, `tab_point`, `tab_close_point`,
+`plus_point`, `gaps_out`, `border_size`, `plugin_option`, `nest_ctl`,
+`nest_socket`, `titlebar_point`, `drag_to`, `place_frac`, the `pointer_*` family
+below, and `assert_eq/ne/ge/le/between`.
 
 Three things about the tabbar, all found the hard way:
 
@@ -204,18 +208,29 @@ the size from `pointer_extent` and use fractions of it.
 warp stops reaching `input.mouse.move`, the window does not move and every
 scenario built on the pointer would fail for the wrong reason.
 
-## What needs more than the pointer
+## Keybinds cannot be driven from here
 
-Some scenarios drive a keybinding, and there is no way to press a key here yet:
-the tab switch that has to raise its group, and the tiling hotkeys that must
-stay unbound. Both were reported live and are not covered.
+There is no way to press a modified keybinding in the nest. `wtype` is installed
+and typing works: characters reach the focused client, verified by typing a
+command into a shell inside the nest. But no keybind fires, not even an
+unmodified one.
 
-`hl.dsp.group.active`, the dispatcher the pack's Ctrl+N handler calls, switches
-the tab but does not focus the group: the focus and the raise come from the
-focus handler, which only runs when the group already has focus. So driving the
-dispatcher from a test does not reproduce the Alt+Tab case. A virtual keyboard
-(`zwp_virtual_keyboard_manager_v1`) is the same trick as the pointer and is what
-this needs.
+The reason is in Hyprland. `CKeybindManager::onKeyEvent` resolves the pressed key
+through `m_xkbTranslationState`, the compositor's own keymap, while a client gets
+its keysym from the device's keymap. `wtype` sends a synthetic keymap of its own
+with its own keycode numbering, so the two disagree and nothing matches. `-P`
+sends a raw keycode but goes through the same translation, and no variant helped:
+`logo`, `win`, `mod4`, raw keycodes, delays between the modifier and the key.
+
+So the tiling-hotkey and Ctrl+N contracts are pinned at the bind table instead
+(`bind_count`, `bind_count_desc`). That catches a bind coming back or never being
+installed, but not the keypress itself. Note that a bind made with a raw keycode
+(`CTRL + code:10`) reports an empty `key`, which is why the description is needed
+there.
+
+A small tool that sends a keymap using the standard keycode numbering would fix
+this the way the pointer tool fixed gestures. The drafts waiting on it are the
+snap cycle (½ → ⅔ → ⅓) and the tab switch that has to raise its group.
 
 ## unit layer
 

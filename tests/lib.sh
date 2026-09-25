@@ -309,6 +309,26 @@ for c in json.load(sys.stdin):
         break"
 }
 
+# How many binds Hyprland has for a key and modifier mask. Mod1 is 8, Control
+# is 4, Mod4 (Super) is 64. A modified keybind cannot be driven from a test
+# (see the README), so the bind table is where those contracts are pinned.
+bind_count() { # KEY MODMASK
+  nest_ctl binds -j | python3 -c "
+import json, sys
+key, mods = '$1', int('$2')
+print(sum(1 for b in json.load(sys.stdin) if b.get('key') == key and int(b.get('modmask') or 0) == mods))"
+}
+
+# Same, matched on the description. A bind made with a raw keycode (`CTRL +
+# code:10`) reports an empty key, so the description is the only handle on it.
+bind_count_desc() { # TEXT MODMASK
+  nest_ctl binds -j | python3 -c "
+import json, sys
+text, mods = '$1'.lower(), int('$2')
+print(sum(1 for b in json.load(sys.stdin)
+          if text in (b.get('description') or '').lower() and int(b.get('modmask') or 0) == mods))"
+}
+
 # Switch a group to tab INDEX (1-based), the dispatcher the pack's Ctrl+N uses.
 group_tab() { # INDEX CLASS
   nest_ctl dispatch "hl.dsp.group.active({ index = $1, window = 'class:$2' })" >/dev/null
