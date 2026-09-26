@@ -83,6 +83,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/arrange_keeps_workspaces_test.sh` | the arrange arranges a window where it already is |
 | `integration/chrome_off_drag_reaches_bar_test.sh` | without chrome the box reaches the bar |
 | `integration/chrome_off_no_group_test.sh` | a chrome-off window is never grouped |
+| `integration/client_fullscreen_not_pushed_test.sh` | a window the app made fullscreen is not re-clamped below the bar |
 | `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
 | `integration/ctrl_tab_switch_binds_test.sh` | Ctrl+1..9 binds are opt-in |
 | `integration/dock_appears_test.sh` | the dock is a 40px card, centred, reserving nothing |
@@ -109,6 +110,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/drag_up_clamps_to_bar_test.sh` | dragging up leaves the chrome below the bar |
 | `integration/arrow_keys_unbound_test.sh` | Cmd+arrows are unbound and do not move focus |
 | `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |
+| `integration/fullscreen_exit_restores_size_test.sh` | leaving fullscreen restores the floating box, not the fullscreen size |
 | `integration/fullscreen_holds_others_under_test.sh` | a fullscreen window keeps the others under it |
 | `integration/fullscreen_pinned_over_test.sh` | a pinned window stays above fullscreen and is raised |
 | `integration/fullscreen_switcher_exits_test.sh` | Super+Tab leaves fullscreen once another app is selected |
