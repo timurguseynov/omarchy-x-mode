@@ -1279,11 +1279,16 @@ local nobar_applied = {}
 local always_applied = {}
 
 local function set_rule(name, cls, effect, on)
+  -- The stored key is lowercased, but Hyprland matches a rule's class as a
+  -- case-sensitive RE2 full match, so the pattern carries the case-insensitive
+  -- flag (and escapes the class's regex metacharacters). Without it an app with
+  -- an uppercase letter in its class -- Thunderbird's org.mozilla.Thunderbird --
+  -- kept its titlebar no matter what the panel said.
   pcall(function()
     hl.window_rule({
       name = name .. cls,
       enabled = on and true or false,
-      match = { class = cls },
+      match = { class = settings.rule_pattern(cls) },
       [effect] = true,
     })
   end)

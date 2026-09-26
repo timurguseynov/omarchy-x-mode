@@ -56,6 +56,19 @@ function M.desired_rules(cfg)
   return nobar, always
 end
 
+-- The `class` match value for a window rule, from an app key. Hyprland matches
+-- a rule's class as a case-sensitive RE2 full match, and the keys are lowercased
+-- on the way in (the panel and parse_apps both lowercase), so a class with an
+-- uppercase letter in it never matched -- Thunderbird's "org.mozilla.Thunderbird"
+-- was the one that showed it. Build the pattern from the key: turn on RE2's
+-- case-insensitive inline flag and escape every metacharacter (the class is a
+-- regex, and dots are common in app ids).
+function M.rule_pattern(cls)
+  local RE2_MAGIC = "%^%$%.%|%?%*%+%(%)%[%]%{%}"
+  local escaped   = string.gsub(cls or "", "([" .. RE2_MAGIC .. "])", "\\%1")
+  return "(?i)" .. escaped
+end
+
 -- What to turn on and off for one effect: `desired` is the set the config wants
 -- now, `applied` what was set last time. Returns two sorted class lists.
 function M.rule_diff(desired, applied)

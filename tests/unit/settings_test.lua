@@ -58,6 +58,13 @@ check("rules.always.zed", always["zed"], true)
 check("rules.nobar.zed", nobar["zed"], nil)
 check("rules.foot", nobar["foot"] == nil and always["foot"] == nil, true)
 
+-- A rule's class match: case-insensitive (the stored keys are lowercased) and
+-- with the class's regex metacharacters escaped, so an app id with dots or a
+-- capital letter still matches the window it came from.
+check("pattern.foot", settings.rule_pattern("foot"), "(?i)foot")
+check("pattern.thunderbird", settings.rule_pattern("org.mozilla.thunderbird"), "(?i)org\\.mozilla\\.thunderbird")
+check("pattern.metachars", settings.rule_pattern("a+b(c)"), "(?i)a\\+b\\(c\\)")
+
 -- The diff: enable what is new, disable what is gone, nothing for unchanged.
 local add, drop = settings.rule_diff({ a = true, b = true }, { b = true, c = true })
 check("diff.add", table.concat(add, ","), "a")
