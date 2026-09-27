@@ -1,4 +1,5 @@
 #include "snap.hpp"
+#include "dragSession.hpp"
 #include "globals.hpp"
 
 #include <hyprland/src/config/ConfigValue.hpp>
@@ -13,6 +14,7 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
 #include <hyprland/src/helpers/time/Time.hpp>
+
 
 #include <algorithm>
 #include <chrono>
@@ -421,6 +423,133 @@ Snap::eKind Snap::kindOf(PHLWINDOW w, int slop) {
             return kind;
     }
     return eKind::None;
+}
+
+// True when either fullscreen flag is set. A client-fullscreen window (a video
+// player, a game) keeps the compositor's flag clear, and fitting it would push a
+// screen-sized surface below the bar and off the bottom.
+static bool anyFullscreen(PHLWINDOW w) {
+    const auto modes = Fullscreen::controller()->getFullscreenModes(w);
+    return modes.internal != Fullscreen::FSMODE_NONE || modes.client != Fullscreen::FSMODE_NONE;
+}
+
+void Snap::clampToWorkArea(PHLWINDOW w) {
+    if (!xModeEnabled() || !w || !w->m_isFloating || !w->m_isMapped || w->isHidden() || anyFullscreen(w))
+        return;
+    // A drag clamps itself and is allowed to hang off an edge; refitting it here
+    // would pull it back on every mouse move.
+    if (g_pDragSession && g_pDragSession->owns(w))
+        return;
+
+    // setPositionGlobal below calls back into the bar's updateWindow, which is
+    // what calls this. The box is already written by then, so the inner pass has
+    // nothing to add; bailing out is what keeps a one-pixel rounding gap from
+    // recursing.
+    static int depth = 0;
+    if (depth)
+        return;
+    struct Depth {
+        int& n;
+        explicit Depth(int& n) : n(n) { ++n; }
+        ~Depth() { --n; }
+    } hold(depth);
+
+    const auto MON    = w->m_monitor.lock();
+    const auto TARGET = w->layoutTarget();
+    if (!MON || !TARGET || !TARGET->floating())
+        return;
+
+    // usable() is the monitor minus the reserved area (the top bar) and the dock.
+    const CBox frame = usable(MON);
+    if (frame.w < 1 || frame.h < 1)
+        return;
+
+    // chromeH, not the positioner's reserved top. Reserved adds the border
+    // decoration (it reserves every edge) on top of the bar, and a no_bar rule
+    // is visible to chromeH as soon as the window has it, while the decoration
+    // keeps reporting a titlebar until updateRules hides it.
+    const int chrome = chromeH(w);
+    const int edge   = gapOut() + border();
+    CBox      box    = TARGET->position();
+
+    // A window halfway out of fullscreen still carries the fullscreen box after
+    // its flags have cleared: the monitor's origin and the monitor's size. Fitting
+    // that records it as the floating one, so Hyprland's own restore on exit hands
+    // the fullscreen box straight back. Size alone is not enough to recognise it.
+    // A fresh window opens centred and taller than the work area, often exactly as
+    // tall as the monitor, and that one has to be shrunk or its titlebar stays
+    // over the bar.
+    const CBox mon = monitorBox(MON);
+    if (box.w >= mon.w - 1 && box.h >= mon.h - 1 && std::abs(box.x - mon.x) <= 1 && std::abs(box.y - mon.y) <= 1)
+        return;
+
+    // Don't shrink past the client's own minimum. Forcing a smaller box and then
+    // sendWindowSize makes the client configure straight back, and the next pass
+    // fights it. A window that cannot shrink keeps the edge its snap anchored.
+    double maxW = std::max(1.0, frame.w - edge - edge);
+    double maxH = std::max(1.0, frame.h - edge - edge - chrome);
+    if (const auto MIN = w->minSize()) {
+        if (MIN->x > 1)
+            maxW = std::max(maxW, MIN->x);
+        if (MIN->y > 1)
+            maxH = std::max(maxH, MIN->y);
+    }
+
+    // A shrink keeps the centre: Hyprland resizes around it, so the top-left the
+    // clamp pulls back has to be the one after the shrink, not the one before.
+    if (box.w > maxW) {
+        box.x += (box.w - maxW) / 2.0;
+        box.w = maxW;
+    }
+    if (box.h > maxH) {
+        box.y += (box.h - maxH) / 2.0;
+        box.h = maxH;
+    }
+
+    const double minTop    = frame.y + edge + chrome;
+    const double maxBottom = frame.y + frame.h - edge;
+    if (box.y < minTop)
+        box.y = minTop;
+    else if (box.h <= maxBottom - minTop && box.y + box.h > maxBottom)
+        box.y = maxBottom - box.h;
+
+    const double minLeft  = frame.x + edge;
+    const double maxRight = frame.x + frame.w - edge;
+    // A window wider than the frame (the client minimum beat the zone) keeps the
+    // x its snap wrote. Pulling it back inside would walk a left snap off the
+    // left edge, which is the case contentBox grows the target to avoid.
+    if (box.w <= maxRight - minLeft) {
+        if (box.x < minLeft)
+            box.x = minLeft;
+        else if (box.x + box.w > maxRight)
+            box.x = maxRight - box.w;
+    }
+
+    const CBox got     = TARGET->position();
+    const bool moved   = std::abs(got.x - box.x) >= 1 || std::abs(got.y - box.y) >= 1;
+    const bool resized = std::abs(got.w - box.w) >= 1 || std::abs(got.h - box.h) >= 1;
+    if (!moved && !resized)
+        return;
+
+    // Direct, not Actions::move: that goes through moveTarget, which calls back
+    // into updateWindow, and the bar calls this from there. Windows do not animate
+    // (x-mode disables windowsMove), so warping the current value is invisible.
+    // setPositionGlobal would also configure the client; a move must not, and a
+    // shrink reports the size once.
+    box.round();
+    TARGET->setPositionGlobal(box, Layout::TARGET_UPDATE_NO_CLIENT_CONFIGURE);
+    w->positionAnimation()->setValueAndWarp(box.pos());
+    w->sizeAnimation()->setValueAndWarp(box.size());
+    if (w->m_group) {
+        for (const auto& m : w->m_group->windows()) {
+            if (const auto member = m.lock()) {
+                member->positionAnimation()->setValueAndWarp(box.pos());
+                member->sizeAnimation()->setValueAndWarp(box.size());
+            }
+        }
+    }
+    if (resized)
+        w->sendWindowSize(true);
 }
 
 bool Snap::applyKind(PHLWINDOW w, eKind kind) {

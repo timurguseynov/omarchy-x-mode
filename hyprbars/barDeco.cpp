@@ -88,6 +88,16 @@ bool raiseFloating(PHLWINDOW w) {
     return true;
 }
 
+void raiseAndFocus(PHLWINDOW w) {
+    if (!w)
+        return;
+    // rawWindowFocus, not fullWindowFocus: the latter lifts a floating window
+    // over a covering fullscreen one on its own, which is the fight
+    // holdUnderFullscreen exists to stop.
+    if (raiseFloating(w) && Desktop::focusState()->window() != w)
+        Desktop::focusState()->rawWindowFocus(w, Desktop::FOCUS_REASON_CLICK);
+}
+
 void keepGroupFocusOnClose(PHLWINDOW w) {
     if (!w)
         return;
@@ -1094,6 +1104,14 @@ eDecorationType CHyprBar::getDecorationType() {
 
 void CHyprBar::updateWindow(PHLWINDOW pWindow) {
     damageEntire();
+
+    // Every move and resize ends in updateWindowDecos, which calls this.
+    // Hyprland has no geometry event, so this is the one place a window that
+    // grew (a client sizing itself, a resize around the centre, a tabbar
+    // appearing) can be pulled back below the bar without a timer.
+    if (!pWindow)
+        return;
+    Snap::clampToWorkArea(pWindow);
 }
 
 void CHyprBar::onConfigReloaded() {
@@ -1158,6 +1176,13 @@ void CHyprBar::updateRules() {
     g_pDecorationPositioner->repositionDeco(this);
     if (prevForcedTitleColor != m_bForcedTitleColor)
         m_bTitleColorChanged = true;
+
+    // Hiding or showing the bar does not move the window, and the positioner
+    // does not call back into updateWindow, so the fit has to run from here.
+    // A window clamped while the bar was still reported gets its gap back once
+    // the no_bar rule has actually hidden it.
+    if (PWINDOW)
+        Snap::clampToWorkArea(PWINDOW);
 }
 
 void CHyprBar::damageOnButtonHover() {

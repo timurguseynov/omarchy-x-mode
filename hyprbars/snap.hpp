@@ -66,4 +66,18 @@ namespace Snap {
     // warped so chrome and the surface share the same pixel this frame.
     void               moveDrag(PHLWINDOW w, Vector2D pos);
 
+    // Pull a floating window back inside the work area. Hyprland never refits a
+    // float on resize (fitBoxInWorkArea runs only from placement and from moving
+    // between monitors), and it resizes around the centre, so a window that grows
+    // walks its top-left up under the bar. Called from the bar's updateWindow,
+    // which is the one point every move and resize already reaches, and again
+    // from updateRules when the bar is shown or hidden.
+    //
+    // The inset is the same one snap and float_gaps use: gap + border, plus
+    // chromeH (0 for a no_bar window, otherwise the titlebar and the tabbar).
+    // The decoration positioner's reserved top is the wrong number here: it adds
+    // the border decoration on top of the bar, and it still reports a titlebar
+    // until that decoration has hidden itself.
+    void               clampToWorkArea(PHLWINDOW w);
+
 }

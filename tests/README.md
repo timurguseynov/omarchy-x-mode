@@ -133,7 +133,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/no_gaps_symmetric_insets_test.sh` | every inset changes with the gaps and every one comes back |
 | `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
 | `integration/oversized_snap_anchors_test.sh` | a snap smaller than the client minimum keeps the snapped edge and overhangs |
-| `integration/oversized_window_test.sh` | a settled window grown to twice the monitor, and where it lands |
+| `integration/oversized_window_test.sh` | a settled window grown to twice the monitor is fitted back inside it |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `integration/same_app_across_workspaces_no_group_test.sh` | a same-app window on another space is not a tab |
 | `integration/scratchpad_keys_unbound_test.sh` | Cmd+S and Cmd+Alt+S stay unbound |
@@ -263,22 +263,19 @@ settling for all three clients, after as well as before the geometry stops
 changing — but it does not fire on that resize either, and it fires for *every*
 window whenever one opens, because Hyprland re-evaluates the rules.
 
-So the pack cannot react, and it watches instead: `watch_until_settled` in
-`x-mode.lua` runs a 50ms repeat timer for a fresh ungrouped window, re-clamps it,
-and stops once two samples in a row are identical, with a 2s ceiling for a window
-that never settles. That replaced two one-shot clamps at 60ms and 200ms, which a
-resize could land after. It hands the window over the moment `hyprbars.drag`
-reports a drag for it: a drag clamps itself in C++ and lets a window hang off an
-edge, and the Lua fit would pull it back — `pointer_test.sh` caught exactly that,
-which is why the handover is on the event and not on a check inside the tick.
-Grouped windows are skipped, their position coming from the join; a group that
-changes shape afterwards is pushed back below the bar by `push_bars_below`,
-because `window.update_rules` is the only event a group change raises.
+There is still no geometry event. The fit lives in the plugin instead:
+`CHyprBar::updateWindow` runs at the end of every move and resize
+(`updateWindowDecos` calls it), and `Snap::clampToWorkArea` pulls the box back
+inside the work area with the same gap, border and `chromeH` a snap uses. A drag
+is left alone while it owns the window — it clamps itself and may hang off an
+edge, and the fit would pull it back; `pointer_test.sh` is why that skip is on
+the drag, not after it. A group grows its chrome upward with no event of its
+own; the same `updateWindow` sees the new `chromeH` and pushes the box down.
 
 `resize_after_open_clears_bar_test.sh` holds that down: Hyprland resizes around
 the window's centre, so growing a window moves its top-left up (measured at -39
 with the bar at 24 before the fix), and the window has to end up clear of the bar
-again.
+again. `oversized_window_test.sh` is the same fit after the window has settled.
 
 A client can also refuse to shrink below its own minimum (kdenlive is 1027 wide
 on a 938 half). Hyprland then grows the box around its centre, which walked the
@@ -292,8 +289,8 @@ Upstream has the fitting code but does not call it here:
 and accounts for the window's chrome through `getWindowExtentsUnified`, but it is
 only reached from `newTarget()` (placement) and `movedTarget()` (moving between
 monitors or workspaces) — never from a resize. The event request is
-hyprwm/Hyprland#15519, unanswered. If upstream ever refits on resize, the watch
-can go and a single clamp after `open` will do again.
+hyprwm/Hyprland#15519, unanswered. The plugin fit above is what stands in for
+it. If upstream ever refits on resize, `clampToWorkArea` can go.
 
 Waiting on a fixed sleep is how a test turns flaky. `wait_for_count CLASS N
 [SECONDS]` is the helper for "until it appears": a window opened through

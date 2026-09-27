@@ -321,6 +321,20 @@ static int luaDragOwns(lua_State* L) {
 // Lua's raise runs on every focus. Hyprland has already marked a floating
 // window allowed-over by then; this clears it without alter_zorder's mouse
 // simulation, which would focus yet another window.
+// One dispatch for "bring this window to the front and focus it". alter_zorder
+// ends in simulateMouseMovement, which re-emits the mouse move synchronously and
+// re-enters the tab drag; two hyprctl dispatches also race each other. This does
+// neither.
+static int luaRaise(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.raise");
+    if (!w)
+        w = Desktop::focusState()->window();
+    raiseAndFocus(w);
+    return 0;
+}
+
 static int luaHoldUnderFullscreen(lua_State* L) {
     PHLWINDOW w = nullptr;
     if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
@@ -558,6 +572,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_owns", ::luaDragOwns);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "groupable", ::luaGroupable);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "hold_under_fullscreen", ::luaHoldUnderFullscreen);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "raise", ::luaRaise);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "x_mode", ::luaXMode);
     }
 

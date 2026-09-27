@@ -46,6 +46,12 @@ bool holdUnderFullscreen(PHLWINDOW w);
 // which the caller may still focus.
 bool raiseFloating(PHLWINDOW w);
 
+// Raise and focus in one step, for the dock and the switcher. CWindowState::raise
+// does not run the simulateMouseMovement that alter_zorder does, so this neither
+// refocuses whatever is under the cursor nor re-enters the tab drag. A window
+// held under a covering fullscreen one is left there and not focused.
+void raiseAndFocus(PHLWINDOW w);
+
 class CHyprBar : public IHyprWindowDecoration {
   public:
     CHyprBar(PHLWINDOW);

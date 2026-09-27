@@ -168,8 +168,7 @@ Item {
   function focusAddr(addr) {
     if (!addr)
       return
-    Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.window.alter_zorder({ mode = \"top\", window = 'address:" + addr + "' })"])
-    Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ window = 'address:" + addr + "' })"])
+    Quickshell.execDetached(["hyprctl", "dispatch", "hl.plugin.hyprbars.raise('address:" + addr + "')"])
   }
 
   function focusGroup(app) {

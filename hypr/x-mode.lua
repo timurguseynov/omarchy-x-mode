@@ -556,31 +556,6 @@ local function snap(kind, window)
   end
 end
 
-local function snap_or_expand(side)
-  local window = hl.get_active_window()
-  local monitor = hl.get_monitor_at_cursor() or hl.get_active_monitor()
-  if window == nil or monitor == nil then
-    return
-  end
-
-  local wx, wy = vec(window.at)
-  local ww, wh = vec(window.size)
-  local candidates = {}
-  for _, hf in ipairs(CYCLE_HF) do
-    local zx, zy, zw, zh = cycle_geom(side, hf, monitor)
-    local cx, cy, cw, ch = with_chrome(zx, zy, zw, zh, window)
-    candidates[#candidates + 1] = { x = cx, y = cy, w = cw, h = ch }
-  end
-
-  local i = geom.cycle_index({ x = wx, y = wy, w = ww, h = wh }, candidates, side)
-  if i ~= nil then
-    local nx, ny, nw, nh = cycle_geom(side, CYCLE_HF[(i % #CYCLE_HF) + 1], monitor)
-    nx, ny, nw, nh = with_chrome(nx, ny, nw, nh, window)
-    place(nx, ny, nw, nh, window)
-    return
-  end
-  snap(side, window)
-end
 local CYCLE_HF = { 0.5, 2 / 3, 1 / 3 }
 
 local function cycle_geom(side, hf, monitor)
@@ -631,114 +606,10 @@ local function is_fullscreen(w)
   return (w.fullscreen ~= nil and w.fullscreen ~= 0) or (w.fullscreen_client ~= nil and w.fullscreen_client ~= 0)
 end
 
--- Fit a floating window into the work area, keeping GAP_OUT + BORDER on every
--- side. Hyprland fits a floating window to the work area, but hyprbars draws its
--- titlebar *above* the window box (so the visual top is higher), and apps with an
--- explicit rule geometry ignore float_gaps. Nudge the window so its visual top,
--- content bottom and sides stay that far from the work-area edges, so nothing
--- hides under the bar and nothing opens flush to an edge.
--- Fit one floating window into the work area. Hyprland's resize is centered, so
--- a shrink would otherwise be paired with the *pre-resize* y and look like the
--- window jumped to the top (old y + new h overflowed the bottom clamp).
-local function clamp_window(w)
-  if w == nil or drag_owns(w) then
-    return
-  end
-  if not (w.floating and w.mapped and not w.hidden and not is_fullscreen(w)) then
-    return
-  end
-  local mon = w.monitor
-  if mon == nil then
-    return
-  end
-  local ux, uy, uw, uh = usable(mon)
-  local x, y = vec(w.at)
-  local ww, wh = vec(w.size)
-  local edge = GAP_OUT() + BORDER()
-  local chrome = 0
-  if not apps_off[window_class(w)] then
-    chrome = TITLEBAR
-    if w.group ~= nil then
-      chrome = chrome + GROUPBAR
-    end
-  end
-
-  local frame = { x = ux, y = uy, w = uw, h = uh }
-  local nx, ny, nw, nh = geom.fit_box({ x = x, y = y, w = ww, h = wh }, frame, edge, chrome)
-  if nw ~= ww or nh ~= wh then
-    hl.dispatch(hl.dsp.window.resize({ x = nw, y = nh, relative = false, window = w }))
-    -- Resize is centred: re-read so the clamp below works off the real box.
-    w = window_by_addr(w.address) or w
-    x, y = vec(w.at)
-    ww, wh = vec(w.size)
-    nx, ny, nw, nh = geom.fit_box({ x = x, y = y, w = ww, h = wh }, frame, edge, chrome)
-  end
-
-  if math.abs(x - nx) >= 1 or math.abs(y - ny) >= 1 then
-    hl.dispatch(hl.dsp.window.move({ x = nx, y = ny, relative = false, window = w }))
-  end
-end
-
-local function keep_below_topbar(window)
-  if window ~= nil then
-    clamp_window(window)
-    return
-  end
-  for _, w in ipairs(hl.get_windows()) do
-    clamp_window(w)
-  end
-end
-
--- The downward-only half of clamp_window: no resize, and never a move up, so it
--- is safe to run on any event. hyprbars draws the chrome above the box, so a
--- window (or a group, once the tabbar appears) whose visual top is above the
--- bar is pushed down until the chrome clears it. The open watch cannot cover
--- this: it skips grouped windows, and a group that grows after it stopped has
--- no geometry event of its own. window.update_rules is what a group change does
--- raise, so this is called from there and on focus.
---
--- `edge` defaults to the border alone: on an event the only bound this may
--- enforce is "the chrome does not reach the bar", the same one the C++ drag
--- clamp uses. Pulling a window the user left flush to the bar down by the
--- preferred gap as well would move a free window on the next rule change or
--- focus. clear_bars() passes gap + border because it is the load walk that
--- lands existing windows where float_gaps and snap put a new one.
-local function push_bars_below(w, edge)
-  if w == nil or drag_owns(w) then
-    return
-  end
-  if not (w.floating and w.mapped and not w.hidden and not is_fullscreen(w)) then
-    return
-  end
-  local chrome = chrome_h(w)
-  local mon = w.monitor
-  if chrome <= 0 or mon == nil then
-    return
-  end
-  edge = edge or BORDER()
-  local _, uy, uw, uh = usable(mon)
-  local ww, wh = vec(w.size)
-  -- A window in the middle of a fullscreen transition still carries the
-  -- fullscreen size while its flags are already clear. Moving it here calls
-  -- moveTarget, which records that box as the floating one, so Hyprland's own
-  -- restore on exit (FloatingAlgorithm::recenter) puts the fullscreen box
-  -- right back -- and the window stays fullscreen-sized below the bar. Leave
-  -- anything bigger than the work area alone; once Hyprland has the floating
-  -- box back, the next event re-clamps it normally.
-  if ww > uw - edge - edge or wh > uh - edge - edge then
-    return
-  end
-  local x, y = vec(w.at)
-  local min_top = uy + edge + chrome
-  if y < min_top then
-    hl.dispatch(hl.dsp.window.move({ x = x, y = min_top, relative = false, window = w }))
-  end
-end
-
--- keep_below_topbar is not polled: the drags clamp themselves (hyprbars in C++)
--- and Hyprland's own placement respects float_gaps. On window.open / join it
--- clamps only the window that changed. consolidate() still walks all windows
--- once after the config loads.
+-- Keeping a window below the bar is the plugin's job: CHyprBar::updateWindow
+-- runs on every move and resize (updateWindowDecos calls it) and
+-- Snap::clampToWorkArea fits the box with the same gap, border and chromeH the
+-- snap uses. Lua no longer watches geometry.
 
 -- GTK layer-shell helpers are not started from config: connecting back
 -- during Hyprland reload can freeze the compositor.
@@ -903,93 +774,28 @@ end
 
 -- A real focus change updates the MRU order. While the switcher is held the
 -- focus moves through every app tabbed over, so those are ignored here.
--- Focusing a window does not raise it. rawWindowFocus only runs setCurrent()
--- through bringTargetToTop for a grouped window, and a focus dispatch (dock,
--- switcher, a keybind) never raises at all — so the window can end up focused
--- while it stays behind the app that was in front. A browser reusing its window
--- for a login URL landed exactly like that. This desktop is always floating and
--- click-to-focus, so a focused window that is not on top is never wanted: raise
--- it here, once, for every focus path.
 --
--- The raise is deferred on purpose. alter_zorder ends with
--- simulateMouseMovement(), which synchronously re-emits input.mouse.move; the
--- patched hyprbars reorders tabs from that event (onMouseMove -> updateTabDrag),
--- and setCurrent()/swapWithNext() focus a tab, which lands back here. Raising
--- inline therefore re-entered updateTabDrag before it bumped m_iTabDragOver,
--- recursed, and froze the compositor on a tab drag. A 1ms timer runs after the
--- current event has unwound (hl.timer refuses a zero timeout), and the pending
--- flag stays set across the dispatch so a raise cannot trigger another one.
-local raise_pending = false
-local raise_queue = {}
-local raise_draining = false
-
-local function raise_active(w)
-  -- Every window that takes focus is raised, in order. A single "last wins"
-  -- slot dropped the raise of a window focused just before another -- e.g. a
-  -- window focused, then a dialog it opened grabbing focus in the same
-  -- millisecond: the first stayed behind whatever was already in front (a
-  -- full-width app behind the app that had focus before it, so a click on the
-  -- overlap went to the wrong one). Keep a queue. While it drains, new events
-  -- are ignored: alter_zorder ends with simulateMouseMovement, which re-enters
-  -- window.active.
-  if w == nil or raise_draining then
-    return
-  end
-  raise_queue[#raise_queue + 1] = w
-  if raise_pending then
-    return
-  end
-  raise_pending = true
-  hl.timer(function()
-    local queue = raise_queue
-    raise_queue = {}
-    -- Raise the window the event named, not the live active one: alter_zorder
-    -- ends with simulateMouseMovement(), which re-enters the patched hyprbars
-    -- tab reorder, and by the time this runs that can have moved focus to a tab.
-    -- If several windows took focus before the timer ran, the newest wins.
-    --
-    -- Everything is inside the pcall so raise_pending always clears: the target
-    -- can be a window that closed since the event, and an error reading it would
-    -- otherwise leave the flag set and swallow every later raise (a focused
-    -- window then never comes to the front).
-    if #queue > 0 then
-      raise_draining = true
-      pcall(function()
-        for _, target in ipairs(queue) do
-          if target ~= nil and target.floating then
-            -- Fullscreen already covers the workspace. Raising that window
-            -- runs simulateMouseMovement and focuses whatever is under the
-            -- cursor; raising any other sets allowedOverFullscreen and draws
-            -- it on top, so the two fight for the screen. Hold the other one
-            -- under. The plugin clears the flag without the mouse simulation
-            -- alter_zorder would do.
-            local fullscreen = target.fullscreen and target.fullscreen ~= 0
-            local p = bars()
-            local held = false
-            if not fullscreen and p ~= nil and p.hold_under_fullscreen ~= nil then
-              local ok, ret = pcall(p.hold_under_fullscreen, target)
-              held = ok and ret
-            end
-            if not fullscreen and not held then
-              hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
-            end
-          end
-        end
-      end)
-      raise_draining = false
-    end
-    raise_pending = false
-  end, { timeout = 1, type = "oneshot" })
-end
+-- Focusing a window does not raise it: rawWindowFocus only brings a grouped
+-- window's target to the top, and a focus dispatch never raises at all, so a
+-- focused window can sit behind another app. hyprbars.raise does the raise
+-- through CWindowState::raise, which does not run the simulateMouseMovement
+-- alter_zorder ends with — that re-entered the tab drag and froze the
+-- compositor — and it holds the window under a covering fullscreen one instead
+-- of drawing it on top.
+-- raising guards the re-entry: hyprbars.raise focuses the window, and a focus
+-- emits window.active again. The second pass would raise once more for nothing.
+local raising = false
 
 hl.on("window.active", function(w, reason)
-  if w == nil then
+  if w == nil or raising then
     return
   end
-  -- A group can carry chrome the open watch never clamped (the watch skips
-  -- grouped windows); focusing it is where a lingering one is pulled back down.
-  push_bars_below(w)
-  raise_active(w)
+  local p = bars()
+  if p ~= nil and p.raise ~= nil and w.floating then
+    raising = true
+    pcall(p.raise, w)
+    raising = false
+  end
   if switcher_active then
     return
   end
@@ -1756,83 +1562,6 @@ flush_pending_joins = function()
   end
 end
 
--- Keep a fresh window below the top bar while it settles. Hyprland has no
--- geometry event (hyprwm/Hyprland#15519 asks for one and is unanswered), and its
--- own fit for floating windows — CDefaultFloatingAlgorithm::fitBoxInWorkArea,
--- which does know about window extents — is only reached from placement and from
--- moving between monitors/workspaces, never from a resize. So a window that
--- changes size after it appears (a client sizing itself, or anything resizing it)
--- is never refitted: growing it moves its top-left up, because Hyprland resizes
--- around the centre.
---
--- Hence a watch rather than one clamp at a fixed delay: a single clamp can land
--- while the window is mid-resize, and the next step moves it out again. This
--- re-clamps while the geometry keeps changing and stops on its own two ticks
--- after it stops — a settled window costs two or three ticks, and the ceiling
--- bounds a window that never settles. Two seconds is long enough to cover a
--- client that reports its class and size late, or a harness that resizes a window
--- just after it opened.
---
--- Nothing else is needed to trigger this: window.update_rules fires for every
--- window whenever any window opens, so it is a worse handle than the watch, and
--- window.title can arrive before the window has a size at all.
---
--- Can go away if upstream ever refits on resize; then a plain clamp after open
--- is enough again.
-local WATCH_MS, WATCH_TICKS = 50, 40 -- 40 * 50ms = 2s
-
--- Watches in flight, by window address, so a drag can call one off.
-local watchers = {}
-
-local function stop_watch(w)
-  if w == nil or w.address == nil then
-    return
-  end
-  local watch = watchers[w.address]
-  if watch ~= nil then
-    watch:set_enabled(false)
-    watchers[w.address] = nil
-  end
-end
-
-local function watch_until_settled(w)
-  local addr = w.address
-  local last, stable, ticks = nil, 0, 0
-  local watch
-  local function stop()
-    watch:set_enabled(false)
-    if watchers[addr] == watch then
-      watchers[addr] = nil
-    end
-  end
-  watch = hl.timer(function()
-    ticks = ticks + 1
-    local cur = refresh_window(w)
-    -- Grouped windows get their position from join_same_app: clamping a group
-    -- here would pin the whole group to the top. Only one window is watched at a
-    -- time, so the grouped case is dropped rather than retried.
-    if cur == nil or cur.group ~= nil then
-      stop()
-      return
-    end
-    keep_below_topbar(cur) -- no-op unless the chrome actually sits above the bar
-    local box = tostring(cur.at) .. tostring(cur.size)
-    if box == last then
-      stable = stable + 1
-      if stable >= 2 then
-        stop()
-        return
-      end
-    else
-      stable, last = 0, box
-    end
-    if ticks >= WATCH_TICKS then
-      stop()
-    end
-  end, { timeout = WATCH_MS, type = "repeat" })
-  watchers[addr] = watch
-end
-
 hl.on("window.open", function(w)
   -- Group immediately to avoid a visible "ungrouped" flash, then retry shortly
   -- in case the window wasn't fully ready (class/size) on the first tick.
@@ -1856,7 +1585,6 @@ hl.on("window.open", function(w)
       reveal_if_hidden(w)
     end
   end, { timeout = 500, type = "oneshot" })
-  watch_until_settled(w)
 end)
 
 hl.on("window.close", function(w)
@@ -1888,10 +1616,9 @@ local function bind_drag()
   end
   local ok, sub = pcall(hl.on, "hyprbars.drag", function(active, w)
     if active then
-      -- A drag clamps the window itself in C++, and it lets a window hang off an
-      -- edge. Re-clamping from Lua after that would pull it back, so the watch
-      -- hands the window over the moment it is dragged.
-      stop_watch(w)
+      -- Remember where the window was, so a later restore snaps back to it. The
+      -- drag clamps itself in C++ and may hang off an edge; the work-area clamp
+      -- skips a window the drag owns, so nothing pulls it back mid-gesture.
       save(w)
     else
       flush_pending_joins()
@@ -1951,34 +1678,7 @@ local function consolidate()
       end
     end
   end
-
-  -- Joining a group adds the tabbar, which grows the chrome upward. Move every
-  -- window down into the space that leaves, or a group formed while the bar was
-  -- momentarily gone (the shell restart at install) stays with its tabbar under
-  -- the top bar. This is the walk the comment above keep_below_topbar promises.
-  keep_below_topbar()
 end
-
--- hyprbars draws the titlebar (and the tabbar, once a window is grouped)
--- *above* the window box and does not move the window, so a window that was
--- already open ends up with its new bar under the top bar. snap() places the
--- content box below the chrome, so snapping clears it; this only covers the
--- windows a snap skips (hidden, fullscreen, still tiled, no monitor).
-local function clear_bars()
-  for _, w in ipairs(hl.get_windows() or {}) do
-    push_bars_below(refresh_window(w) or w, GAP_OUT() + BORDER())
-  end
-end
-
--- A group change (a second window joining, a tab closing, a lone window turned
--- into a group) grows or shrinks the chrome with no geometry event, so the open
--- watch, which skips grouped windows, never sees the tabbar. window.update_rules
--- is what a rule change raises, and it also fires for every window on every
--- open, so this runs often; push_bars_below is downward-only and idempotent, so
--- a window already clear of the bar costs a comparison.
-hl.on("window.update_rules", function(w)
-  push_bars_below(refresh_window(w) or w)
-end)
 
 -- The marker comes from install.sh (a fresh install) or from the off path
 -- above (the desktop was just switched back on from the bar panel). Spread
@@ -2123,14 +1823,12 @@ hl.timer(function()
     float_tiled()
     consolidate()
     x_mode.arrange_halves()
-    clear_bars()
     hl.timer(function()
       set_window_opacity(arrange_fade, "1")
       arrange_fade = {}
     end, { timeout = SETTLE_MS, type = "oneshot" })
   else
     consolidate()
-    clear_bars()
   end
 end, { timeout = 600, type = "oneshot" })
 
