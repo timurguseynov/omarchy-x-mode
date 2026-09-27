@@ -80,6 +80,8 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/alt_tab_switches_group_tab_test.sh` | Alt+Tab and Alt+Shift+Tab move through a group's tabs |
 | `integration/always_tabbar_single_tab_test.sh` | alwaysTabbar pushes a lone window down by the tabbar |
 | `integration/arrange_counts_group_once_test.sh` | a group of tabs takes one half, not two |
+| `integration/arrange_fades_test.sh` | the arrange fades the windows out first and reveals them at full opacity |
+| `integration/arrange_tiling_to_tabs_test.sh` | five tiled windows all fade, gather into tabs and come back together |
 | `integration/arrange_keeps_workspaces_test.sh` | the arrange arranges a window where it already is |
 | `integration/chrome_off_drag_reaches_bar_test.sh` | without chrome the box reaches the bar |
 | `integration/chrome_off_no_group_test.sh` | a chrome-off window is never grouped |

@@ -207,6 +207,9 @@ print(' '.join(c['address'] for c in json.load(sys.stdin)))")"
   # Settings are written by the panel, and by the tests that drive it. Reset them
   # so a test that fails midway cannot change how the next one lays out windows.
   printf '%s\n' '{"options":{},"apps":{}}' > "$NEST_STATE/state/settings.json"
+  # x-mode's on/off file and the one-shot arrange marker: a scenario that turns
+  # X Mode off (or arranges) must not leave the next one off.
+  rm -f "$NEST_STATE/state/enabled" "$NEST_STATE/state/arrange"
   # The dock's pinned list lives in the dock's HOME, which outlives a single
   # scenario, so it has to be cleared too or the next dock test starts with
   # someone else's icons. Desktop entries written there are cleared for the same

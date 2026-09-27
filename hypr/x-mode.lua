@@ -2035,24 +2035,103 @@ function x_mode.arrange_halves()
   end
 end
 
+-- Hide the switch-over behind a fade. Everything turning X Mode back on does
+-- to a window -- the titlebars coming back and the boxes being refitted on the
+-- reload, the re-float, the tab grouping, the arrange -- moves it, and a fade
+-- that starts at the arrange is already too late for the first of those: that
+-- move is seen on screen and then the fade runs on the new positions. So the
+-- fade starts here, as soon as the marker is read, and the windows stay
+-- invisible while the rest happens. The reveal is one step at the end,
+-- deliberately not animated, so the new layout simply appears.
+local FADE_STEPS   = 10
+local FADE_STEP_MS = 25
+local SETTLE_MS    = 120
+
+local function set_window_opacity(windows, value)
+  for _, w in ipairs(windows) do
+    if w ~= nil then
+      pcall(function()
+        -- Hyprland draws the focused window from "opacity" and every other one
+        -- from "opacity_inactive" (Window.cpp: alpha() vs alphaInactive()), so
+        -- both have to be set or only the focused window is seen to change.
+        hl.dispatch(hl.dsp.window.set_prop({ prop = "opacity", value = value, window = w }))
+        hl.dispatch(hl.dsp.window.set_prop({ prop = "opacity_inactive", value = value, window = w }))
+      end)
+    end
+  end
+end
+
+-- The windows an arrange can touch, named when the fade starts so the reveal
+-- targets the same set even after consolidate() folds same-app windows into a
+-- group.
+local function arrange_candidates()
+  local out = {}
+  for _, w in ipairs(hl.get_windows() or {}) do
+    w = refresh_window(w) or w
+    if w.mapped and not w.hidden and not is_fullscreen(w) and w.monitor ~= nil then
+      out[#out + 1] = w
+    end
+  end
+  return out
+end
+
+-- Float anything still tiled. A 300ms timer does this normally; with an
+-- arrange pending it is deferred to inside the fade, so the float happens on
+-- invisible windows instead of moving them on screen before the fade.
+local function float_tiled()
+  for _, w in ipairs(hl.get_windows() or {}) do
+    if w.mapped and not w.floating and not is_fullscreen(w) then
+      hl.dispatch(hl.dsp.window.float({ action = "enable", window = w }))
+    end
+  end
+end
+
+-- Fade the windows out and leave them invisible; the timer below reveals them
+-- after the arrange. Every step is pcall'd: a window can close mid-fade, and
+-- one bad handle must not leave the rest stuck at opacity 0.
+local function fade_out(windows)
+  if #windows == 0 then
+    return
+  end
+  local step = 0
+  local timer
+  timer = hl.timer(function()
+    step = step + 1
+    set_window_opacity(windows, string.format("%.3f", math.max(0, 1 - step / FADE_STEPS)))
+    if step >= FADE_STEPS then
+      timer:set_enabled(false)
+    end
+  end, { timeout = FADE_STEP_MS, type = "repeat" })
+end
+
 -- The marker is dropped by install.sh before its reload and by the off path
--- when the desktop is switched back on. Arrange once per load, and only after
--- the re-float below: a tiled window has no floating box for snap() to place,
--- and the re-float's own dispatch lands after this timer. A later pass (the
--- shell in install.sh calls x_mode.arrange_halves() again once it has floated
--- the windows itself) is harmless — the shuffle differs, the halves do not.
+-- when the desktop is switched back on. Arrange once per load: re-float the
+-- still-tiled windows, gather same-app windows into tabs, deal them into
+-- halves, and reveal once the new boxes have landed. The windows are named now,
+-- at the fade, so the reveal targets exactly the ones that were faded.
 local arrange_pending = take_arrange_marker()
+local arrange_fade = {}
 if arrange_pending then
   math.randomseed(os.time())
+  arrange_fade = arrange_candidates()
+  fade_out(arrange_fade)
 end
 
 hl.timer(function()
-  consolidate()
   if arrange_pending then
     arrange_pending = false
+    float_tiled()
+    consolidate()
     x_mode.arrange_halves()
+    clear_bars()
+    hl.timer(function()
+      set_window_opacity(arrange_fade, "1")
+      arrange_fade = {}
+    end, { timeout = SETTLE_MS, type = "oneshot" })
+  else
+    consolidate()
+    clear_bars()
   end
-  clear_bars()
 end, { timeout = 600, type = "oneshot" })
 
 pcall(function()
@@ -2062,11 +2141,9 @@ pcall(function()
 end)
 
 -- Catch-all float rule only applies to windows created after this config
--- loads; re-float anything still tiled (same as install.sh).
-hl.timer(function()
-  for _, w in ipairs(hl.get_windows() or {}) do
-    if w.mapped and not w.floating and not is_fullscreen(w) then
-      hl.dispatch(hl.dsp.window.float({ action = "enable", window = w }))
-    end
-  end
-end, { timeout = 300, type = "oneshot" })
+-- loads; re-float anything still tiled (same as install.sh). With an arrange
+-- pending the timer above does this after the fade instead, so the float is not
+-- seen (this 300ms timer would move the windows on screen before the fade).
+if not arrange_pending then
+  hl.timer(float_tiled, { timeout = 300, type = "oneshot" })
+end

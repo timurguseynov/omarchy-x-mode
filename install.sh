@@ -205,27 +205,11 @@ print(json.dumps(out))
   log "reloading Hyprland"
   hyprctl reload >/dev/null 2>&1 || true
 
-  # The catch-all float rule only applies to new windows, so windows opened
-  # while the pack wasn't active stay tiled. Dragging a tiled window makes
-  # Hyprland float it and center it under the cursor (looks like a jump), so
-  # re-float anything still tiled. Skip fullscreen windows.
-  if hyprctl clients -j >/dev/null 2>&1; then
-    log "re-floating open windows"
-    while IFS= read -r addr; do
-      [ -n "$addr" ] || continue
-      hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"address:$addr\" })" >/dev/null 2>&1 || true
-    done < <(hyprctl clients -j | python3 -c '
-import json, sys
-for c in json.load(sys.stdin):
-    if c.get("mapped") and not c.get("floating") and not c.get("fullscreen"):
-        print(c["address"])
-')
-  fi
-
-  # The config's own arrange runs on a timer that races this re-float, so do
-  # it again now that every window is actually floating. Same shuffle, and it
-  # only changes which window lands on which half.
-  hyprctl eval 'if x_mode and x_mode.arrange_halves then x_mode.arrange_halves() end' >/dev/null 2>&1 || true
+  # The re-float and the arrange are both left to the config: install.sh drops
+  # the `arrange` marker before its reload, and x-mode.lua's own timer fades the
+  # windows out, re-floats them, arranges them and brings them back — all on
+  # invisible windows. Doing either here would move them on screen first and a
+  # second time a moment later.
 
   # `rescanPlugins` + `plugin enable` only update the registry: a plugin that is
   # already loaded keeps the QML instance it was created with, so updated files
