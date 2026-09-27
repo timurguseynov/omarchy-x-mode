@@ -10,6 +10,8 @@
 
 assert_eq "$(nest_ctl getoption input:follow_mouse | head -1 | awk '{print $2}')" 2 \
   "follow_mouse must stay detached (2)"
+assert_eq "$(nest_ctl getoption input:float_switch_override_focus | head -1 | awk '{print $2}')" 0 \
+  "hover must not focus when one window is tiled and the other is floating"
 
 extent="$(pointer_extent)"
 mw="${extent%x*}"

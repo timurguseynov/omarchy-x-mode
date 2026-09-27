@@ -144,7 +144,14 @@ hl.config({
     -- (that would be 1). 2 is Hyprland's "detached": pointer events still go to
     -- the window under the cursor, so scrolling and the like work over a window
     -- without focusing it, while focus itself still changes on click.
+    -- Omarchy sets follow_mouse = 1 earlier in the config; this file is loaded
+    -- last and puts it back.
     follow_mouse = 2,
+    -- The default (1) still focuses the window under the cursor when one of the
+    -- two is tiled and the other is floating. A client-maximized window is that
+    -- tiled side, so moving the pointer onto it focuses it even though
+    -- follow_mouse is 2. Everything here is floating; hover must not focus.
+    float_switch_override_focus = 0,
   },
   binds = {
     -- Matches the drag threshold in the patched hyprbars titlebar drag.
@@ -179,7 +186,12 @@ hl.animation({ leaf = "border", enabled = false })
 -- Desktop-style window rules: everything opens floating (the pack is a
 -- macOS-like desktop, not a tiler); Super+T (toggle floating/tiling) is unbound
 -- below.
-o.window(".*", { float = true, opacity = "1.0 override 1.0 override" })
+-- suppress_event = maximize: a client request to maximize (Zed does this on
+-- startup) would enter Hyprland's FSMODE_MAXIMIZED. That mode is not a
+-- floating window, and a later move is ignored, so the titlebar drag does
+-- nothing until something (Super+Alt+F) takes it back out. Real fullscreen
+-- is a different request and is not suppressed.
+o.window(".*", { float = true, opacity = "1.0 override 1.0 override", suppress_event = "maximize" })
 -- Omarchy's browser defaults force Chromium-based apps to tile. That tag rule
 -- wins over the catch-all above, so override it here.
 o.window({ tag = "chromium-based-browser" }, { tile = false, float = true })
@@ -1562,6 +1574,30 @@ flush_pending_joins = function()
   end
 end
 
+-- A window already in Hyprland's maximized mode (open across a reload, or a
+-- dispatch) is just as stuck as a client request the rule above rejects.
+-- Super+Alt+F is this same snap: drop the mode, then place the floating box,
+-- which can be dragged. Mode 2 is real fullscreen and stays.
+local function release_hypr_maximize(w)
+  if w == nil then
+    return
+  end
+  local internal = w.fullscreen or 0
+  local client = w.fullscreen_client or 0
+  if internal == 2 or client == 2 then
+    return
+  end
+  if internal ~= 1 and client ~= 1 then
+    return
+  end
+  hl.dispatch(hl.dsp.window.fullscreen({ action = "unset", window = w }))
+  snap("maximize", w)
+end
+
+hl.on("window.fullscreen", function(w)
+  release_hypr_maximize(w)
+end)
+
 hl.on("window.open", function(w)
   -- Group immediately to avoid a visible "ungrouped" flash, then retry shortly
   -- in case the window wasn't fully ready (class/size) on the first tick.
@@ -1829,6 +1865,9 @@ hl.timer(function()
     end, { timeout = SETTLE_MS, type = "oneshot" })
   else
     consolidate()
+  end
+  for _, w in ipairs(hl.get_windows() or {}) do
+    release_hypr_maximize(refresh_window(w) or w)
   end
 end, { timeout = 600, type = "oneshot" })
 
