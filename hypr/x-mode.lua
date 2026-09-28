@@ -1295,6 +1295,42 @@ local function apply_no_gaps()
   end
 end
 
+-- Put the windows that are still shaped like a zone back on that zone, with the
+-- live gaps. A window snapped and then nudged a little (or left a titlebar lower
+-- while its client settled) is still that zone -- the plugin's zone match reads a
+-- full-height zone by x and size, not by an exact y -- so a load re-applies the
+-- zone box instead of leaving it out of line with the gaps around it.
+--
+-- This is a *load-time* pass on purpose. The same re-apply used to fall out of
+-- Snap::clampToWorkArea, which runs from the bar's updateRules, and Hyprland
+-- re-evaluates every window's rules whenever *any* window opens: a snapped
+-- window dragged a little down flew back into its snap when another window
+-- opened, with nothing in sight to explain it. A window moved out of the zone's
+-- shape (another x or width) is free and is left alone, as is one being dragged
+-- right now.
+local function resnap_zoned()
+  local p = bars()
+  if p == nil or p.snap == nil or p.zone == nil then
+    return
+  end
+  if p.dragging ~= nil then
+    local ok, dragging = pcall(p.dragging)
+    if ok and dragging then
+      return
+    end
+  end
+  for _, w in ipairs(hl.get_windows() or {}) do
+    if w.floating and not w.pinned and not w.hidden then
+      local ok, kind = pcall(p.zone, w)
+      if ok and type(kind) == "string" and kind ~= "" then
+        pcall(function()
+          p.snap({ kind = kind, window = w })
+        end)
+      end
+    end
+  end
+end
+
 local function apply_native_scroll()
   -- Set both the mouse and touchpad keys: some pads are classified as mice.
   pcall(function()
@@ -1907,4 +1943,11 @@ end)
 -- seen (this 300ms timer would move the windows on screen before the fade).
 if not arrange_pending then
   hl.timer(float_tiled, { timeout = 300, type = "oneshot" })
+end
+
+-- A load re-applies the zone box to every window that is still zone-shaped (see
+-- resnap_zoned). Not with an arrange pending: that one deals every window into
+-- the halves itself.
+if not arrange_pending then
+  resnap_zoned()
 end

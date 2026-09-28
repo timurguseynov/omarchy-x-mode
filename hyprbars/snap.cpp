@@ -239,6 +239,21 @@ static bool zoneSnapsBottom(Snap::eKind kind) {
     }
 }
 
+// A left/right/maximize zone covers the work area's full height, so a window in
+// it is identified by where it sits horizontally and by its size: y is where the
+// window happens to sit, not which zone it is. kindOf matches those without the
+// vertical bound, which is what keeps the pack's own re-lay-out recognising a
+// window that a drag left a little lower (snap_zone_tolerance_reload_test). A
+// zone whose height is what places it -- top, bottom, a quarter -- needs y.
+static bool zoneFullHeight(Snap::eKind kind) {
+    switch (kind) {
+        case Snap::eKind::Left:
+        case Snap::eKind::Right:
+        case Snap::eKind::Maximize: return true;
+        default: return false;
+    }
+}
+
 std::optional<CBox> Snap::contentBox(eKind kind, PHLMONITOR mon, PHLWINDOW w) {
     auto box = zoneBox(kind, mon);
     if (!box)
@@ -418,8 +433,8 @@ Snap::eKind Snap::kindOf(PHLWINDOW w, int slop) {
         const auto box = contentBox(kind, mon, w);
         if (!box)
             continue;
-        if (std::abs(got.x - box->x) <= slop && std::abs(got.y - box->y) <= slop &&
-            std::abs(got.w - box->w) <= slop && std::abs(got.h - box->h) <= slop)
+        if (std::abs(got.x - box->x) <= slop && std::abs(got.w - box->w) <= slop && std::abs(got.h - box->h) <= slop &&
+            (zoneFullHeight(kind) || std::abs(got.y - box->y) <= slop))
             return kind;
     }
     return eKind::None;
@@ -497,6 +512,9 @@ void Snap::clampToWorkArea(PHLWINDOW w) {
 
     // A shrink keeps the centre: Hyprland resizes around it, so the top-left the
     // clamp pulls back has to be the one after the shrink, not the one before.
+    // `tooBig` is what the rest of the fit is for: a box that had to be shrunk is
+    // one Hyprland grew around its centre, so it has to be put back inside.
+    const bool tooBig = box.w > maxW || box.h > maxH;
     if (box.w > maxW) {
         box.x += (box.w - maxW) / 2.0;
         box.w = maxW;
@@ -506,23 +524,36 @@ void Snap::clampToWorkArea(PHLWINDOW w) {
         box.h = maxH;
     }
 
-    const double minTop    = frame.y + edge + chrome;
-    const double maxBottom = frame.y + frame.h - edge;
+    const double minTop = frame.y + edge + chrome;
+
+    // The chrome stays below the reserved top unconditionally: that strip is the
+    // window's handle, and the bar would cover it. This is what stops a fresh
+    // window -- Hyprland opens it centred, often exactly as tall as the monitor,
+    // from climbing over the bar.
     if (box.y < minTop)
         box.y = minTop;
-    else if (box.h <= maxBottom - minTop && box.y + box.h > maxBottom)
-        box.y = maxBottom - box.h;
 
-    const double minLeft  = frame.x + edge;
-    const double maxRight = frame.x + frame.w - edge;
-    // A window wider than the frame (the client minimum beat the zone) keeps the
-    // x its snap wrote. Pulling it back inside would walk a left snap off the
-    // left edge, which is the case contentBox grows the target to avoid.
-    if (box.w <= maxRight - minLeft) {
-        if (box.x < minLeft)
-            box.x = minLeft;
-        else if (box.x + box.w > maxRight)
-            box.x = maxRight - box.w;
+    // Everything else is the fit for a box that was too big. A box that already
+    // fits is left exactly where the user (a titlebar drag) or the app put it.
+    // Fitting it anyway moved a window nobody asked to move, and it ran from the
+    // next updateWindow -- an unrelated, later event -- so a snapped window
+    // dragged a little down jumped back into its snap when another window opened.
+    if (tooBig) {
+        const double maxBottom = frame.y + frame.h - edge;
+        if (box.h <= maxBottom - minTop && box.y + box.h > maxBottom)
+            box.y = maxBottom - box.h;
+
+        const double minLeft  = frame.x + edge;
+        const double maxRight = frame.x + frame.w - edge;
+        // A window wider than the frame (the client minimum beat the zone) keeps
+        // the x its snap wrote. Pulling it back inside would walk a left snap off
+        // the left edge, which is the case contentBox grows the target to avoid.
+        if (box.w <= maxRight - minLeft) {
+            if (box.x < minLeft)
+                box.x = minLeft;
+            else if (box.x + box.w > maxRight)
+                box.x = maxRight - box.w;
+        }
     }
 
     const CBox got     = TARGET->position();

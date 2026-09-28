@@ -26,8 +26,9 @@ sleep 0.5
 assert_eq "$(client_field foot fullscreen)" 0 "a maximize request does not stay in Hyprland's maximized mode"
 assert_ge "$(visual_top foot)" "$(bar_top)" "the floating maximize stays below the bar"
 
-# Shrink first: the floating maximize fills the work area, so a nudge would be
-# pulled back by the fit and would not show that the window can move.
+# Shrink to a small box first: the floating maximize fills the work area, so a
+# 200x160 box in the corner is what shows the move, not one already against every
+# edge.
 nest_ctl dispatch "hl.dsp.window.resize({ x = 200, y = 160, relative = false, window = 'class:foot' })" >/dev/null
 nest_ctl dispatch "hl.dsp.window.move({ x = 80, y = 100, relative = false, window = 'class:foot' })" >/dev/null
 sleep 0.3

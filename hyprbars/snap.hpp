@@ -59,19 +59,27 @@ namespace Snap {
 
     // The zone a window currently occupies, or None. Compared in the same
     // logical pixels applyKind writes, so a window snapped by the plugin is
-    // recognised again. `slop` absorbs the one pixel a layout round can move.
+    // recognised again. `slop` absorbs the one pixel a layout round can move. A
+    // full-height zone (left, right, maximize) is matched without the vertical
+    // bound, so a window a drag left a little lower is still that zone.
     eKind              kindOf(PHLWINDOW w, int slop = 2);
 
     // Titlebar-drag move: compositor-only (no client configure), position
     // warped so chrome and the surface share the same pixel this frame.
     void               moveDrag(PHLWINDOW w, Vector2D pos);
 
-    // Pull a floating window back inside the work area. Hyprland never refits a
-    // float on resize (fitBoxInWorkArea runs only from placement and from moving
-    // between monitors), and it resizes around the centre, so a window that grows
-    // walks its top-left up under the bar. Called from the bar's updateWindow,
-    // which is the one point every move and resize already reaches, and again
+    // Refit a floating window that grew too big for the work area, and keep its
+    // chrome below the reserved top. Hyprland never refits a float on resize
+    // (fitBoxInWorkArea runs only from placement and from moving between
+    // monitors), and it resizes around the centre, so a window that grows walks
+    // its top-left up under the bar. Called from the bar's updateWindow, which is
+    // the one point every move and resize already reaches, and again
     // from updateRules when the bar is shown or hidden.
+    //
+    // A box that already fits is left exactly where the user or the app put it:
+    // this runs from the *next* updateWindow, an unrelated later event, so
+    // fitting a window that merely moved would pull it back into its old box
+    // whenever anything else touched the geometry.
     //
     // The inset is the same one snap and float_gaps use: gap + border, plus
     // chromeH (0 for a no_bar window, otherwise the titlebar and the tabbar).

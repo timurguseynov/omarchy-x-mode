@@ -110,6 +110,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/drag_out_of_zone_test.sh` | a snapped window dragged out of its zone keeps its size |
 | `integration/drag_snap_survives_new_window_test.sh` | a window opening mid-drag does not steal the snap |
 | `integration/drag_snap_zones_test.sh` | side strips give halves, the top strip maximizes, corners quarter |
+| `integration/drag_down_then_focus_keeps_box_test.sh` | a dragged window keeps its drop when another window takes focus |
 | `integration/drag_up_clamps_to_bar_test.sh` | dragging up leaves the chrome below the bar |
 | `integration/arrow_keys_unbound_test.sh` | Cmd+arrows are unbound and do not move focus |
 | `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |
@@ -267,12 +268,18 @@ window whenever one opens, because Hyprland re-evaluates the rules.
 
 There is still no geometry event. The fit lives in the plugin instead:
 `CHyprBar::updateWindow` runs at the end of every move and resize
-(`updateWindowDecos` calls it), and `Snap::clampToWorkArea` pulls the box back
-inside the work area with the same gap, border and `chromeH` a snap uses. A drag
-is left alone while it owns the window — it clamps itself and may hang off an
-edge, and the fit would pull it back; `pointer_test.sh` is why that skip is on
-the drag, not after it. A group grows its chrome upward with no event of its
-own; the same `updateWindow` sees the new `chromeH` and pushes the box down.
+(`updateWindowDecos` calls it), and `Snap::clampToWorkArea` refits a box that is
+too big for the work area with the same gap, border and `chromeH` a snap uses,
+and keeps the chrome below the reserved top. A box that already fits is left
+where the user or the app put it: this runs from the *next* `updateWindow`, an
+unrelated later event, so pulling a moved window back inside would yank it into
+its old box whenever anything else touched the geometry — a snapped window
+dragged a little down flew back into its snap when another window opened
+(`drag_down_then_focus_keeps_box_test.sh`). A drag is left alone while it owns
+the window: a box that is too big stays too big for the whole drag, and the fit
+would fight it; `pointer_test.sh` is why that skip is on the drag, not after it.
+A group grows its chrome upward with no event of its own; the same `updateWindow`
+sees the new `chromeH` and pushes the box down.
 
 `resize_after_open_clears_bar_test.sh` holds that down: Hyprland resizes around
 the window's centre, so growing a window moves its top-left up (measured at -39
