@@ -56,6 +56,11 @@ Pack code, in this repo:
 
 ## Working rules
 
+- A fix starts with a test that fails. Add the unit or nest scenario that
+  reproduces the report, run it, and see it fail for the reason the report gives
+  (`tests/nest/run.sh <name>`), and only then change pack code. A fix with no
+  test that failed first is a guess: the suite is the only thing that can tell a
+  later edit from a regression.
 - Do not test by hand on the live session. If something needs to be checked
   there, say so and wait: the user will check it. If you need log output, ask
   for it instead of collecting it yourself.

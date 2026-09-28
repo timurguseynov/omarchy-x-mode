@@ -2,6 +2,7 @@
 
 Four layers:
 
+
 - **`lint/`** (via `lint.sh`) — `qmllint` over `quickshell/x-mode/*.qml`. The
   Quickshell/qs.* modules are not on the lint import path, so their "not found"
   warnings are expected; only real errors fail.
