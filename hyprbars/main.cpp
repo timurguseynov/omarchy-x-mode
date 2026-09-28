@@ -280,45 +280,54 @@ static int luaZone(lua_State* L) {
     return 1;
 }
 
-// The window's minimum size (the client's own hint, or a min_size rule), or nil
-// when it states none. This is the number Snap::contentBox grows a zone to when
-// the client cannot shrink into it; the Lua snap cycle builds its candidates the
-// same way, so it has to read the same number.
-static int luaMinSize(lua_State* L) {
-    PHLWINDOW w = nullptr;
-    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
-        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.min_size");
-    if (!w)
-        w = Desktop::focusState()->window();
-    if (!w)
-        return Config::Lua::Bindings::Internal::configError(L, "min_size: no window");
-
-    const auto MIN = w->minSize();
-    if (!MIN) {
-        lua_pushnil(L);
-        return 1;
-    }
-
-    lua_newtable(L);
-    lua_pushinteger(L, sc<int>(MIN->x));
-    lua_setfield(L, -2, "x");
-    lua_pushinteger(L, sc<int>(MIN->y));
-    lua_setfield(L, -2, "y");
-    return 1;
-}
-
-// The top the bar currently reserves, with the shell-restart fallback applied
-// (see Snap::barTop). Lua clamps windows itself in a few places and has to lift
-// a group's tabbar out from under the bar with the same number the snap used.
-static int luaBarTop(lua_State* L) {
+// The work frame the zones are fractions of: the monitor minus its reserved area
+// and the dock inset (Snap::usable). The Lua layer's own clamp and its restore
+// default take the same frame, so the two cannot drift apart.
+static int luaUsable(lua_State* L) {
     const char* name = lua_isstring(L, 1) ? lua_tostring(L, 1) : nullptr;
     for (const auto& m : State::monitorState()->monitors()) {
         if (!m || (name && m->m_name != name))
             continue;
-        lua_pushnumber(L, Snap::barTop(m));
+        const CBox box = Snap::usable(m);
+        lua_newtable(L);
+        lua_pushnumber(L, box.x);
+        lua_setfield(L, -2, "x");
+        lua_pushnumber(L, box.y);
+        lua_setfield(L, -2, "y");
+        lua_pushnumber(L, box.w);
+        lua_setfield(L, -2, "w");
+        lua_pushnumber(L, box.h);
+        lua_setfield(L, -2, "h");
         return 1;
     }
     lua_pushnil(L);
+    return 1;
+}
+
+// The height of a window's chrome (titlebar, plus the tabbar when it has one),
+// 0 for a window with no bar: the strip a snap keeps free above the content and
+// the number a group's shift is measured in (Snap::chromeH).
+static int luaChromeHeight(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.chrome_height");
+    if (!w)
+        w = Desktop::focusState()->window();
+    lua_pushinteger(L, w ? Snap::chromeH(w) : 0);
+    return 1;
+}
+
+// Step a window through the cycle sizes on one side (Snap::cycle), the press of
+// Super+Alt+arrow: false when the window is on none of them, and the caller then
+// snaps it to that side's zone.
+static int luaCycle(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.cycle");
+    if (!w)
+        w = Desktop::focusState()->window();
+    const bool right = lua_isstring(L, 2) && std::string_view(lua_tostring(L, 2)) == "right";
+    lua_pushboolean(L, w && Snap::cycle(w, right));
     return 1;
 }
 
@@ -593,8 +602,9 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "add_button", ::newLuaButton);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "snap", ::luaSnap);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "zone", ::luaZone);
-        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "min_size", ::luaMinSize);
-        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "bar_top", ::luaBarTop);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "usable", ::luaUsable);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "chrome_height", ::luaChromeHeight);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "cycle", ::luaCycle);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "dragging", ::luaDragging);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_window", ::luaDragWindow);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_owns", ::luaDragOwns);

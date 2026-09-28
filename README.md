@@ -93,7 +93,9 @@ The installer builds the patched hyprbars, copies the shell plugin and `x-mode.l
 ~/omarchy-x-mode/install.sh --no-hyprbars # skip the titlebar plugin
 ```
 
-`--no-hyprbars` skips the build. Without the plugin there is no Mac titlebar, tab strip, or drag-to-edge snap.
+`--no-hyprbars` skips the build (for an install where `hyprbars/` did not change).
+The plugin is what the desktop layer is: without it there is no Mac titlebar, tab
+strip, snapping (the keys included, not just drag-to-edge) or titlebar drag.
 
 ---
 

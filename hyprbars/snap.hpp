@@ -64,6 +64,15 @@ namespace Snap {
     // bound, so a window a drag left a little lower is still that zone.
     eKind              kindOf(PHLWINDOW w, int slop = 2);
 
+    // The sizes a Super+Alt+arrow steps through on one side, in Rectangle's
+    // order (a half, two thirds, a third) and the step itself. A cycle size is
+    // grown to the client minimum exactly as a zone is (contentBox), so the
+    // window a cycle placed is recognised on the next press. `cycle` returns
+    // false when the window is on none of them: the caller snaps it to the
+    // side's zone instead, which is what a first press does.
+    std::optional<CBox> cycleBox(bool right, double hf, PHLMONITOR mon, PHLWINDOW w);
+    bool               cycle(PHLWINDOW w, bool right);
+
     // Titlebar-drag move: compositor-only (no client configure), position
     // warped so chrome and the surface share the same pixel this frame.
     void               moveDrag(PHLWINDOW w, Vector2D pos);

@@ -6,8 +6,9 @@ Four layers:
 - **`lint/`** (via `lint.sh`) — `qmllint` over `quickshell/x-mode/*.qml`. The
   Quickshell/qs.* modules are not on the lint import path, so their "not found"
   warnings are expected; only real errors fail.
-- **`unit/`** — pure Lua, no compositor: the modules in `hypr/x-mode/`
-  (geometry, settings, theme, MRU).
+- **`unit/`** — pure Lua, no compositor: the parsing modules in `hypr/x-mode/`
+  (settings, theme, MRU). Geometry has no unit layer on purpose: it is the
+  plugin's (`Snap::`), and the nest covers it.
 - **`qml/`** — pure JS, no compositor: the shell plugin's shared logic in
   `quickshell/x-mode/logic.js`, run with `qmltestrunner` offscreen.
 - **`nest/`** — scenarios in a nested Hyprland: a window inside the real session
@@ -476,11 +477,11 @@ leave a Quickshell running against the nest.
 ## unit layer
 
 Pure logic that does not need a compositor. It lives in sibling modules next to
-`x-mode.lua`, so the tests load them directly with plain `lua`:
+`x-mode.lua`, so the tests load them directly with plain `lua`. Geometry is not
+here any more: it is `Snap::` in the plugin, and the nest is its test layer.
 
 | file | module | covers |
 |---|---|---|
-| `geometry_test.lua` | `hypr/x-mode/geom.lua` | frame (including scale), zone insets with and without gaps, halves not overlapping, maximize, almost-maximize, cycle sizes, `fit_box` clamping, `cycle_index` |
 | `settings_test.lua` | `hypr/x-mode/settings.lua` | options/apps parsing, the apps section vs the whole file, the legacy array, the merge of the two old files, the rule diff |
 | `theme_test.lua` | `hypr/x-mode/theme.lua` | the TOML subset (inline comments, quotes), hex/rgb conversion, the bar color defaults |
 | `mru_test.lua` | `hypr/x-mode/mru.lua` | touch ordering, step wrapping, sort by MRU then focus |

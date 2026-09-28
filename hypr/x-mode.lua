@@ -7,16 +7,17 @@
 --
 -- This file holds the pack: the floating desktop, the Mac titlebar/tabbar
 -- (patched hyprbars), and the Rectangle-style snap + same-app grouping engine.
--- Pure geometry lives next to it in x-mode/geom.lua so it can be tested on its
--- own (tests/unit). Personal look'n'feel (input, monitors, decoration, native
--- snap, ...) lives in a separate file the pack does not own — see
--- omarchy-x-vm/taste.lua — so uninstalling the pack never removes it.
+-- Geometry is not here: the plugin owns it (hyprbars/snap.cpp -- zones, the snap
+-- cycle, the work frame, the chrome), and this config asks it. Pure parsing is
+-- still next to it in x-mode/ so it can be tested on its own (tests/unit).
+-- Personal look'n'feel (input, monitors, decoration, native snap, ...) lives in
+-- a separate file the pack does not own -- see omarchy-x-vm/taste.lua -- so
+-- uninstalling the pack never removes it.
 
 -- Resolve this chunk's directory so the sibling module is found both installed
 -- (~/.config/hypr/x-mode.lua) and straight from the repo (the tests load this
 -- file out of hypr/).
 local X_MODE_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "./"
-local geom = dofile(X_MODE_DIR .. "x-mode/geom.lua")
 local settings = dofile(X_MODE_DIR .. "x-mode/settings.lua")
 local theme = dofile(X_MODE_DIR .. "x-mode/theme.lua")
 local mru = dofile(X_MODE_DIR .. "x-mode/mru.lua")
@@ -124,7 +125,6 @@ end
 -- fallbacks only apply if a key isn't readable.
 local GAP_FALLBACK      = 8
 local TITLEBAR_FALLBACK = 28
-local GROUPBAR_FALLBACK = 24
 
 hl.config({
   general = {
@@ -286,7 +286,6 @@ local function cfg_int(key, fallback)
 end
 
 local TITLEBAR          = cfg_int("plugin:hyprbars:bar_height", TITLEBAR_FALLBACK)
-local GROUPBAR          = cfg_int("plugin:hyprbars:tab_height", GROUPBAR_FALLBACK)
 -- Read live: the panel's "No gaps" option rewrites general:gaps_out and
 -- general:border_size at runtime, and snap geometry has to follow.
 local function GAP_OUT()
@@ -303,7 +302,6 @@ local DOCK_CARD         = 40
 local function DOCK_PULL()
   return DOCK_CARD + math.floor(GAP_OUT() / 2)
 end
-local ALMOST_MAXIMIZE   = cfg_int("plugin:hyprbars:x_mode_almost_maximize_percent", 90) / 100
 local GROUP_MIN_W       = cfg_int("plugin:hyprbars:x_mode_group_min_width", 400)
 local GROUP_MIN_H       = cfg_int("plugin:hyprbars:x_mode_group_min_height", 300)
 
@@ -385,44 +383,20 @@ local function vec(value)
 end
 
 -- The top the bar reserves. It is a layer-shell surface and is gone for a
--- moment while the shell restarts, so a snap in that window saw a zero top and
--- put the window under the bar. Remember the last non-zero top per monitor and
--- fall back to it for a few seconds, the same as Snap::usable in hyprbars: a
--- bar that really moved away (bottom/left/right, or none) stops applying. A
--- hardcoded height would leave a phantom inset over a bottom bar.
-local bar_top_seen = {}
-local function resolved_top(monitor, top)
-  local name = tostring(monitor.name or monitor.id or "")
-  if top > 0 then
-    bar_top_seen[name] = { top = top, at = os.time() }
-    return top
-  end
-  local seen = bar_top_seen[name]
-  if seen ~= nil and os.time() - seen.at < 10 then
-    return seen.top
-  end
-  return top
-end
-
 local function usable(monitor)
-  local _, top = geom.reserved(monitor)
-  -- Use the plugin's number when it is there: it keeps the bar's height through
-  -- the shell restart at install, and this Lua clamp has to lift a group's
-  -- tabbar out from under the bar with the same value the snap used. The Lua
-  -- memory below is only for a plugin that is not loaded.
+  -- The plugin's frame: the monitor minus its reserved area and the dock inset,
+  -- with the same bar-height memory across a shell restart a snap uses. It is
+  -- the frame a left and a right half split, so a clamp or a restore default
+  -- taken from it can never disagree with the zones.
   local p = bars()
-  local ok, plugin_top = false, nil
-  if p ~= nil and p.bar_top ~= nil then
-    ok, plugin_top = pcall(p.bar_top, monitor.name)
+  if p == nil or p.usable == nil or monitor == nil then
+    return nil
   end
-  if ok and type(plugin_top) == "number" then
-    top = plugin_top
-  else
-    top = resolved_top(monitor, top)
+  local ok, box = pcall(p.usable, monitor.name)
+  if not ok or type(box) ~= "table" then
+    return nil
   end
-  -- The frame already excludes the dock inset (see geom.frame), so the zone
-  -- fractions taken from it keep a left and a right half from overlapping.
-  return geom.frame(monitor, top, DOCK_PULL())
+  return box.x, box.y, box.w, box.h
 end
 
 local function window_class(w)
@@ -433,30 +407,17 @@ local function window_class(w)
 end
 
 local function chrome_h(window)
-  if window ~= nil then
-    local e = apps_cfg and apps_cfg[window_class(window)]
-    -- chrome=false → no titlebar/tabbar at all (mirrors Snap::chromeH's
-    -- no_bar check in hyprbars/snap.cpp). Without this the Lua cycle branch
-    -- of snap_or_expand added the bar height to a window that has no bar.
-    if e and e.chrome == false then
-      return 0
-    end
+  -- The plugin's number, including its no_bar check (Snap::chromeH): a window
+  -- with its titlebar off has no chrome to keep free above its content.
+  local p = bars()
+  if p == nil or p.chrome_height == nil then
+    return 0
   end
-  local h = TITLEBAR
-  if window ~= nil and window.group ~= nil then
-    h = h + GROUPBAR
-  elseif window ~= nil then
-    local e = apps_cfg and apps_cfg[window_class(window)]
-    if e and e.always_tabbar then
-      h = h + GROUPBAR
-    end
+  local ok, h = pcall(p.chrome_height, window)
+  if not ok or type(h) ~= "number" then
+    return 0
   end
   return h
-end
-
-local function with_chrome(x, y, w, h, window)
-  local bar = chrome_h(window)
-  return x, y + bar, w, h - bar
 end
 
 local function ensure_tab_group(window)
@@ -473,11 +434,6 @@ end
 local find_peer
 local join_same_app
 local apps_off = {}
-
-local function snap_geom(kind, monitor)
-  local fx, fy, fw, fh = usable(monitor)
-  return geom.zone_geom(kind, { x = fx, y = fy, w = fw, h = fh }, GAP_OUT(), BORDER(), ALMOST_MAXIMIZE)
-end
 
 local function window_by_addr(addr)
   if addr == nil then
@@ -532,6 +488,9 @@ local function snap(kind, window)
       return
     end
     local x, y, w, h = usable(monitor)
+    if x == nil then
+      return
+    end
     local prev = saved[window.address]
     if prev then
       place(prev.x, prev.y, prev.w, prev.h, window)
@@ -552,52 +511,23 @@ local function snap(kind, window)
       end)
     end
   end
+  -- The zone geometry (and the client minimum a zone grows to) is the plugin's
+  -- (Snap::applyKind / contentBox). Without the plugin there is no snap: the
+  -- pack is its plugin, and a second implementation in here is exactly the
+  -- drift the old fallback caused.
   local p = bars()
-  if p and p.snap then
-    p.snap({ kind = kind, window = window })
-    return
-  end
-  local monitor = window.monitor or hl.get_monitor_at_cursor() or hl.get_active_monitor()
-  if monitor == nil then
-    return
-  end
-  local gx, gy, gw, gh = snap_geom(kind, monitor)
-  if gx then
-    gx, gy, gw, gh = with_chrome(gx, gy, gw, gh, window)
-    place(gx, gy, gw, gh, window)
+  if p ~= nil and p.snap ~= nil then
+    pcall(function()
+      p.snap({ kind = kind, window = window })
+    end)
   end
 end
 
-local CYCLE_HF = { 0.5, 2 / 3, 1 / 3 }
-
-local function cycle_geom(side, hf, monitor)
-  local fx, fy, fw, fh = usable(monitor)
-  return geom.cycle_geom(side, hf, { x = fx, y = fy, w = fw, h = fh }, GAP_OUT(), BORDER())
-end
-
--- The window's minimum size, from the plugin: the same number Snap::contentBox
--- grows a zone to when the client cannot shrink into it. nil without the plugin,
--- or for a window that states no minimum.
-local function window_min(window)
-  local p = bars()
-  if p == nil or p.min_size == nil then
-    return nil
-  end
-  local ok, min = pcall(p.min_size, window)
-  if not ok or type(min) ~= "table" then
-    return nil
-  end
-  return min
-end
-
--- One cycle candidate: the zone's fraction over the content box, grown to the
--- window's minimum the way a snap is. `min` is nil when there is none.
-local function cycle_box(side, hf, monitor, window, min)
-  local zx, zy, zw, zh = cycle_geom(side, hf, monitor)
-  local cx, cy, cw, ch = with_chrome(zx, zy, zw, zh, window)
-  return geom.grow_to_min({ x = cx, y = cy, w = cw, h = ch }, side, min)
-end
-
+-- Super+Alt+Left/Right step the window through the cycle sizes on that side
+-- (half, two thirds, a third) and snap it to the side's zone when it is not on
+-- one of them yet. Both the sizes and the matching live in the plugin
+-- (Snap::cycle): they are the same frame, chrome, client minimum and insets a
+-- zone is built from, so there is no second copy to keep in step.
 local function snap_or_expand(side)
   local window = hl.get_active_window()
   local monitor = hl.get_monitor_at_cursor() or hl.get_active_monitor()
@@ -605,22 +535,12 @@ local function snap_or_expand(side)
     return
   end
 
-  local wx, wy = vec(window.at)
-  local ww, wh = vec(window.size)
-  -- A window whose minimum is wider than a zone was snapped to a box bigger than
-  -- that zone, and the candidates have to be built that way too, or the window
-  -- matches none of them and the press only re-snaps the same half.
-  local min = window_min(window)
-  local candidates = {}
-  for _, hf in ipairs(CYCLE_HF) do
-    candidates[#candidates + 1] = cycle_box(side, hf, monitor, window, min)
-  end
-
-  local i = geom.cycle_index({ x = wx, y = wy, w = ww, h = wh }, candidates, side)
-  if i ~= nil then
-    local next_box = cycle_box(side, CYCLE_HF[(i % #CYCLE_HF) + 1], monitor, window, min)
-    place(next_box.x, next_box.y, next_box.w, next_box.h, window)
-    return
+  local p = bars()
+  if p ~= nil and p.cycle ~= nil then
+    local ok, stepped = pcall(p.cycle, window, side)
+    if ok and stepped then
+      return
+    end
   end
   snap(side, window)
 end
@@ -1466,6 +1386,9 @@ local function absorb_chrome_growth(w, old_x, old_y, old_w, old_h, old_chrome)
     return
   end
   local _, uy, _, uh = usable(mon)
+  if uy == nil then
+    return
+  end
   local x, y = vec(w.at)
   local ww, wh = vec(w.size)
   local new_chrome = chrome_h(w)

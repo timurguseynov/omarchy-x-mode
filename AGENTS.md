@@ -32,9 +32,10 @@ Pack code, in this repo:
 - `hypr/x-mode.lua` — the desktop layer: Hyprland config, binds/events, and the
   snap / grouping engine.
 - `hypr/x-mode/` — the pure modules it loads, split out so they can be tested
-  without a compositor: `geom.lua` (frame and zone math, window fit),
-  `settings.lua` (option/app parsing, rule diff), `theme.lua` (colors.toml),
-  `mru.lua` (switcher order).
+  without a compositor: `settings.lua` (option/app parsing, rule diff),
+  `theme.lua` (colors.toml), `mru.lua` (switcher order). Geometry is *not* here:
+  the plugin owns it (`hyprbars/snap.cpp` — zones, the snap cycle, the work
+  frame, the chrome), and `x-mode.lua` asks for it.
 - `tests/` — the test suite. `tests/run.sh` runs lint (`qmllint`), `unit/` (plain
   lua, no compositor), `qml/` (`logic.js` under `qmltestrunner`) and `nest/` (a
   nested Hyprland running the real config and a freshly built plugin, with
@@ -78,8 +79,11 @@ Pack code, in this repo:
 - `./install.sh --no-hyprbars` installs the Lua and the modules without touching
   the plugin; use it when `hyprbars/` did not change (the build is the slow
   step).
-- Keep pure logic (no `hl`) in the `hypr/x-mode/` modules so it stays unit
+- Keep pure parsing (no `hl`) in the `hypr/x-mode/` modules so it stays unit
   testable; event/state code stays in `x-mode.lua` and is covered by the nest.
+  Geometry is the plugin's (`Snap::`), so there is one implementation: the pack
+  is its plugin, and Lua asks it (`snap`, `cycle`, `zone`, `usable`,
+  `chrome_height`) instead of keeping a second copy in step.
 - Never load the pack's plugin into the live session and never `cp` over the
   loaded `x-mode-hyprbars.so`: overwriting a mapped `.so` corrupts its pages and
   crashes the compositor (`SIGILL`). The nest is where a plugin gets loaded.

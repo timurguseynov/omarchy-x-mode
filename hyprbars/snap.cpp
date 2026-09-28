@@ -286,6 +286,81 @@ std::optional<CBox> Snap::contentBox(eKind kind, PHLMONITOR mon, PHLWINDOW w) {
     return box;
 }
 
+// The sizes a Super+Alt+arrow steps through on one side, in Rectangle's order:
+// a half, two thirds, a third.
+static constexpr double CYCLE_HF[] = {0.5, 2.0 / 3.0, 1.0 / 3.0};
+// How far a window may sit from a cycle size and still be the one on it. The
+// press before this size placed it, so only a layout round can have moved it.
+static constexpr int    CYCLE_SLOP = 32;
+
+std::optional<CBox> Snap::cycleBox(bool right, double hf, PHLMONITOR mon, PHLWINDOW w) {
+    if (!mon || hf <= 0)
+        return std::nullopt;
+
+    const CBox frame = usable(mon);
+    if (frame.w < 1 || frame.h < 1)
+        return std::nullopt;
+
+    // A full-height slice against the side, the edge shared with the window next
+    // to it taking the half gap -- the insets a zone takes (see the Lua
+    // cycle_geom this replaces: a left cycle is inner *right*).
+    CBox box = applyGaps(fractionalRect(frame, right ? "right" : "left", nullptr, hf, 1), right, !right, false, false);
+
+    const int chrome = chromeH(w);
+    box.y += chrome;
+    box.h -= chrome;
+
+    // Same growth as a zone (contentBox): a client that cannot shrink to this
+    // size keeps the anchored edge and overhangs, and this exact box is what
+    // cycle() then looks for.
+    if (w) {
+        if (const auto MIN = w->minSize()) {
+            if (box.w < MIN->x) {
+                if (right)
+                    box.x += box.w - MIN->x; // keep the right edge
+                box.w = MIN->x;
+            }
+            if (box.h < MIN->y)
+                box.h = MIN->y;
+        }
+    }
+
+    return box;
+}
+
+bool Snap::cycle(PHLWINDOW w, bool right) {
+    if (!xModeEnabled() || !w)
+        return false;
+
+    const auto mon    = w->m_monitor.lock();
+    const auto TARGET = w->layoutTarget();
+    if (!mon || !TARGET || !TARGET->floating())
+        return false;
+
+    const CBox          got   = TARGET->position();
+    std::optional<CBox> boxes[3];
+    for (size_t i = 0; i < 3; i++)
+        boxes[i] = cycleBox(right, CYCLE_HF[i], mon, w);
+
+    const auto near = [](double a, double b) { return std::abs(a - b) <= CYCLE_SLOP; };
+    for (size_t i = 0; i < 3; i++) {
+        const auto& box = boxes[i];
+        if (!box)
+            continue;
+        // Anchored on the edge the cycle holds put: the left edge for a left
+        // cycle, the right edge for a right one.
+        const bool anchored = right ? near(got.x + got.w, box->x + box->w) : near(got.x, box->x);
+        if (!anchored || !near(got.y, box->y) || !near(got.w, box->w) || !near(got.h, box->h))
+            continue;
+        const auto& next = boxes[(i + 1) % 3];
+        if (!next)
+            return false;
+        return applyContent(w, *next);
+    }
+
+    return false;
+}
+
 eKind Snap::zoneAtCursor(const Vector2D& cursor, PHLWINDOW dragged, bool activeDrag) {
     (void)dragged;
     (void)activeDrag;

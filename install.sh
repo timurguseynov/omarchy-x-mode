@@ -190,8 +190,9 @@ print(json.dumps(out))
   rm -f "$HYPR"/conf.d/5x-x-mode-*.lua 2>/dev/null || true
   rm -rf "$HYPR/x-mode" 2>/dev/null || true
   copy_file "$HERE/hypr/x-mode.lua" "$HYPR/x-mode.lua"
-  # Pure geometry lives next to it in x-mode/; x-mode.lua dofiles it relative to
-  # its own path, so the directory has to be installed too.
+  # The pure parsing modules live next to it in x-mode/; x-mode.lua dofiles them
+  # relative to its own path, so the directory has to be installed too. Geometry
+  # is not in there: that is the plugin's (hyprbars/snap.cpp).
   copy_tree "$HERE/hypr/x-mode" "$HYPR/x-mode"
 
   log "wiring x-mode into hyprland.lua"
