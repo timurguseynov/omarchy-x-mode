@@ -122,6 +122,36 @@ function M.cycle_geom(side, hf, frame, gap, border)
   return M.apply_gaps(x, y, w, h, inner, gap, border)
 end
 
+-- Grow a cycle size to the window's minimum, the way a snap does.
+--
+-- A client can refuse to shrink below its own minimum (kdenlive is 1027 wide on
+-- a 938 half), and Snap::contentBox (hyprbars/snap.cpp) answers that by growing
+-- the zone to CWindow::minSize() and keeping the snapped edge put, so the window
+-- overhangs the far side of the zone. The cycle has to build its candidates the
+-- same way: otherwise the window it just placed is wider than every candidate,
+-- cycle_index matches none of them, and the next press re-snaps the same half
+-- instead of stepping on. A left/right candidate is anchored on that side and at
+-- the top, so this keeps x and y and grows w and h, as contentBox does for the
+-- Left/Right zones. `min` is a geometry box ({ x, y }), nil when the window
+-- states no minimum (or the plugin that knows it is not loaded).
+function M.grow_to_min(box, side, min)
+  if min == nil then
+    return box
+  end
+  local mw, mh = vec(min)
+  local x, y, w, h = box.x, box.y, box.w, box.h
+  if mw > w then
+    if side == "right" then
+      x = x + w - mw -- keep the right edge
+    end
+    w = mw
+  end
+  if mh > h then
+    h = mh
+  end
+  return { x = x, y = y, w = w, h = h }
+end
+
 -- Fit a floating box into the work frame: cap the size to the frame minus the
 -- border/gap inset and, vertically, the chrome, then pull it back below the bar
 -- and inside the edges. Hyprland's resize is centred, so a caller that resizes

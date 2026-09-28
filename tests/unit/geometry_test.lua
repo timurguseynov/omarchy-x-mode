@@ -72,6 +72,21 @@ check("cycle.half", cw2, math.floor(1875 * 0.5) - 19)
 check("cycle.two-thirds", cw3, math.floor(1875 * (2 / 3)) - 19)
 check("cycle.grows", cw3 > cw2, true)
 
+-- grow_to_min: a candidate below the window's minimum grows to it and keeps the
+-- edge its side is anchored to, so the cycle still finds the window it placed.
+local gm_min = { x = 900, y = 700 }
+local g1 = geom.grow_to_min({ x = 0, y = 24, w = 500, h = 400 }, "left", gm_min)
+check("grow.min.w", g1.w, 900)
+check("grow.keeps.left", g1.x, 0)
+check("grow.keeps.top", g1.y, 24)
+check("grow.min.h", g1.h, 700)
+local g2 = geom.grow_to_min({ x = 500, y = 24, w = 500, h = 400 }, "right", gm_min)
+check("grow.keeps.right", g2.x + g2.w, 1000)
+local g3 = geom.grow_to_min({ x = 0, y = 24, w = 900, h = 700 }, "left", gm_min)
+check("grow.wide.already", g3.w, 900)
+local g4 = geom.grow_to_min({ x = 0, y = 24, w = 500, h = 400 }, "left", nil)
+check("grow.no.min", g4.w, 500)
+
 -- fit_box: cap the size, keep the titlebar below the bar and the box inside
 -- the edges.
 local ff = { x = 0, y = 24, w = 1875, h = 1056 }

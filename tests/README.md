@@ -133,6 +133,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/no_gaps_symmetric_insets_test.sh` | every inset changes with the gaps and every one comes back |
 | `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
 | `integration/oversized_snap_anchors_test.sh` | a snap smaller than the client minimum keeps the snapped edge and overhangs |
+| `integration/oversized_snap_cycle_test.sh` | a grown snap still cycles wider on the next press |
 | `integration/oversized_window_test.sh` | a settled window grown to twice the monitor is fitted back inside it |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `integration/same_app_across_workspaces_no_group_test.sh` | a same-app window on another space is not a tab |
@@ -282,7 +283,9 @@ on a 938 half). Hyprland then grows the box around its centre, which walked the
 left edge of a left snap off-screen (observed at x=-43). `Snap::contentBox`
 grows the target to `CWindow::minSize()` and keeps the snapped edge put, so the
 window overhangs the far side of its zone instead; `oversized_snap_anchors_test.sh`
-holds that down.
+holds that down, and `oversized_snap_cycle_test.sh` that the Super+Alt+arrow cycle
+still steps on from there (its candidates are grown the same way, or the wider
+window matches none of them and the next press only re-snaps the same half).
 
 Upstream has the fitting code but does not call it here:
 `CDefaultFloatingAlgorithm::fitBoxInWorkArea()` clamps into `space->workArea(true)`

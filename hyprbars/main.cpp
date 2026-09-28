@@ -280,6 +280,33 @@ static int luaZone(lua_State* L) {
     return 1;
 }
 
+// The window's minimum size (the client's own hint, or a min_size rule), or nil
+// when it states none. This is the number Snap::contentBox grows a zone to when
+// the client cannot shrink into it; the Lua snap cycle builds its candidates the
+// same way, so it has to read the same number.
+static int luaMinSize(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.min_size");
+    if (!w)
+        w = Desktop::focusState()->window();
+    if (!w)
+        return Config::Lua::Bindings::Internal::configError(L, "min_size: no window");
+
+    const auto MIN = w->minSize();
+    if (!MIN) {
+        lua_pushnil(L);
+        return 1;
+    }
+
+    lua_newtable(L);
+    lua_pushinteger(L, sc<int>(MIN->x));
+    lua_setfield(L, -2, "x");
+    lua_pushinteger(L, sc<int>(MIN->y));
+    lua_setfield(L, -2, "y");
+    return 1;
+}
+
 // The top the bar currently reserves, with the shell-restart fallback applied
 // (see Snap::barTop). Lua clamps windows itself in a few places and has to lift
 // a group's tabbar out from under the bar with the same number the snap used.
@@ -566,6 +593,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "add_button", ::newLuaButton);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "snap", ::luaSnap);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "zone", ::luaZone);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "min_size", ::luaMinSize);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "bar_top", ::luaBarTop);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "dragging", ::luaDragging);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_window", ::luaDragWindow);

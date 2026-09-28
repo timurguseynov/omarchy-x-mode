@@ -575,6 +575,29 @@ local function cycle_geom(side, hf, monitor)
   return geom.cycle_geom(side, hf, { x = fx, y = fy, w = fw, h = fh }, GAP_OUT(), BORDER())
 end
 
+-- The window's minimum size, from the plugin: the same number Snap::contentBox
+-- grows a zone to when the client cannot shrink into it. nil without the plugin,
+-- or for a window that states no minimum.
+local function window_min(window)
+  local p = bars()
+  if p == nil or p.min_size == nil then
+    return nil
+  end
+  local ok, min = pcall(p.min_size, window)
+  if not ok or type(min) ~= "table" then
+    return nil
+  end
+  return min
+end
+
+-- One cycle candidate: the zone's fraction over the content box, grown to the
+-- window's minimum the way a snap is. `min` is nil when there is none.
+local function cycle_box(side, hf, monitor, window, min)
+  local zx, zy, zw, zh = cycle_geom(side, hf, monitor)
+  local cx, cy, cw, ch = with_chrome(zx, zy, zw, zh, window)
+  return geom.grow_to_min({ x = cx, y = cy, w = cw, h = ch }, side, min)
+end
+
 local function snap_or_expand(side)
   local window = hl.get_active_window()
   local monitor = hl.get_monitor_at_cursor() or hl.get_active_monitor()
@@ -584,18 +607,19 @@ local function snap_or_expand(side)
 
   local wx, wy = vec(window.at)
   local ww, wh = vec(window.size)
+  -- A window whose minimum is wider than a zone was snapped to a box bigger than
+  -- that zone, and the candidates have to be built that way too, or the window
+  -- matches none of them and the press only re-snaps the same half.
+  local min = window_min(window)
   local candidates = {}
   for _, hf in ipairs(CYCLE_HF) do
-    local zx, zy, zw, zh = cycle_geom(side, hf, monitor)
-    local cx, cy, cw, ch = with_chrome(zx, zy, zw, zh, window)
-    candidates[#candidates + 1] = { x = cx, y = cy, w = cw, h = ch }
+    candidates[#candidates + 1] = cycle_box(side, hf, monitor, window, min)
   end
 
   local i = geom.cycle_index({ x = wx, y = wy, w = ww, h = wh }, candidates, side)
   if i ~= nil then
-    local nx, ny, nw, nh = cycle_geom(side, CYCLE_HF[(i % #CYCLE_HF) + 1], monitor)
-    nx, ny, nw, nh = with_chrome(nx, ny, nw, nh, window)
-    place(nx, ny, nw, nh, window)
+    local next_box = cycle_box(side, CYCLE_HF[(i % #CYCLE_HF) + 1], monitor, window, min)
+    place(next_box.x, next_box.y, next_box.w, next_box.h, window)
     return
   end
   snap(side, window)
