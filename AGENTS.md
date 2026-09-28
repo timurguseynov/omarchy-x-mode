@@ -4,10 +4,8 @@ macOS-like desktop layer for Omarchy (Hyprland + Quickshell): floating windows,
 a Mac titlebar with per-tab close buttons, Rectangle-style snapping, a
 right-edge dock and an app switcher.
 
-This directory is the pack, and its own git repo (the public mirror). The
-sandbox around it lives in `_docs/`: reference trees under `_docs/_sources/`,
-notes under `_docs/_info/`. Developed and run **on this machine**. Reinstall
-from here with:
+This directory is the pack, and its own git repo (the public mirror). Developed
+and run **on this machine**. Reinstall from here with:
 
 ```sh
 ./uninstall.sh && ./install.sh
@@ -17,6 +15,9 @@ from here with:
 sentinel block in `~/.config/hypr/hyprland.lua`. `./uninstall.sh` removes
 exactly what the install recorded. `./install.sh status` shows what is
 installed. `--no-hyprbars` skips the titlebar plugin build.
+
+For work on the pack, also read `_docs/AGENTS.md` if it exists: it documents the
+sandbox that surrounds this repo.
 
 ## Where things are
 
@@ -53,14 +54,6 @@ Pack code, in this repo:
   - `manifest.json` — plugin manifest.
 - `install.sh`, `uninstall.sh` — install and remove the pack.
 
-Sandbox, under `_docs/`, read-only unless a note is being written:
-
-- `_docs/_sources/` — reference checkouts (Hyprland, upstream hyprbars,
-  Quickshell, Rectangle, Omarchy, and others). See `_docs/_sources/INDEX.md`.
-  Search them with the `xref` tool, not by reading whole trees.
-- `_docs/_info/` — notes. Not pack code.
-- `_docs/discord.update.md` — the shape of a Discord update post.
-
 ## Working rules
 
 - Do not test by hand on the live session. If something needs to be checked
@@ -86,13 +79,4 @@ Sandbox, under `_docs/`, read-only unless a note is being written:
   loaded `x-mode-hyprbars.so`: overwriting a mapped `.so` corrupts its pages and
   crashes the compositor (`SIGILL`). The nest is where a plugin gets loaded.
 - After every successful edit or completed task, commit in the repo that owns
-  the change. Pack changes go to this repo. Sandbox changes (`_docs/`, and the
-  outer checkout's `AGENTS.md` and `.pi/`) go to the outer repo. The message
-  says what changed and why.
-
-## Discord update
-
-When asked for a Discord post, write it the way `_docs/discord.update.md` does:
-one line of the few highlights actually worth announcing, then one short line
-for everything else ("Plus minor bug fixes and polish: …"). Keep it to what a
-user would notice. End with `Update with ./install.sh`.
+  the change. The message says what changed and why.
