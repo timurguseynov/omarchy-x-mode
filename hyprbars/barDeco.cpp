@@ -999,10 +999,12 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     // wallpaper / white while it comes up. This pass element is on the UNDER
     // layer, so it sits behind the window content; drawn before the bar's
     // scissor so it can cover the content area below the bar.
+    // The element's bounding box has to cover this fill as well as the bar
+    // (CBarPassElement::boundingBox): an element whose declared box misses the
+    // frame's damage is discarded, so with the bar's box alone the fill came and
+    // went and the band it covers flickered.
     {
-        CBox winBox = {PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x + PWINDOW->m_floatingOffset.x - pMonitor->m_position.x,
-                       PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y + PWINDOW->m_floatingOffset.y - pMonitor->m_position.y,
-                       PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x, PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y};
+        CBox winBox = windowBoxGlobal().translate(-pMonitor->m_position);
         winBox.scale(pMonitor->m_scale).round();
         if (winBox.w >= 1 && winBox.h >= 1)
             g_pHyprOpenGL->renderRect(winBox, color, {.round = scaledRounding, .roundingPower = PWINDOW->roundingPower()});
@@ -1151,6 +1153,21 @@ CBox CHyprBar::assignedBoxGlobal() {
     const auto WORKSPACEOFFSET = PWORKSPACE && !m_pWindow->m_pinned ? PWORKSPACE->m_renderOffset->value() : Vector2D();
 
     return box.translate(WORKSPACEOFFSET);
+}
+
+CBox CHyprBar::windowBoxGlobal() {
+    if (!validMapped(m_pWindow))
+        return {};
+
+    const auto PWINDOW         = m_pWindow.lock();
+    const auto PWORKSPACE      = PWINDOW->m_workspace;
+    const auto WORKSPACEOFFSET = PWORKSPACE && !PWINDOW->m_pinned ? PWORKSPACE->m_renderOffset->value() : Vector2D();
+
+    // The box the renderer gives the surfaces (renderWindow: position + workspace
+    // slide + floating offset), so the fill and the bar land where the window is
+    // -- including mid-slide, which the fill used to ignore.
+    return CBox{PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) + WORKSPACEOFFSET + PWINDOW->m_floatingOffset,
+                PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT)};
 }
 
 PHLWINDOW CHyprBar::getOwner() {

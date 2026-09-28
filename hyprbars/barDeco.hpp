@@ -153,6 +153,7 @@ class CHyprBar : public IHyprWindowDecoration {
     bool doButtonPress(Config::INTEGER barPadding, Config::INTEGER barButtonPadding, Config::INTEGER barHeight, Vector2D COORDS, bool BUTTONSRIGHT);
 
     CBox assignedBoxGlobal();
+    CBox windowBoxGlobal();
 
     CHyprSignalListener m_pMouseButtonCallback;
     CHyprSignalListener m_pTouchDownCallback;
