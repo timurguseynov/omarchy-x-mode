@@ -213,24 +213,16 @@ Item {
   }
 
   function togglePin(cls) {
-    var list = pinned.slice()
-    var i = list.indexOf(cls)
-    if (i >= 0)
-      list.splice(i, 1)
-    else
-      list.push(cls)
-    pinned = list
-    pinnedFile.setText(JSON.stringify(list, null, 2) + "\n")
+    pinned = Logic.togglePinInList(pinned, cls)
+    pinnedFile.setText(JSON.stringify(pinned, null, 2) + "\n")
   }
 
   function movePinTo(from, to) {
-    if (from < 0 || to < 0 || from >= pinned.length || to >= pinned.length || from === to)
+    var next = Logic.movePinInList(pinned, from, to)
+    if (!next)
       return false
-    var list = pinned.slice()
-    var item = list.splice(from, 1)[0]
-    list.splice(to, 0, item)
-    pinned = list
-    pinnedFile.setText(JSON.stringify(list, null, 2) + "\n")
+    pinned = next
+    pinnedFile.setText(JSON.stringify(pinned, null, 2) + "\n")
     // Rebuild immediately so the dock order matches before we clear the ghost.
     rebuildApps()
     return true
@@ -245,23 +237,9 @@ Item {
   }
 
   function pinSlotAt(y, fromIndex) {
-    var stride = iconSize + iconSpacing
-    var n = pinned.length
-    if (stride <= 0 || n <= 0)
-      return 0
     // Center-based target with a little hysteresis so the slot does not flap
     // when the cursor sits on a boundary (that was the jitter).
-    var idx = Math.round((y - iconSize / 2) / stride)
-    if (idx < 0)
-      idx = 0
-    if (idx > n - 1)
-      idx = n - 1
-    if (fromIndex >= 0 && fromIndex === dragHoverIndex) {
-      var center = idx * stride + iconSize / 2
-      if (Math.abs(y - center) < stride * 0.2)
-        return dragHoverIndex
-    }
-    return idx
+    return Logic.pinSlotIndex(y, fromIndex, dragHoverIndex, iconSize + iconSpacing, iconSize, pinned.length)
   }
 
   function closeApp(app) {
@@ -300,50 +278,12 @@ Item {
   }
 
   function menuActions() {
-    var a = []
     // menuApp is the app object captured at open time. The client list is
     // re-read on windowtitle, so swap in the current entry for the same class
     // before building the rows — otherwise the titles stay frozen.
-    if (menuApp) {
-      for (var k = 0; k < apps.length; k++) {
-        if (apps[k].cls === menuApp.cls) {
-          menuApp = apps[k]
-          break
-        }
-      }
-    }
-    if (menuApp && !root.isSingleInstance(menuApp.cls)) {
-      a.push({ id: "new", label: "New " + root.appDisplayName(menuApp.cls), enabled: true })
-      if (menuApp.wins && menuApp.wins.length > 0)
-        a.push({ id: "sep", label: "", enabled: false })
-    }
-    var wins = (menuApp && menuApp.wins) ? menuApp.wins.slice() : []
-    wins.sort(function(x, y) {
-      var dx = Number(x.ws) - Number(y.ws)
-      if (dx !== 0)
-        return dx
-      return (x.focus || 0) - (y.focus || 0)
-    })
-    if (wins.length > 0) {
-      for (var i = 0; i < wins.length; i++) {
-        var win = wins[i]
-        var title = String(win.title || "").trim()
-        a.push({
-          id: "win:" + win.addr,
-          label: title || "Window",
-          wsLabel: win.ws ? String(win.ws) : "",
-          enabled: true,
-          addr: win.addr
-        })
-      }
-      a.push({ id: "sep", label: "", enabled: false })
-    }
-    if (menuPinned)
-      a.push({ id: "unpin", label: "Unpin", enabled: true })
-    else
-      a.push({ id: "pin", label: "Pin", enabled: true })
-    a.push({ id: "close", label: "Quit", enabled: menuApp && menuApp.addrs && menuApp.addrs.length > 0 })
-    return a
+    var r = Logic.buildMenuActions(menuApp, apps, menuApp ? root.appDisplayName(menuApp.cls) : "", menuApp ? root.isSingleInstance(menuApp.cls) : false)
+    menuApp = r.app
+    return r.actions
   }
 
   function runMenuAction(id) {

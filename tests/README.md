@@ -519,7 +519,7 @@ Same idea for the shell plugin: the pure JS it shares lives in
 
 | file | covers |
 |---|---|
-| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps) |
+| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin) |
 
 What is *not* unit-testable this way: the components themselves. `import
 Quickshell` fails under `qmltestrunner` (`plugin "quickshell-coreplugin" not

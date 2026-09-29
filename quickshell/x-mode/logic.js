@@ -173,6 +173,99 @@ function extensionScanCommand() {
     ].join("\n")
 }
 
+// Pin-list toggle: a copy with cls removed or appended. The caller assigns
+// it and persists it.
+function togglePinInList(list, cls) {
+    var out = (list || []).slice()
+    var i = out.indexOf(cls)
+    if (i >= 0)
+        out.splice(i, 1)
+    else
+        out.push(cls)
+    return out
+}
+
+// Pin reorder: a copy with the entry moved, or null when the move is invalid
+// (out of range or a no-op). The caller assigns, persists and rebuilds.
+function movePinInList(list, from, to) {
+    var out = (list || []).slice()
+    if (from < 0 || to < 0 || from >= out.length || to >= out.length || from === to)
+        return null
+    var item = out.splice(from, 1)[0]
+    out.splice(to, 0, item)
+    return out
+}
+
+// Drag target slot in the pinned column: center-based index with hysteresis
+// so the slot does not flap on a boundary. fromIndex is the dragged slot,
+// hoverIndex the current one; the hold only applies while they match.
+function pinSlotIndex(y, fromIndex, hoverIndex, stride, iconSize, n) {
+    if (stride <= 0 || n <= 0)
+        return 0
+    var idx = Math.round((y - iconSize / 2) / stride)
+    if (idx < 0)
+        idx = 0
+    if (idx > n - 1)
+        idx = n - 1
+    if (fromIndex >= 0 && fromIndex === hoverIndex) {
+        var center = idx * stride + iconSize / 2
+        if (Math.abs(y - center) < stride * 0.2)
+            return hoverIndex
+    }
+    return idx
+}
+
+// Dock context-menu rows for an app. menuApp is the snapshot taken at open
+// time; the current entry for the same class is swapped in first, since the
+// client list is re-read on windowtitle. displayName and singleInstance come
+// from the desktop entry. Returns { app, actions } (app may be null, as the
+// caller passes it).
+function buildMenuActions(menuApp, apps, displayName, singleInstance) {
+    var app = menuApp || null
+    if (app) {
+        var list = apps || []
+        for (var k = 0; k < list.length; k++) {
+            if (list[k].cls === app.cls) {
+                app = list[k]
+                break
+            }
+        }
+    }
+    var a = []
+    if (app && !singleInstance) {
+        a.push({ id: "new", label: "New " + displayName, enabled: true })
+        if (app.wins && app.wins.length > 0)
+            a.push({ id: "sep", label: "", enabled: false })
+    }
+    var wins = (app && app.wins) ? app.wins.slice() : []
+    wins.sort(function(x, y) {
+        var dx = Number(x.ws) - Number(y.ws)
+        if (dx !== 0)
+            return dx
+        return (x.focus || 0) - (y.focus || 0)
+    })
+    if (wins.length > 0) {
+        for (var i = 0; i < wins.length; i++) {
+            var win = wins[i]
+            var title = String(win.title || "").trim()
+            a.push({
+                id: "win:" + win.addr,
+                label: title || "Window",
+                wsLabel: win.ws ? String(win.ws) : "",
+                enabled: true,
+                addr: win.addr
+            })
+        }
+        a.push({ id: "sep", label: "", enabled: false })
+    }
+    if (app && app.pinned)
+        a.push({ id: "unpin", label: "Unpin", enabled: true })
+    else
+        a.push({ id: "pin", label: "Pin", enabled: true })
+    a.push({ id: "close", label: "Quit", enabled: !!(app && app.addrs && app.addrs.length > 0) })
+    return { app: app, actions: a }
+}
+
 // Axis-aligned rectangle overlap. Reads w/h or width/height, so callers can
 // pass QML item boxes straight through.
 function rectsIntersect(a, b) {

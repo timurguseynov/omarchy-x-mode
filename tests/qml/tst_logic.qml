@@ -117,6 +117,62 @@ TestCase {
         verify(cmd.indexOf("pixmaps") !== -1, "pixmaps still scanned")
     }
 
+    function test_togglePinInList() {
+        compare(Logic.togglePinInList(["a", "b"], "b"), ["a"])
+        compare(Logic.togglePinInList(["a"], "c"), ["a", "c"])
+        compare(Logic.togglePinInList([], "a"), ["a"])
+    }
+
+    function test_movePinInList() {
+        compare(Logic.movePinInList(["a", "b", "c"], 0, 2), ["b", "c", "a"])
+        compare(Logic.movePinInList(["a", "b", "c"], 2, 0), ["c", "a", "b"])
+        compare(Logic.movePinInList(["a", "b"], 0, 0), null, "no-op is invalid")
+        compare(Logic.movePinInList(["a"], -1, 0), null, "out of range")
+        compare(Logic.movePinInList(["a"], 0, 5), null, "out of range")
+    }
+
+    function test_pinSlotIndex() {
+        compare(Logic.pinSlotIndex(13, 0, 0, 32, 26, 3), 0, "slot center")
+        compare(Logic.pinSlotIndex(45, 0, 1, 32, 26, 3), 1, "next slot center")
+        compare(Logic.pinSlotIndex(40, 0, 0, 32, 26, 3), 0, "hysteresis holds while hover is the origin")
+        compare(Logic.pinSlotIndex(-50, 0, 0, 32, 26, 3), 0, "clamped top")
+        compare(Logic.pinSlotIndex(500, 0, 0, 32, 26, 3), 2, "clamped bottom")
+        compare(Logic.pinSlotIndex(15, 0, 0, 32, 26, 3), 0, "hysteresis holds the origin slot")
+        compare(Logic.pinSlotIndex(0, 0, 0, 0, 26, 3), 0, "zero stride")
+    }
+
+    function mkMenuApp() {
+        return {
+            cls: "foot", pinned: false, addrs: ["0x1"],
+            wins: [
+                { addr: "0x2", title: "second", ws: "2", focus: 1 },
+                { addr: "0x1", title: "first", ws: "1", focus: 0 }
+            ]
+        }
+    }
+
+    function test_buildMenuActions_orders_windows() {
+        var r = Logic.buildMenuActions(mkMenuApp(), [mkMenuApp()], "Foot", false)
+        compare(r.app.cls, "foot")
+        var ids = []
+        for (var i = 0; i < r.actions.length; i++)
+            ids.push(r.actions[i].id)
+        compare(ids, ["new", "sep", "win:0x1", "win:0x2", "sep", "pin", "close"])
+        compare(r.actions[0].label, "New Foot")
+    }
+
+    function test_buildMenuActions_single_and_pinned() {
+        var single = Logic.buildMenuActions(mkMenuApp(), [mkMenuApp()], "Foot", true)
+        verify(single.actions[0].id !== "new", "no new window for single-instance")
+        var pinned = mkMenuApp()
+        pinned.pinned = true
+        var r = Logic.buildMenuActions(pinned, [pinned], "Foot", false)
+        var ids = []
+        for (var j = 0; j < r.actions.length; j++)
+            ids.push(r.actions[j].id)
+        verify(ids.indexOf("unpin") !== -1, "pinned app offers unpin")
+    }
+
     function test_rectsIntersect() {
         compare(Logic.rectsIntersect({ x: 0, y: 0, w: 100, h: 100 }, { x: 50, y: 50, width: 100, height: 100 }), true)
         compare(Logic.rectsIntersect({ x: 0, y: 0, w: 100, h: 100 }, { x: 100, y: 0, width: 100, height: 100 }), false, "touching edges do not overlap")
