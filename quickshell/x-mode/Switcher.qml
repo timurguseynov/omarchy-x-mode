@@ -53,7 +53,9 @@ Item {
   function pick(addr) {
     if (!addr)
       return
-    Quickshell.execDetached(["hyprctl", "dispatch", "hl.plugin.hyprbars.raise('address:" + addr + "')"])
+    // Same dispatcher as the dock. hyprbars.raise is not a dispatcher, so
+    // hl.dispatch rejects that string. window.active raises the floating window.
+    Hyprland.dispatch("hl.dsp.focus({ window = 'address:" + addr + "' })")
     root.shown = false
   }
 
