@@ -7,9 +7,8 @@
 #   run.sh integration/no_gaps_keeps_border
 #
 # nest_clean() runs between files, so a single scenario is as isolated as it is
-# in a full run. NEST_JOBS (default 1) is how many nests run at once; the build
-# is once. Selecting one scenario still skips the other nests. Extra nests on
-# this machine drop dock events, which is why the default is one.
+# in a full run. NEST_JOBS (default 3) is how many nests run at once; the build
+# is once. Selecting one scenario still skips the other nests.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -49,10 +48,10 @@ fi
 
 [ "${#chosen[@]}" -gt 0 ] || { echo "no nest tests found in $HERE" >&2; exit 2; }
 
-# One nest per worker. Raising NEST_JOBS runs several nests side by side. On
-# this machine a second and third nest drop dock events, so the default is one
-# and a parallel run is opt-in.
-JOBS="${NEST_JOBS:-1}"
+# One nest per worker. The dock follows Hyprland's event socket, so the nests
+# do not have to take turns on hyprctl for the client list. NEST_JOBS=1 is the
+# single-nest run.
+JOBS="${NEST_JOBS:-3}"
 [ "$JOBS" -gt "${#chosen[@]}" ] && JOBS="${#chosen[@]}"
 [ "$JOBS" -ge 1 ] || JOBS=1
 
@@ -62,10 +61,13 @@ build_keyboard
 build_nestq
 export NEST_SKIP_BUILD=1
 
-# Remember who was focused and keep the nest toplevel from taking over. The
-# rule is removed when this process exits, including after a failed run.
-export NEST_HOST_FOCUS="$(nest_host_focus)"
-nest_host_rule_on
+# Keep a newly mapped nest from taking focus, and pin it so the host does not
+# fold every nest into one tab group. A hidden tab is not drawn, and a click
+# on it leaves the keyboard on Chrome or Zed. The rule and the 1px tick are
+# removed when this process exits, including after a failed run. A click on a
+# nest's titlebar focuses that nest. Placing another nest does not hand focus
+# back.
+nest_host_rule_on || { nest_host_rule_off; exit 1; }
 trap 'nest_host_rule_off' EXIT
 
 report() { # STATUS NAME FILE
@@ -73,7 +75,7 @@ report() { # STATUS NAME FILE
   if [ "$1" = ok ]; then
     echo "  ${GREEN}ok${RESET}   $2"
   else
-    echo "  ${RED}FAIL${RESET} $2"
+    echo "  ${RED}FAIL${RESET} $2 (slot $NEST_SLOT)"
   fi
   [ -s "$3" ] && sed 's/^/       /' "$3"
 } 9>"$NEST_ROOT/print.lock"

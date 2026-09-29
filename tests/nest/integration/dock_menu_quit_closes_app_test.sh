@@ -15,8 +15,13 @@ settle
 
 read -r rx ry <<<"$(dock_menu_row_point 0 5 "26 7 26 7 26 26")"
 pointer_click "$rx" "$ry"
+# The quit dispatch is itself a hyprctl. A tight poll fills the nest's socket
+# and the close sits behind it until this wait gives up.
 foot_gone() { [ "$(count_class foot)" = 0 ]; }
-wait_until 3 foot_gone || true
+for _ in $(seq 1 12); do
+  foot_gone && break
+  sleep 0.25
+done
 
 assert_eq "$(count_class foot)" 0 "the quit row closes the app's windows (got $(count_class foot))"
 assert_eq "$(count_class kitty)" 1 "the other app is left alone"

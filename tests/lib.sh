@@ -4,8 +4,8 @@
 #
 # The nest is a nested Hyprland (a window inside the real session) running the
 # repo's x-mode.lua with its own $X_MODE_STATE, so nothing here touches the live
-# session's files. The one runtime touch is a window rule, removed when the run
-# ends, so that nest toplevel does not take focus.
+# session's files. The runtime touch is a window rule plus a 1px layer that
+# keeps covered nests presenting; both are removed when the run ends.
 
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$TESTS_DIR/.." && pwd)"
@@ -114,14 +114,26 @@ build_keyboard() {
 
 # The nest is a toplevel on the host. Without this rule the host focuses it on
 # map and again whenever the nested compositor asks to be activated, which is
-# every time a window inside it takes focus. The rule is runtime-only: it is
-# not written into the user's config, and the runner drops it when the run ends.
-# Same name on every slot, so three nests share one rule.
+# every time a window inside it takes focus. no_initial_focus covers the map,
+# and focus_on_activate covers those requests. no_focus is not set: it also
+# rejects a click on the titlebar, so the keyboard stays on Chrome or Zed.
+# The rule is runtime-only: it is not written into the user's config, and the
+# runner drops it when the run ends. Same name on every slot, so several nests
+# share one rule.
 #
-# render_unfocused is off here. Left on, every nest keeps presenting at
-# misc:render_unfocused_fps while it sits under the other windows, and three of
-# those running together starve the pointer and the dock. A screenshot turns
-# the flag on for the one frame grim needs, then turns it off again.
+# pin stops the host from folding every nest into one tab group. They all
+# share the class aquamarine, and the desktop groups a new window with the
+# one of the same class already on the workspace. The tab that is not current
+# is not drawn, so the dock inside it never gets a frame, and a click on that
+# tab does not move the keyboard. The installed desktop skips a pinned window
+# when it looks for a peer. The pin dies with the window.
+#
+# The nest is not lowered. A covered window on the current workspace is not
+# drawn, so it gets no frame callback: Hyprland's unfocused-render timer skips
+# any window whose workspace is visible, and that timer is the only path that
+# also unlocks the client's buffer. A 1px overlay committing 10 times a second
+# is only a backstop for a nest something else has covered. The layer is
+# removed with the rule.
 #
 # The toplevel's class is the wayland backend's app id, "aquamarine", not
 # "Hyprland". A rule on the wrong class never matches, so the nest takes focus
@@ -141,29 +153,97 @@ nest_host_rule() { # true|false — render_unfocused
       float = true,
       size = \"900 1000\",
       move = \"40 40\",
-      no_focus = true,
+      pin = true,
       no_initial_focus = true,
       focus_on_activate = false,
-      suppress_event = \"activate activatefocus\",
       render_unfocused = ${render},
     })" >/dev/null
   done
 }
 
-nest_host_rule_on() { nest_host_rule false; }
+# One pixel, above every window, committing 10 times a second. It does not
+# take keyboard focus and it does not reserve space. The speck sits in the
+# bottom-right corner for the length of the run.
+nest_host_tick_start() {
+  local cfg="$NEST_ROOT/host-tick" i
+  mkdir -p "$cfg"
+  cat > "$cfg/shell.qml" <<'QML'
+import QtQuick
+import Quickshell
+import Quickshell.Wayland
 
-nest_host_rule_off() {
-  hyprctl eval 'hl.window_rule({ name = "x-mode-nest", enabled = false })' >/dev/null 2>&1 || true
-  hyprctl eval 'hl.window_rule({ name = "x-mode-nest-hl", enabled = false })' >/dev/null 2>&1 || true
+ShellRoot {
+  Variants {
+    model: Quickshell.screens
+    delegate: Component {
+      PanelWindow {
+        required property var modelData
+        screen: modelData
+        exclusionMode: ExclusionMode.Ignore
+        exclusiveZone: 0
+        focusable: false
+        aboveWindows: true
+        anchors { bottom: true; right: true }
+        implicitWidth: 1
+        implicitHeight: 1
+        color: "transparent"
+        WlrLayershell.namespace: "x-mode-nest-tick"
+
+        Rectangle {
+          id: pix
+          width: 1
+          height: 1
+          color: "#000000"
+        }
+
+        Timer {
+          interval: 100
+          running: true
+          repeat: true
+          onTriggered: pix.color = pix.color == "#000000" ? "#010101" : "#000000"
+        }
+      }
+    }
+  }
+}
+QML
+  setsid qs -p "$cfg" > "$NEST_ROOT/host-tick.log" 2>&1 < /dev/null &
+  echo $! > "$NEST_ROOT/host-tick.pid"
+  for i in $(seq 1 30); do
+    hyprctl layers -j 2>/dev/null | python3 -c '
+import json, sys
+data = json.load(sys.stdin) or {}
+for out in data.values():
+    for layers in ((out or {}).get("levels") or {}).values():
+        for layer in layers or []:
+            if layer.get("namespace") == "x-mode-nest-tick":
+                raise SystemExit(0)
+raise SystemExit(1)' && return 0
+    sleep 0.1
+  done
+  echo "host tick did not map" >&2
+  sed 's/^/       /' "$NEST_ROOT/host-tick.log" >&2
+  return 1
 }
 
-nest_host_focus() {
-  hyprctl activewindow -j 2>/dev/null | python3 -c '
-import json, sys
-try:
-    print((json.load(sys.stdin) or {}).get("address") or "")
-except Exception:
-    print("")'
+nest_host_tick_stop() {
+  local pid=""
+  [ -f "$NEST_ROOT/host-tick.pid" ] && pid="$(cat "$NEST_ROOT/host-tick.pid")"
+  if [ -n "$pid" ]; then
+    kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+  fi
+  rm -f "$NEST_ROOT/host-tick.pid"
+}
+
+nest_host_rule_on() {
+  nest_host_rule true
+  nest_host_tick_start
+}
+
+nest_host_rule_off() {
+  nest_host_tick_stop
+  hyprctl eval 'hl.window_rule({ name = "x-mode-nest", enabled = false })' >/dev/null 2>&1 || true
+  hyprctl eval 'hl.window_rule({ name = "x-mode-nest-hl", enabled = false })' >/dev/null 2>&1 || true
 }
 
 nest_start() {
@@ -330,19 +410,24 @@ for c in json.load(sys.stdin):
     sleep 0.2
   done
   [ -n "$addr" ] || return 0
-  local w="address:$addr"
-  # The host rule already floats, sizes and refuses focus. These dispatches are
-  # the fallback when that rule did not match, and they must not raise the
-  # window: alter_zorder top is what pulled it over the desktop on every run.
+  local w="address:$addr" x y
+  # Stagger so each titlebar sticks out of the pile. A click then hits the
+  # nest it is aimed at. Nothing here moves keyboard focus: handing it back
+  # to whoever was active when the run started is what sent a titlebar click
+  # to Chrome or Zed while the other nests were still mapping. The host rule
+  # pins the window, which is what keeps these from being tabs of one group.
+  x=$((40 + ${NEST_SLOT:-0} * 36))
+  y=$((40 + ${NEST_SLOT:-0} * 36))
+  # The host rule already floats and sizes. These dispatches are the fallback
+  # when that rule did not match, and they must not raise the window:
+  # alter_zorder top is what pulled it over the desktop on every run.
   hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"$w\" })" >/dev/null 2>&1 || true
   hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 1000, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
-  hyprctl dispatch "hl.dsp.window.move({ x = 40, y = 40, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
-  hyprctl dispatch "hl.dsp.window.alter_zorder({ mode = \"bottom\", window = \"$w\" })" >/dev/null 2>&1 || true
-  # A dispatch above can still activate the window once, before no_focus sticks.
-  # Hand focus back to whoever had it when the run started.
-  if [ -n "${NEST_HOST_FOCUS:-}" ] && [ "$(nest_host_focus)" = "$addr" ]; then
-    hyprctl dispatch "hl.dsp.focus({ window = \"address:$NEST_HOST_FOCUS\" })" >/dev/null 2>&1 || true
-  fi
+  hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
+  # Leave it where map put it, above the other windows. alter_zorder bottom
+  # covers the nest, and a covered window on the current workspace gets no
+  # frame callbacks: the dock, the menu and the bar then never commit.
+  # no_initial_focus is what keeps the map from taking the keyboard.
 }
 
 # What the current scenario changed in the live config. A plugin option is read
@@ -741,7 +826,7 @@ dock_start() {
   [ -d /usr/share/omarchy/shell/Commons ] || fail "Omarchy shell modules not found (needed for qs.Commons)"
   command -v qs >/dev/null || fail "quickshell (qs) not found"
   dock_stop
-  rm -rf "$DOCK_CFG" "$DOCK_LOG"
+  rm -rf "$DOCK_CFG"
   mkdir -p "$DOCK_CFG" "$NEST_STATE/home/.config/omarchy"
   # qs.* resolve from the config folder, so Omarchy's modules have to be there.
   ln -s /usr/share/omarchy/shell/Commons "$DOCK_CFG/Commons"
@@ -901,10 +986,12 @@ dock_pin() {
   mkdir -p "$(dirname "$(dock_pinned_file)")"
   printf '%s\n' "$1" > "$(dock_pinned_file)"
   [ -n "$before" ] || return 0
-  for i in $(seq 1 30); do
+  # A 100ms poll keeps the nest's command socket busy while the dock is
+  # trying to commit the new card. The slower gap is the same wait.
+  for i in $(seq 1 16); do
     cur="$(dock_box 2>/dev/null || true)"
     [ -n "$cur" ] && [ "$cur" != "$before" ] && { dock_settle; return 0; }
-    sleep 0.1
+    sleep 0.25
   done
   dock_settle
 }
@@ -920,10 +1007,13 @@ dock_menu_row_point() { # ICON_INDEX ROW_INDEX "26 7 26 ..."
   # click. Its width is the screen the card is placed against; the point is
   # meaningless until that width exists.
   local screen_w i
-  for i in $(seq 1 40); do
+  # A 50ms poll keeps the nest's socket busy, and the menu's own commit then
+  # waits behind it. A wider gap lets the layer finish mapping before the click.
+  for i in $(seq 1 20); do
     screen_w="$(dock_layer_box x-mode-dock-menu 2>/dev/null | awk '{print $3}')"
-    [ -n "$screen_w" ] && break
-    sleep 0.05
+    [ -n "$screen_w" ] && [ "$screen_w" -ge 100 ] && break
+    screen_w=""
+    sleep 0.25
   done
   [ -n "$screen_w" ] || fail "the dock menu did not open"
   python3 -c "
@@ -974,8 +1064,8 @@ pointer_release() { pointer button "${1:-left}" release; }
 # the host rule is applied while grim is already waiting; a frame that lands
 # before grim subscribes is missed, and another does not follow. The attempt
 # is capped so a missed poke fails the test instead of hanging the run. The
-# nest is pushed back under the other windows afterwards: applying the rule
-# can lift it for that one frame.
+# rule stays rendering: turning it off here is what left every later layer
+# commit in that nest uncommitted.
 nest_screenshot() { # FILE
   local attempt gpid
   for attempt in 1 2 3 4; do
@@ -984,32 +1074,21 @@ nest_screenshot() { # FILE
     sleep 0.2
     nest_host_rule true
     if wait "$gpid"; then
-      nest_host_rule false
       nest_host_lower
       return 0
     fi
   done
-  nest_host_rule false
   nest_host_lower
   fail "grim could not capture the nest"
 }
 
-# Every nest toplevel back to the bottom of the host stack, and focus back to
-# whoever had it when the run started if a poke took it.
+# Used to push every nest under the other windows after a screenshot. That
+# covers them, and a covered window on this workspace never gets a frame, so
+# the dock inside stops committing. A titlebar click then hits whatever is
+# painted on top of those pixels, which is Chrome or Zed. Leave the stacking
+# alone: the nests stay where they mapped, and only a click focuses one.
 nest_host_lower() {
-  local addr
-  while read -r addr; do
-    [ -n "$addr" ] || continue
-    hyprctl dispatch "hl.dsp.window.alter_zorder({ mode = \"bottom\", window = \"address:$addr\" })" >/dev/null 2>&1 || true
-    if [ -n "${NEST_HOST_FOCUS:-}" ] && [ "$(nest_host_focus)" = "$addr" ]; then
-      hyprctl dispatch "hl.dsp.focus({ window = \"address:$NEST_HOST_FOCUS\" })" >/dev/null 2>&1 || true
-    fi
-  done < <(hyprctl clients -j 2>/dev/null | python3 -c '
-import json, sys
-for c in json.load(sys.stdin):
-    if c.get("class") in ("aquamarine", "Hyprland"):
-        print(c.get("address") or "")
-')
+  :
 }
 
 # Number of pixels that differ between two shots. magick prints the count

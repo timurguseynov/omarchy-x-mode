@@ -37,18 +37,25 @@ A scenario's output is printed whether it passes or fails: a note it wants to
 make, or a message from a tool it ran, is exactly what swallowing would hide.
 
 `nest_clean()` runs between files, so a selected scenario is as isolated as it
-is in a full run. The run starts one nest (`NEST_JOBS`, default 1).
-`NEST_JOBS=2` or `3` gives each worker its own nest. A second nest on this
-machine drops dock events, so a parallel run fails a scenario that passes on
-its own, and the default stays one. A scenario that fails is run once more on
+is in a full run. The run starts one nest per worker (`NEST_JOBS`, default 3;
+`NEST_JOBS=1` keeps a single nest). A scenario that fails is run once more on
 the same nest, and a failure that comes back is reported.
 
 The nest is a window on this desktop. Its class is `aquamarine` (the wayland
 backend's app id). A runtime window rule on that class keeps it from taking
-focus and puts it under the other windows, and the runner removes that rule
-when it exits. A screenshot reapplies the rule while grim is waiting: a
-covered nest does not present a frame on its own, and grim blocks until one
-arrives.
+focus when it appears, and pins it. Every nest has that same class, and the
+desktop groups a new window with the one of the same class already open, so
+several nests would be tabs of one window. The tab that is not current is not
+drawn: the dock inside never finishes a commit, and a click on that tab leaves
+the keyboard on Chrome or Zed. A pinned window is not a candidate for that
+grouping. The window stays above the others, because a covered window on this
+workspace gets no frames. A click on its titlebar focuses that nest. A nest
+that maps later does not hand focus back. The windows are staggered by a
+titlebar each, so the click lands on the one it is aimed at. The runner
+removes the rule when it exits. A 1px corner layer commits ten times a second
+for the same reason a covered nest would otherwise stop; the layer goes away
+with the rule. A screenshot reapplies the rule while grim is waiting, which is
+what produces the frame grim is blocked on.
 
 Each nest has its own runtime directory, `/tmp/xmn-<slot>`. The name is that
 short on purpose: Hyprland's event socket path has to fit in 107 bytes, and
