@@ -21,6 +21,7 @@ local X_MODE_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "./"
 local settings = dofile(X_MODE_DIR .. "x-mode/settings.lua")
 local theme = dofile(X_MODE_DIR .. "x-mode/theme.lua")
 local mru = dofile(X_MODE_DIR .. "x-mode/mru.lua")
+local group = dofile(X_MODE_DIR .. "x-mode/group.lua")
 
 
 -- ---------------------------------------------------------------------------
@@ -1110,14 +1111,29 @@ local function apply_apps()
   always_applied = wanted_always
 end
 
-local function ungroup_chrome_off()
+local function ungroup_where(pred)
   for _, w in ipairs(hl.get_windows() or {}) do
-    if apps_off[window_class(w)] and w.group ~= nil then
+    if pred(window_class(w)) and w.group ~= nil then
       pcall(function()
         hl.dispatch(hl.dsp.window.move({ out_of_group = true, window = w }))
       end)
     end
   end
+end
+
+local function ungroup_chrome_off()
+  ungroup_where(function(cls)
+    return apps_off[cls]
+  end)
+end
+
+-- A nest that was already tabbed when this file loaded (the usual case on
+-- install) does not get a window.open, so skip_group never sees it. Pull it
+-- out here, same moment as a chrome-off window.
+local function ungroup_never()
+  ungroup_where(function(cls)
+    return group.never_group(cls)
+  end)
 end
 
 local function regroup_chrome_on()
@@ -1129,12 +1145,16 @@ local function regroup_chrome_on()
 end
 
 apply_apps()
-hl.timer(ungroup_chrome_off, { timeout = 250, type = "oneshot" })
+hl.timer(function()
+  ungroup_chrome_off()
+  ungroup_never()
+end, { timeout = 250, type = "oneshot" })
 
 x_mode = x_mode or {}
 function x_mode.refresh_apps_off()
   apply_apps()
   ungroup_chrome_off()
+  ungroup_never()
   regroup_chrome_on()
 end
 
@@ -1353,6 +1373,13 @@ local function skip_group(w)
   end
   local class = window_class(w)
   if apps_off[class] then
+    return true
+  end
+  -- Nested compositor toplevels share one class, so same-app grouping would
+  -- put every nest in one tab. The titlebar stays. hyprbars.groupable refuses
+  -- the same classes; this also covers the size fallback below, which runs
+  -- when the plugin is not loaded yet.
+  if group.never_group(class) then
     return true
   end
   if class == "" or class:find("portal", 1, true) or class:find("polkit", 1, true) or class:find("titlebar", 1, true) then

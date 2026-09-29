@@ -18,6 +18,7 @@
 #include <hyprutils/string/VarList.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <format>
 #include <cstdio>
 #include <cstdlib>
@@ -379,6 +380,17 @@ static int luaHoldUnderFullscreen(lua_State* L) {
     return 1;
 }
 
+// Nested Hyprland toplevels share one class (aquamarine, the wayland backend's
+// app id; some builds still say Hyprland). Same-app grouping would put every
+// nest in one tab. The titlebar stays — this only refuses the group. The same
+// list lives in hypr/x-mode/group.lua, which Lua checks before it asks here.
+static bool neverGroupClass(const PHLWINDOW& w) {
+    std::string cls = w->m_initialClass.empty() ? w->m_class : w->m_initialClass;
+    for (auto& c : cls)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return cls == "aquamarine" || cls == "hyprland";
+}
+
 // Same classification Hyprland uses for auto-group / float: override-redirect,
 // modal, X11 menu/combo/tooltip types, transients, and xdg children. Size is
 // not a signal — a small document is still a document.
@@ -390,7 +402,7 @@ static int luaGroupable(lua_State* L) {
         lua_pushboolean(L, false);
         return 1;
     }
-    if (w->isX11OverrideRedirect() || w->isModal() || g_pXWaylandManager->shouldBeFloated(w)) {
+    if (neverGroupClass(w) || w->isX11OverrideRedirect() || w->isModal() || g_pXWaylandManager->shouldBeFloated(w)) {
         lua_pushboolean(L, false);
         return 1;
     }
