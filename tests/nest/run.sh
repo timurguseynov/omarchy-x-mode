@@ -88,7 +88,14 @@ worker() { # SLOT TEST...
   # nest_bar_start fails with exit, which skips the nest_stop below and leaves
   # the compositor mapped on the host. The trap covers that path too.
   trap 'dock_stop; nest_stop' EXIT
-  nest_start || return 1
+  # A nest whose bar never reserves has no geometry the scenarios can trust.
+  # Starting it again is a new compositor: the first one's host connection
+  # is already gone. Five at once hit this; one more start is enough.
+  nest_start || {
+    nest_stop
+    sleep 0.5
+    nest_start
+  } || return 1
   local t name out rc=0
   for t in "$@"; do
     name="$(name_of "$t")"
@@ -131,9 +138,9 @@ done
 fail=0
 pids=()
 for s in $(seq 0 $((JOBS - 1))); do
-  # A short stagger so three compositors do not map on the host in one instant.
-  # That burst is what dropped a bar and pulled the nest forward.
-  [ "$s" -gt 0 ] && sleep 0.4
+  # A second apart. Mapping several nests in the same instant makes the
+  # host configure one of them as 0x0, and that nest's output never comes up.
+  [ "$s" -gt 0 ] && sleep 1
   # shellcheck disable=SC2086 - the slot list is a list of test paths
   worker "$s" ${slots[$s]} &
   pids+=($!)

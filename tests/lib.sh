@@ -329,7 +329,9 @@ try:
     mons = json.load(sys.stdin) or []
 except Exception:
     raise SystemExit(1)
-raise SystemExit(0 if any(int(m.get("width") or 0) > 0 for m in mons) else 1)
+# A 0x0 configure leaves the output up with no usable mode. Width stays
+# tiny, and the bar then reserves nothing. The real nest is 450 wide.
+raise SystemExit(0 if any(int(m.get("width") or 0) >= 400 for m in mons) else 1)
 '
 }
 
@@ -343,10 +345,20 @@ nest_bar_spawn() {
     sleep 0.05
   done
   [ -S "$disp" ] || fail "the nest wayland socket is not there"
-  for i in $(seq 1 50); do
-    nest_output_ready && break
+  # hyprctl grows a monitor a moment before a new client is sent wl_output.
+  # qs that connects in the gap keeps a placeholder screen and never reserves
+  # the top, so do not start it until the monitor is there, then give the
+  # global time to land. Five nests mapping together make this gap routine.
+  local ready=0
+  for i in $(seq 1 80); do
+    if nest_output_ready; then
+      ready=1
+      break
+    fi
     sleep 0.1
   done
+  [ "$ready" = 1 ] || return 1
+  sleep 0.2
   env WAYLAND_DISPLAY="$disp" \
     XDG_RUNTIME_DIR="$NEST_RUNTIME" \
     QT_QPA_PLATFORM=wayland \
@@ -357,10 +369,15 @@ nest_bar_spawn() {
 
 nest_bar_start() {
   local attempt _
-  # Two tries: three nests starting together sometimes drop the first shell
-  # before it maps a layer. The second one has the socket to itself.
-  for attempt in 1 2; do
-    nest_bar_spawn
+  # The first shell sometimes connects before the nest has an output, or
+  # the host drops that wayland client while several nests are mapping.
+  # A later try has the output, and a shell that already bound a placeholder
+  # is thrown away rather than waited on.
+  for attempt in 1 2 3; do
+    nest_bar_spawn || {
+      sleep 0.3
+      continue
+    }
     for _ in $(seq 1 40); do
       nest_bar_ready && return 0
       sleep 0.1
@@ -422,8 +439,25 @@ for c in json.load(sys.stdin):
   # when that rule did not match, and they must not raise the window:
   # alter_zorder top is what pulled it over the desktop on every run.
   hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"$w\" })" >/dev/null 2>&1 || true
-  hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 1000, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
-  hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
+  # The first configure the host sends can be 0x0 while it is busy mapping
+  # several nests. The wayland backend then commits a fallback size, the host
+  # rejects that mode, and the nest never gets an output. Keep resizing until
+  # the window is actually the box the rule asked for.
+  local sz=""
+  for i in $(seq 1 15); do
+    hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 1000, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
+    hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
+    sz="$(hyprctl clients -j 2>/dev/null | python3 -c "
+import json, sys
+for c in json.load(sys.stdin):
+    if c.get('pid') == $pid:
+        s = c.get('size') or [0, 0]
+        print(int(s[0]), int(s[1]))
+        break
+" || true)"
+    [ "$sz" = "900 1000" ] && break
+    sleep 0.1
+  done
   # Leave it where map put it, above the other windows. alter_zorder bottom
   # covers the nest, and a covered window on the current workspace gets no
   # frame callbacks: the dock, the menu and the bar then never commit.

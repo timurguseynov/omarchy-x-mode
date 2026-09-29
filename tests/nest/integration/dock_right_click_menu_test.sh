@@ -12,9 +12,19 @@ assert_eq "$(dock_layer_box x-mode-dock-menu 2>/dev/null || echo none)" none \
 
 read -r px py <<<"$(dock_icon_point 0)"
 pointer_click "$px" "$py" right
-settle
+# The menu is its own layer, and that commit waits on a frame. With several
+# nests the frame is later than a fixed third of a second, so poll for it.
+menu_open() {
+  local w
+  w="$(dock_layer_box x-mode-dock-menu 2>/dev/null | awk '{print $3}')"
+  [ -n "$w" ] && [ "$w" -ge 100 ]
+}
+for _ in $(seq 1 12); do
+  menu_open && break
+  sleep 0.25
+done
 
-w="$(dock_layer_box x-mode-dock-menu | awk '{print $3}')"
-assert_ge "$w" 100 "right-clicking an icon opens the context menu layer"
+w="$(dock_layer_box x-mode-dock-menu 2>/dev/null | awk '{print $3}')"
+assert_ge "${w:-0}" 100 "right-clicking an icon opens the context menu layer"
 
 dock_stop
