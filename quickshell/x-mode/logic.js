@@ -129,3 +129,99 @@ function rectsIntersect(a, b) {
     var bh = b.h !== undefined ? b.h : b.height
     return a.x < b.x + bw && a.x + aw > b.x && a.y < b.y + bh && a.y + ah > b.y
 }
+
+// Pin-list equality: a new array resizes the dock card, so the caller skips
+// the assign when the list is the same.
+function samePins(a, b) {
+    if (!a || !b || a.length !== b.length)
+        return false
+    for (var i = 0; i < a.length; i++) {
+        if (a[i] !== b[i])
+            return false
+    }
+    return true
+}
+
+// Dock model: group Hyprland clients by class, pinned first in pin order,
+// then the running rest sorted. Skips unmapped, hidden and empty-class
+// clients. Each entry is { cls, pinned, running, bestAddr, addrs, ws, wins }
+// where bestAddr is the window with the lowest focusHistoryID, ws maps
+// workspace id -> { addr, title, focus } and wins lists { addr, title, ws,
+// focus }. Pure: no QtQuick, no Hyprland, no side effects (the caller clears
+// its own "launching" flags and decides whether the sig changed).
+function buildDockApps(clients, pinned) {
+    var byClass = {}
+    var list = clients || []
+    for (var i = 0; i < list.length; i++) {
+        var c = list[i]
+        if (!c || !c.mapped || c.hidden)
+            continue
+        var cls = String(c.class || "")
+        if (cls === "")
+            continue
+        var e = byClass[cls]
+        if (e === undefined) {
+            e = { cls: cls, addrs: [], focus: 999999, bestAddr: c.address, ws: {}, wins: [] }
+            byClass[cls] = e
+        }
+        e.addrs.push(c.address)
+        var wid = c.workspace ? c.workspace.id : undefined
+        var f = c.focusHistoryID
+        if (typeof f !== "number")
+            f = 999999
+        e.wins.push({
+            addr: c.address,
+            title: String(c.title || "").trim(),
+            ws: wid !== undefined && wid !== null ? String(wid) : "",
+            focus: f
+        })
+        if (wid !== undefined && wid !== null) {
+            var key = String(wid)
+            var prev = e.ws[key]
+            if (!prev || f < prev.focus)
+                e.ws[key] = { addr: c.address, title: String(c.title || "").trim(), focus: f }
+        }
+        if (f < e.focus) {
+            e.focus = f
+            e.bestAddr = c.address
+        }
+    }
+    var out = []
+    var seen = {}
+    var pins = pinned || []
+    for (var p = 0; p < pins.length; p++) {
+        var pc = pins[p]
+        if (seen[pc])
+            continue
+        seen[pc] = true
+        var r = byClass[pc]
+        out.push({ cls: pc, pinned: true, running: r !== undefined, bestAddr: r ? r.bestAddr : "", addrs: r ? r.addrs : [], ws: r ? r.ws : {}, wins: r ? r.wins : [] })
+    }
+    var rest = []
+    for (var k in byClass) {
+        if (!seen[k])
+            rest.push(k)
+    }
+    rest.sort()
+    for (var j = 0; j < rest.length; j++) {
+        var rk = rest[j]
+        out.push({ cls: rk, pinned: false, running: true, bestAddr: byClass[rk].bestAddr, addrs: byClass[rk].addrs, ws: byClass[rk].ws, wins: byClass[rk].wins })
+    }
+    return out
+}
+
+// Dock change signature: class, pin/running state, best window and every
+// window title. A file manager navigating to another folder changes nothing
+// else, and the context menu reads these rows.
+function dockAppsSig(apps) {
+    var sig = ""
+    var out = apps || []
+    for (var m = 0; m < out.length; m++) {
+        sig += out[m].cls + "|" + out[m].pinned + "|" + out[m].running + "|" + out[m].bestAddr
+        var wins = out[m].wins
+        for (var n = 0; n < wins.length; n++)
+            sig += "|" + wins[n].addr + "=" + wins[n].title
+        sig += ";"
+    }
+    return sig
+}

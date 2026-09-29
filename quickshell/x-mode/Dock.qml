@@ -97,75 +97,17 @@ Item {
     return -1
   }
 
+  // Thin wrapper: the model itself (grouping, order, sig) is pure in
+  // logic.js so it is unit tested without a compositor. Only the side
+  // effects stay here: clearing "launching" and publishing apps/sig.
   function rebuildApps() {
-    var byClass = {}
-    for (var i = 0; i < clients.length; i++) {
-      var c = clients[i]
-      if (!c.mapped || c.hidden)
-        continue
-      var cls = String(c.class || "")
-      if (cls === "")
-        continue
-      var e = byClass[cls]
-      if (e === undefined) {
-        e = { cls: cls, addrs: [], focus: 999999, bestAddr: c.address, ws: {}, wins: [] }
-        byClass[cls] = e
-      }
-      e.addrs.push(c.address)
-      var wid = c.workspace ? c.workspace.id : undefined
-      var f = c.focusHistoryID
-      if (typeof f !== "number")
-        f = 999999
-      e.wins.push({
-        addr: c.address,
-        title: String(c.title || "").trim(),
-        ws: wid !== undefined && wid !== null ? String(wid) : "",
-        focus: f
-      })
-      if (wid !== undefined && wid !== null) {
-        var key = String(wid)
-        var prev = e.ws[key]
-        if (!prev || f < prev.focus)
-          e.ws[key] = { addr: c.address, title: String(c.title || "").trim(), focus: f }
-      }
-      if (f < e.focus) {
-        e.focus = f
-        e.bestAddr = c.address
-      }
-    }
-    var out = []
-    var seen = {}
-    for (var p = 0; p < pinned.length; p++) {
-      var pc = pinned[p]
-      if (seen[pc])
-        continue
-      seen[pc] = true
-      var r = byClass[pc]
-      out.push({ cls: pc, pinned: true, running: r !== undefined, bestAddr: r ? r.bestAddr : "", addrs: r ? r.addrs : [], ws: r ? r.ws : {}, wins: r ? r.wins : [] })
-    }
-    var rest = []
-    for (var k in byClass) {
-      if (!seen[k])
-        rest.push(k)
+    var out = Logic.buildDockApps(clients, pinned)
+    for (var i = 0; i < out.length; i++) {
       // The app appeared: it is no longer "launching".
-      if (root.launching[k] !== undefined)
-        delete root.launching[k]
+      if (out[i].running && root.launching[out[i].cls] !== undefined)
+        delete root.launching[out[i].cls]
     }
-    rest.sort()
-    for (var j = 0; j < rest.length; j++) {
-      var rk = rest[j]
-      out.push({ cls: rk, pinned: false, running: true, bestAddr: byClass[rk].bestAddr, addrs: byClass[rk].addrs, ws: byClass[rk].ws, wins: byClass[rk].wins })
-    }
-    var sig = ""
-    for (var m = 0; m < out.length; m++) {
-      sig += out[m].cls + "|" + out[m].pinned + "|" + out[m].running + "|" + out[m].bestAddr
-      // Titles too: a file manager navigating to another folder changes
-      // nothing else about the app, and the context menu reads these rows.
-      var wins = out[m].wins
-      for (var n = 0; n < wins.length; n++)
-        sig += "|" + wins[n].addr + "=" + wins[n].title
-      sig += ";"
-    }
+    var sig = Logic.dockAppsSig(out)
     if (sig !== root.appsSig) {
       root.appsSig = sig
       root.apps = out
@@ -173,13 +115,7 @@ Item {
   }
 
   function samePins(a, b) {
-    if (!a || !b || a.length !== b.length)
-      return false
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] !== b[i])
-        return false
-    }
-    return true
+    return Logic.samePins(a, b)
   }
 
   function focusAddr(addr) {

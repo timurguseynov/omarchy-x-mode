@@ -115,4 +115,58 @@ TestCase {
         compare(Logic.rectsIntersect({ x: 0, y: 0, w: 100, h: 100 }, { x: 100, y: 0, width: 100, height: 100 }), false, "touching edges do not overlap")
         compare(Logic.rectsIntersect({ x: 0, y: 0, w: 100, h: 100 }, { x: 200, y: 200, w: 10, h: 10 }), false)
     }
+
+    function test_samePins() {
+        compare(Logic.samePins(["a", "b"], ["a", "b"]), true)
+        compare(Logic.samePins(["a"], ["a", "b"]), false, "different length")
+        compare(Logic.samePins(["a", "b"], ["b", "a"]), false, "order matters")
+        compare(Logic.samePins([], []), true)
+        compare(Logic.samePins(null, ["a"]), false)
+    }
+
+    function mkClients() {
+        return [
+            { address: "0x1", "class": "foot", mapped: true, title: "t1", workspace: { id: 1 }, focusHistoryID: 1 },
+            { address: "0x2", "class": "foot", mapped: true, title: "t2", workspace: { id: 2 }, focusHistoryID: 0 },
+            { address: "0x3", "class": "zed", mapped: true, title: "z", workspace: { id: 1 }, focusHistoryID: 5 },
+            { address: "0x4", "class": "hiddenapp", mapped: true, hidden: true, title: "h", workspace: { id: 1 }, focusHistoryID: 2 },
+            { address: "0x5", "class": "unmapped", mapped: false, title: "u", workspace: { id: 1 }, focusHistoryID: 3 },
+            { address: "0x6", "class": "", mapped: true, title: "e", workspace: { id: 1 }, focusHistoryID: 4 }
+        ]
+    }
+
+    function test_buildDockApps_groups_and_orders() {
+        var apps = Logic.buildDockApps(mkClients(), ["zed", "foot", "missing"])
+        compare(apps.length, 3)
+        compare(apps[0].cls, "zed")
+        compare(apps[0].pinned, true)
+        compare(apps[0].running, true)
+        compare(apps[1].cls, "foot")
+        compare(apps[1].pinned, true)
+        compare(apps[1].bestAddr, "0x2", "lowest focusHistoryID wins")
+        compare(apps[1].addrs.length, 2)
+        compare(apps[1].ws["1"].addr, "0x1")
+        compare(apps[1].ws["2"].addr, "0x2")
+        compare(apps[2].cls, "missing")
+        compare(apps[2].pinned, true)
+        compare(apps[2].running, false)
+    }
+
+    function test_buildDockApps_unpinned_sorted_and_skips() {
+        var apps = Logic.buildDockApps(mkClients(), [])
+        compare(apps.length, 2, "hidden, unmapped and empty class are skipped")
+        compare(apps[0].cls, "foot")
+        compare(apps[1].cls, "zed")
+        compare(apps[0].wins.length, 2)
+    }
+
+    function test_dockAppsSig_covers_titles() {
+        var a = Logic.buildDockApps(mkClients(), [])
+        var b = Logic.buildDockApps(mkClients(), [])
+        compare(Logic.dockAppsSig(a), Logic.dockAppsSig(b))
+        var moved = mkClients()
+        moved[0].title = "elsewhere"
+        var c = Logic.buildDockApps(moved, [])
+        verify(Logic.dockAppsSig(c) !== Logic.dockAppsSig(a), "a title change moves the sig")
+    }
 }
