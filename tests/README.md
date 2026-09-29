@@ -42,20 +42,19 @@ is in a full run. The run starts one nest per worker (`NEST_JOBS`, default 3;
 the same nest, and a failure that comes back is reported.
 
 The nest is a window on this desktop. Its class is `aquamarine` (the wayland
-backend's app id). A runtime window rule on that class keeps it from taking
-focus when it appears, and pins it. Every nest has that same class, and the
-desktop groups a new window with the one of the same class already open, so
-several nests would be tabs of one window. The tab that is not current is not
-drawn: the dock inside never finishes a commit, and a click on that tab leaves
-the keyboard on Chrome or Zed. A pinned window is not a candidate for that
-grouping. The window stays above the others, because a covered window on this
-workspace gets no frames. A click on its titlebar focuses that nest. A nest
-that maps later does not hand focus back. The windows are staggered by a
-titlebar each, so the click lands on the one it is aimed at. The runner
-removes the rule when it exits. A 1px corner layer commits ten times a second
-for the same reason a covered nest would otherwise stop; the layer goes away
-with the rule. A screenshot reapplies the rule while grim is waiting, which is
-what produces the frame grim is blocked on.
+backend's app id). The pack keeps that class, and `Hyprland`, out of same-app
+groups, so several nests stay separate windows. A runtime window rule on that
+class keeps a nest from taking focus when it appears, and pins it. A covered
+window on this workspace gets no frames: the unfocused-render timer skips any
+window whose workspace is visible, so a nest that ends up under another app
+never finishes starting. The pin keeps it above the rest of the desktop. A
+1px corner layer commits ten times a second as a backstop for a nest something
+else has still covered; the layer goes away with the rule. A click on the
+titlebar focuses that nest. A nest that maps later does not hand focus back.
+The windows are staggered by a titlebar each, so the click lands on the one it
+is aimed at. The runner removes the rule when it exits. A screenshot reapplies
+the rule while grim is waiting, which is what produces the frame grim is
+blocked on.
 
 Each nest has its own runtime directory, `/tmp/xmn-<slot>`. The name is that
 short on purpose: Hyprland's event socket path has to fit in 107 bytes, and

@@ -61,9 +61,9 @@ build_keyboard
 build_nestq
 export NEST_SKIP_BUILD=1
 
-# Keep a newly mapped nest from taking focus, and pin it so the host does not
-# fold every nest into one tab group. A hidden tab is not drawn, and a click
-# on it leaves the keyboard on Chrome or Zed. The rule and the 1px tick are
+# Keep a newly mapped nest from taking focus, and pin it so a later focus
+# does not cover it. A covered nest on this workspace gets no frames, so its
+# bar and clients never commit. The rule and the 1px tick are
 # removed when this process exits, including after a failed run. A click on a
 # nest's titlebar focuses that nest. Placing another nest does not hand focus
 # back.

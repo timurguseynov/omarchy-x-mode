@@ -121,12 +121,12 @@ build_keyboard() {
 # runner drops it when the run ends. Same name on every slot, so several nests
 # share one rule.
 #
-# pin stops the host from folding every nest into one tab group. They all
-# share the class aquamarine, and the desktop groups a new window with the
-# one of the same class already on the workspace. The tab that is not current
-# is not drawn, so the dock inside it never gets a frame, and a click on that
-# tab does not move the keyboard. The installed desktop skips a pinned window
-# when it looks for a peer. The pin dies with the window.
+# pin keeps each nest above the rest of the desktop. A covered window on the
+# current workspace is not drawn, and the unfocused-render timer skips any
+# window whose workspace is visible, so that timer never unlocks a nest
+# something else has covered. The bar and the clients inside then never
+# commit, and the nest looks like it did not start. Same-app grouping already
+# skips class aquamarine and Hyprland. The pin dies with the window.
 #
 # The nest is not lowered. A covered window on the current workspace is not
 # drawn, so it gets no frame callback: Hyprland's unfocused-render timer skips
@@ -441,7 +441,7 @@ for c in json.load(sys.stdin):
   # nest it is aimed at. Nothing here moves keyboard focus: handing it back
   # to whoever was active when the run started is what sent a titlebar click
   # to Chrome or Zed while the other nests were still mapping. The host rule
-  # pins the window, which is what keeps these from being tabs of one group.
+  # pins the window, so a later focus does not cover it and stop its frames.
   x=$((40 + ${NEST_SLOT:-0} * 36))
   y=$((40 + ${NEST_SLOT:-0} * 36))
   # The host rule already floats and sizes. These dispatches are the fallback
