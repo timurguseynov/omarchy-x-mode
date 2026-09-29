@@ -296,7 +296,9 @@ nest_start() {
 
   nest_place_window "$pid"
 
-  [ "$NEST_BAR" = 1 ] && nest_bar_start
+  if [ "$NEST_BAR" = 1 ]; then
+    nest_bar_start || return 1
+  fi
   return 0
 }
 
@@ -344,16 +346,20 @@ nest_bar_spawn() {
     [ -S "$disp" ] && break
     sleep 0.05
   done
-  [ -S "$disp" ] || fail "the nest wayland socket is not there"
-  # hyprctl grows a monitor a moment before a new client is sent wl_output.
-  # qs that connects in the gap keeps a placeholder screen and never reserves
-  # the top, so do not start it until the monitor is there, then give the
-  # global time to land. Five nests mapping together make this gap routine.
-  local ready=0
-  for i in $(seq 1 80); do
+  [ -S "$disp" ] || return 1
+  # The first configure is 0x0. The backend answers with 1280x720, the host
+  # rejects that mode, and for a moment hyprctl still reports a wide monitor.
+  # qs started on that blip binds no real screen. Wait until the width holds.
+  local ready=0 streak=0
+  for i in $(seq 1 100); do
     if nest_output_ready; then
-      ready=1
-      break
+      streak=$((streak + 1))
+      if [ "$streak" -ge 3 ]; then
+        ready=1
+        break
+      fi
+    else
+      streak=0
     fi
     sleep 0.1
   done
@@ -384,9 +390,12 @@ nest_bar_start() {
     done
     nest_bar_stop
   done
+  # return, do not exit. fail() ends the worker, so the caller's
+  # "start the nest again" never runs and one missed bar drops the slot.
   echo "bar reserved '$(bar_top 2>/dev/null)'" >&2
   sed 's/^/       /' "$NEST_STATE/bar.log" >&2
-  fail "the nest bar did not reserve the top"
+  echo "the nest bar did not reserve the top" >&2
+  return 1
 }
 
 nest_bar_stop() {

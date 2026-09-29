@@ -85,17 +85,18 @@ worker() { # SLOT TEST...
   shift
   SIG=""
   nest_paths
-  # nest_bar_start fails with exit, which skips the nest_stop below and leaves
-  # the compositor mapped on the host. The trap covers that path too.
+  # A missed bar used to exit the worker, so the retry below never ran and
+  # the compositor stayed up. The trap still covers a real exit.
   trap 'dock_stop; nest_stop' EXIT
   # A nest whose bar never reserves has no geometry the scenarios can trust.
-  # Starting it again is a new compositor: the first one's host connection
-  # is already gone. Five at once hit this; one more start is enough.
-  nest_start || {
+  # Starting it again is a new compositor. The first attempt returns instead
+  # of exiting, which is what lets this second start happen.
+  if ! nest_start; then
+    echo "nest bar missed on slot $NEST_SLOT, starting again" >&2
     nest_stop
     sleep 0.5
-    nest_start
-  } || return 1
+    nest_start || return 1
+  fi
   local t name out rc=0
   for t in "$@"; do
     name="$(name_of "$t")"
