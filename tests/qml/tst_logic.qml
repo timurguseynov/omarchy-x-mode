@@ -173,6 +173,58 @@ TestCase {
         verify(ids.indexOf("unpin") !== -1, "pinned app offers unpin")
     }
 
+    function mkPanelRunning() {
+        return [
+            { cls: "org.gnome.Nautilus", title: "Downloads" },
+            { cls: "foot", title: "term" }
+        ]
+    }
+
+    function test_filterPanelApps() {
+        var names = { "org.gnome.Nautilus": "Files" }
+        function nm(cls) { return names[cls] || cls }
+        compare(Logic.filterPanelApps(mkPanelRunning(), "", nm).length, 2, "empty query matches all")
+        compare(Logic.filterPanelApps(mkPanelRunning(), "nau", nm)[0].cls, "org.gnome.Nautilus", "class matches")
+        compare(Logic.filterPanelApps(mkPanelRunning(), "files", nm)[0].cls, "org.gnome.Nautilus", "display name matches")
+        compare(Logic.filterPanelApps(mkPanelRunning(), "DOWN", nm)[0].cls, "org.gnome.Nautilus", "title matches, case-insensitive")
+        compare(Logic.filterPanelApps(mkPanelRunning(), "zzz", nm).length, 0)
+    }
+
+    function test_findPanelApp() {
+        var r = Logic.findPanelApp(mkPanelRunning(), "FOOT")
+        compare(r.title, "term", "class matches case-insensitively")
+        compare(Logic.findPanelApp(mkPanelRunning(), ""), null)
+        var missing = Logic.findPanelApp(mkPanelRunning(), "zed")
+        compare(missing.cls, "zed")
+        compare(missing.title, "")
+    }
+
+    function test_panelCfg() {
+        var dflt = Logic.panelCfgFor({}, "Zed")
+        compare(dflt.chrome, true)
+        compare(dflt.alwaysTabbar, false)
+        var off = Logic.panelCfgFor({ "zed": { chrome: false } }, "ZED")
+        compare(off.chrome, false)
+        compare(Logic.mergePanelCfg({ "a": { chrome: false } }, "b", true, false).b, undefined, "default is dropped")
+        var kept = Logic.mergePanelCfg({}, "b", false, false)
+        compare(kept.b.chrome, false)
+        compare(Logic.mergePanelCfg({}, "", true, false), null, "empty class")
+    }
+
+    function test_buildPanelRunning() {
+        var clients = [
+            { "class": "Foot", mapped: true, title: "old", focusHistoryID: 3 },
+            { "class": "foot", mapped: true, title: "new", focusHistoryID: 1 },
+            { "class": "zed", mapped: false, title: "x", focusHistoryID: 0 },
+            { "class": "", mapped: true, title: "e", focusHistoryID: 0 }
+        ]
+        var list = Logic.buildPanelRunning(clients, { "sublime_text": { chrome: false } })
+        compare(list.length, 2, "unmapped and empty class skipped, cfg-only kept")
+        compare(list[0].cls, "foot")
+        compare(list[0].title, "new", "best focus wins the title")
+        compare(list[1].cls, "sublime_text")
+    }
+
     function test_rectsIntersect() {
         compare(Logic.rectsIntersect({ x: 0, y: 0, w: 100, h: 100 }, { x: 50, y: 50, width: 100, height: 100 }), true)
         compare(Logic.rectsIntersect({ x: 0, y: 0, w: 100, h: 100 }, { x: 100, y: 0, width: 100, height: 100 }), false, "touching edges do not overlap")

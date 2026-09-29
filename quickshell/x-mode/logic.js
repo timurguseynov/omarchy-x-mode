@@ -266,6 +266,101 @@ function buildMenuActions(menuApp, apps, displayName, singleInstance) {
     return { app: app, actions: a }
 }
 
+// Settings-panel app list filter: class, display name or window title contain
+// the query (case-insensitive). appName maps a class to its display name.
+function filterPanelApps(running, query, appName) {
+    var q = String(query || "").trim().toLowerCase()
+    var out = []
+    var list = running || []
+    for (var i = 0; i < list.length; i++) {
+        var a = list[i]
+        if (q === "" || String(a.cls).toLowerCase().indexOf(q) >= 0
+                || String(appName(a.cls)).toLowerCase().indexOf(q) >= 0
+                || String(a.title || "").toLowerCase().indexOf(q) >= 0)
+            out.push(a)
+    }
+    return out
+}
+
+// Open app detail: the running entry whose class matches (case-insensitive),
+// or a blank row for a configured-but-not-running class. Null when closed.
+function findPanelApp(running, openCls) {
+    var key = String(openCls || "").toLowerCase()
+    if (key === "")
+        return null
+    var list = running || []
+    for (var i = 0; i < list.length; i++) {
+        if (String(list[i].cls).toLowerCase() === key)
+            return list[i]
+    }
+    return { cls: key, title: "" }
+}
+
+// Per-app chrome config with defaults (titlebar on, tabbar auto).
+function panelCfgFor(appsCfg, cls) {
+    var key = String(cls || "").toLowerCase()
+    var e = (appsCfg || {})[key]
+    if (!e)
+        return { chrome: true, alwaysTabbar: false }
+    return {
+        chrome: e.chrome !== false,
+        alwaysTabbar: !!e.alwaysTabbar
+    }
+}
+
+// Per-app config update: a copy with the entry set, or dropped when it is the
+// implicit default (chrome on, tabbar auto). Null for an empty class.
+function mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar) {
+    var key = String(cls || "").toLowerCase()
+    if (key === "")
+        return null
+    var next = {}
+    var cfg = appsCfg || {}
+    for (var k in cfg)
+        next[k] = cfg[k]
+    if (chrome && !alwaysTabbar)
+        delete next[key]
+    else
+        next[key] = { chrome: chrome, alwaysTabbar: !!alwaysTabbar }
+    return next
+}
+
+// Settings-panel running list: one row per app class with the best-focus
+// window's title, plus configured-but-not-running classes, sorted by class.
+// Pure: the caller assigns it to `running`.
+function buildPanelRunning(clients, appsCfg) {
+    var by = {}
+    var list = clients || []
+    for (var i = 0; i < list.length; i++) {
+        var c = list[i]
+        if (!c || !c.mapped)
+            continue
+        var cls = String(c.class || c.initialClass || "")
+        if (cls === "")
+            continue
+        var key = cls.toLowerCase()
+        var title = String(c.title || "")
+        if (!by[key])
+            by[key] = { cls: cls, title: title, focus: 999999 }
+        var f = c.focusHistoryID
+        if (typeof f === "number" && f < by[key].focus) {
+            by[key].focus = f
+            by[key].title = title
+            by[key].cls = cls
+        }
+    }
+    var cfg = appsCfg || {}
+    for (var k in cfg) {
+        if (!by[k])
+            by[k] = { cls: k, title: "", focus: 999998 }
+    }
+    var out = []
+    for (var k2 in by)
+        out.push(by[k2])
+    out.sort(function(a, b) { return String(a.cls).localeCompare(String(b.cls)) })
+    return out
+}
+
 // Axis-aligned rectangle overlap. Reads w/h or width/height, so callers can
 // pass QML item boxes straight through.
 function rectsIntersect(a, b) {

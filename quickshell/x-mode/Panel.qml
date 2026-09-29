@@ -51,26 +51,11 @@ Panel {
   property string query: ""
   property string openCls: ""
 
-  readonly property var filtered: {
-    var q = String(query || "").trim().toLowerCase()
-    var out = []
-    for (var i = 0; i < running.length; i++) {
-      var a = running[i]
-      if (q === "" || String(a.cls).toLowerCase().indexOf(q) >= 0 || root.appName(a.cls).toLowerCase().indexOf(q) >= 0 || String(a.title || "").toLowerCase().indexOf(q) >= 0)
-        out.push(a)
-    }
-    return out
-  }
+  // Pure list work lives in logic.js (unit tested); the resolver callback is
+  // the only Quickshell-adjacent bit that stays here.
+  readonly property var filtered: Logic.filterPanelApps(running, query, function(cls) { return root.appName(cls) })
 
-  readonly property var openApp: {
-    if (openCls === "")
-      return null
-    for (var i = 0; i < running.length; i++) {
-      if (String(running[i].cls).toLowerCase() === openCls)
-        return running[i]
-    }
-    return { cls: openCls, title: "" }
-  }
+  readonly property var openApp: Logic.findPanelApp(running, openCls)
 
   // Same resolution the dock uses (desktop entry Icon=, web-app URL host,
   // chromium extension manifest, on-disk icon index, then Qt themed lookup).
@@ -85,29 +70,15 @@ Panel {
   }
 
   function cfgFor(cls) {
-    var key = String(cls || "").toLowerCase()
-    var e = appsCfg[key]
-    if (!e)
-      return { chrome: true, alwaysTabbar: false }
-    return {
-      chrome: e.chrome !== false,
-      alwaysTabbar: !!e.alwaysTabbar
-    }
+    return Logic.panelCfgFor(appsCfg, cls)
   }
 
   function setCfg(cls, chrome, alwaysTabbar) {
-    var key = String(cls || "").toLowerCase()
-    if (key === "")
-      return
-    var next = {}
-    for (var k in appsCfg)
-      next[k] = appsCfg[k]
     // Persist only non-default chrome (off) or alwaysTabbar; chrome-on alone
     // is the implicit default and can be dropped from the app list.
-    if (chrome && !alwaysTabbar)
-      delete next[key]
-    else
-      next[key] = { chrome: chrome, alwaysTabbar: !!alwaysTabbar }
+    var next = Logic.mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar)
+    if (!next)
+      return
     appsCfg = next
     writeSettings("hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null")
   }
@@ -144,34 +115,7 @@ Panel {
   }
 
   function rebuildRunning(clients) {
-    var by = {}
-    for (var i = 0; i < clients.length; i++) {
-      var c = clients[i]
-      if (!c || !c.mapped)
-        continue
-      var cls = String(c.class || c.initialClass || "")
-      if (cls === "")
-        continue
-      var key = cls.toLowerCase()
-      var title = String(c.title || "")
-      if (!by[key])
-        by[key] = { cls: cls, title: title, focus: 999999 }
-      var f = c.focusHistoryID
-      if (typeof f === "number" && f < by[key].focus) {
-        by[key].focus = f
-        by[key].title = title
-        by[key].cls = cls
-      }
-    }
-    for (var k in appsCfg) {
-      if (!by[k])
-        by[k] = { cls: k, title: "", focus: 999998 }
-    }
-    var list = []
-    for (var k2 in by)
-      list.push(by[k2])
-    list.sort(function(a, b) { return String(a.cls).localeCompare(String(b.cls)) })
-    running = list
+    running = Logic.buildPanelRunning(clients, appsCfg)
   }
 
   function refreshClients() {
