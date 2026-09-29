@@ -275,6 +275,23 @@ TestCase {
         compare(apps[0].wins.length, 2)
     }
 
+    function test_buildDockApps_pin_moves_running() {
+        var clients = [
+            { address: "0x1", "class": "foot", mapped: true, title: "t", workspace: { id: 1 }, focusHistoryID: 0 },
+            { address: "0x2", "class": "kitty", mapped: true, title: "k", workspace: { id: 1 }, focusHistoryID: 1 }
+        ]
+        var before = Logic.buildDockApps(clients, [])
+        compare(before[0].cls, "foot")
+        compare(before[0].pinned, false)
+        compare(before[1].cls, "kitty")
+        var after = Logic.buildDockApps(clients, Logic.togglePinInList([], "kitty"))
+        compare(after[0].cls, "kitty")
+        compare(after[0].pinned, true)
+        compare(after[0].running, true)
+        compare(after[1].cls, "foot")
+        compare(after[1].pinned, false)
+    }
+
     function test_dockAppsSig_covers_titles() {
         var a = Logic.buildDockApps(mkClients(), [])
         var b = Logic.buildDockApps(mkClients(), [])

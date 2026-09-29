@@ -42,6 +42,8 @@ Pack code, in this repo:
   `nest/integration/` holding the regressions). `tests/pointer/` and
   `tests/keyboard/` are the tools that let a scenario click, drag and press keys,
   and the dock runs a Quickshell of its own; `tests/README.md` has the details.
+  Run the full suite and the nest **only** as `NEST_JOBS=5 NEST_WORKSPACE=5`;
+  other values are not a sanctioned check and their results do not count.
 - `hyprbars/` — vendored patched hyprbars (titlebar, tabbar, drag, snap).
   `build.sh` builds it; `README.md` lists its config keys.
 - `quickshell/x-mode/` — the shell plugin.
@@ -67,6 +69,10 @@ Pack code, in this repo:
   for it instead of collecting it yourself.
 - `tests/run.sh` is the sanctioned check. Always run it, and `tests/nest/run.sh`,
   as `NEST_JOBS=5 NEST_WORKSPACE=5`: five nests at once, mapped on workspace 5.
+  That is the only sanctioned way to run them. Do not run the full `tests/run.sh`
+  or the whole nest with a different `NEST_JOBS`/`NEST_WORKSPACE` (including the
+  defaults), and do not treat such a run as evidence: a difference there is a
+  property of the run, not of the change.
   It is automated and isolated: the unit layer is plain lua, the nest layer is a
   nested Hyprland with its own state directory and a runtime directory of its
   own, so nothing the pack writes (the state file, the switcher and preview

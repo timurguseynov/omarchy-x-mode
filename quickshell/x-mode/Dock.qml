@@ -55,7 +55,6 @@ Item {
 
   readonly property var pinnedApps: apps.filter(function(a) { return a.pinned })
   readonly property var runningApps: apps.filter(function(a) { return !a.pinned })
-  readonly property bool menuPinned: menuApp ? !!menuApp.pinned : false
   // Depends on appsSig as well as menuOpen: menuApp is a snapshot taken when
   // the menu opened, so a window whose title changes afterwards (a file
   // manager navigating to another folder) would keep showing the old title
@@ -215,6 +214,11 @@ Item {
   function togglePin(cls) {
     pinned = Logic.togglePinInList(pinned, cls)
     pinnedFile.setText(JSON.stringify(pinned, null, 2) + "\n")
+    // Same as a drag reorder: the card reads `apps`, not `pinned`, so without
+    // this the icon stays in the running section until a client event or the
+    // 3s reconcile. The file watch cannot do it either: we already assigned
+    // `pinned`, so onLoaded sees the same list and skips.
+    rebuildApps()
   }
 
   function movePinTo(from, to) {
@@ -278,16 +282,20 @@ Item {
   }
 
   function menuActions() {
-    // menuApp is the app object captured at open time. The client list is
-    // re-read on windowtitle, so swap in the current entry for the same class
-    // before building the rows — otherwise the titles stay frozen.
+    // menuApp is the snapshot taken at open time. Rows are built from the
+    // current `apps` entry for that class (titles update on windowtitle).
+    // Do not assign menuApp here: this function is the menuActionsModel
+    // binding, and writing a property it reads is a binding loop that freezes
+    // the dock the moment the menu is open (Pin, a title change, anything
+    // that retriggers the binding).
     var r = Logic.buildMenuActions(menuApp, apps, menuApp ? root.appDisplayName(menuApp.cls) : "", menuApp ? root.isSingleInstance(menuApp.cls) : false)
-    menuApp = r.app
     return r.actions
   }
 
   function runMenuAction(id) {
-    var app = menuApp
+    // Fresh entry for the class, same swap the rows use. menuApp stays the
+    // open-time snapshot so the binding above never has to write it.
+    var app = Logic.buildMenuActions(menuApp, apps, "", false).app
     if (typeof id === "string" && id.indexOf("win:") === 0) {
       focusAddr(id.slice(4))
     } else if (typeof id === "string" && id.indexOf("ws:") === 0) {
@@ -297,9 +305,12 @@ Item {
       focusAddr(addr)
     } else if (id === "new")
       launchApp(app)
-    else if (id === "pin" || id === "unpin")
-      togglePin(app.cls)
-    else if (id === "close")
+    else if (id === "pin" || id === "unpin") {
+      // Pin rebuilds `apps` and resizes the card. Doing that (or destroying
+      // the overlay) inside this click waits on a frame that cannot arrive
+      // until the handler returns, and the dock never commits again.
+      menuCloseDefer.pinCls = app ? app.cls : ""
+    } else if (id === "close")
       closeApp(app)
     // The menu layer goes away on the next turn. Destroying it in this click
     // waits on a frame callback before the close or focus dispatch is written,
@@ -311,7 +322,14 @@ Item {
     id: menuCloseDefer
     interval: 0
     repeat: false
-    onTriggered: root.closeMenu()
+    property string pinCls: ""
+    onTriggered: {
+      var cls = pinCls
+      pinCls = ""
+      root.closeMenu()
+      if (cls)
+        root.togglePin(cls)
+    }
   }
 
   Process {
@@ -565,24 +583,29 @@ Item {
     onFileChanged: reload()
     onLoaded: {
       var next = []
+      var parsed = false
       try {
         var d = JSON.parse(text())
-        if (Array.isArray(d))
+        if (Array.isArray(d)) {
           next = d
+          parsed = true
+        }
       } catch (e) {}
       // Same list: do not assign. A new array resizes the card, and that
       // commit is what we are trying not to repeat on the re-read below.
       if (root.samePins(root.pinned, next))
         return
+      // Atomic writes replace the file. A read that races the rename is
+      // empty or invalid, and treating that as "unpinned everything" emptied
+      // the card the moment someone pinned. A real `[]` still parses and
+      // clears. Keep the in-memory list until the next reload catches up.
+      if (!parsed && root.pinned.length > 0)
+        return
       root.pinned = next
       root.rebuildApps()
     }
-    onLoadFailed: {
-      if (root.pinned.length === 0)
-        return
-      root.pinned = []
-      root.rebuildApps()
-    }
+    // No onLoadFailed wipe: an atomic write can miss the file for a moment,
+    // and treating that as "unpinned everything" emptied the card on Pin.
   }
 
   // inotify does not see a pin file that is created after the dock has
