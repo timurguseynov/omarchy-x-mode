@@ -7,19 +7,21 @@
 --
 -- This file holds the pack: the floating desktop, the Mac titlebar/tabbar
 -- (patched hyprbars), and the Rectangle-style snap + same-app grouping engine.
--- Pure geometry lives next to it in x-mode/geom.lua so it can be tested on its
--- own (tests/unit). Personal look'n'feel (input, monitors, decoration, native
--- snap, ...) lives in a separate file the pack does not own — see
--- omarchy-x-vm/taste.lua — so uninstalling the pack never removes it.
+-- Geometry is not here: the plugin owns it (hyprbars/snap.cpp -- zones, the snap
+-- cycle, the work frame, the chrome), and this config asks it. Pure parsing is
+-- still next to it in x-mode/ so it can be tested on its own (tests/unit).
+-- Personal look'n'feel (input, monitors, decoration, native snap, ...) lives in
+-- a separate file the pack does not own -- see omarchy-x-vm/taste.lua -- so
+-- uninstalling the pack never removes it.
 
 -- Resolve this chunk's directory so the sibling module is found both installed
 -- (~/.config/hypr/x-mode.lua) and straight from the repo (the tests load this
 -- file out of hypr/).
 local X_MODE_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "./"
-local geom = dofile(X_MODE_DIR .. "x-mode/geom.lua")
 local settings = dofile(X_MODE_DIR .. "x-mode/settings.lua")
 local theme = dofile(X_MODE_DIR .. "x-mode/theme.lua")
 local mru = dofile(X_MODE_DIR .. "x-mode/mru.lua")
+local group = dofile(X_MODE_DIR .. "x-mode/group.lua")
 
 
 -- ---------------------------------------------------------------------------
@@ -124,7 +126,6 @@ end
 -- fallbacks only apply if a key isn't readable.
 local GAP_FALLBACK      = 8
 local TITLEBAR_FALLBACK = 28
-local GROUPBAR_FALLBACK = 24
 
 hl.config({
   general = {
@@ -144,7 +145,14 @@ hl.config({
     -- (that would be 1). 2 is Hyprland's "detached": pointer events still go to
     -- the window under the cursor, so scrolling and the like work over a window
     -- without focusing it, while focus itself still changes on click.
+    -- Omarchy sets follow_mouse = 1 earlier in the config; this file is loaded
+    -- last and puts it back.
     follow_mouse = 2,
+    -- The default (1) still focuses the window under the cursor when one of the
+    -- two is tiled and the other is floating. A client-maximized window is that
+    -- tiled side, so moving the pointer onto it focuses it even though
+    -- follow_mouse is 2. Everything here is floating; hover must not focus.
+    float_switch_override_focus = 0,
   },
   binds = {
     -- Matches the drag threshold in the patched hyprbars titlebar drag.
@@ -179,7 +187,12 @@ hl.animation({ leaf = "border", enabled = false })
 -- Desktop-style window rules: everything opens floating (the pack is a
 -- macOS-like desktop, not a tiler); Super+T (toggle floating/tiling) is unbound
 -- below.
-o.window(".*", { float = true, opacity = "1.0 override 1.0 override" })
+-- suppress_event = maximize: a client request to maximize (Zed does this on
+-- startup) would enter Hyprland's FSMODE_MAXIMIZED. That mode is not a
+-- floating window, and a later move is ignored, so the titlebar drag does
+-- nothing until something (Super+Alt+F) takes it back out. Real fullscreen
+-- is a different request and is not suppressed.
+o.window(".*", { float = true, opacity = "1.0 override 1.0 override", suppress_event = "maximize" })
 -- Omarchy's browser defaults force Chromium-based apps to tile. That tag rule
 -- wins over the catch-all above, so override it here.
 o.window({ tag = "chromium-based-browser" }, { tile = false, float = true })
@@ -274,7 +287,6 @@ local function cfg_int(key, fallback)
 end
 
 local TITLEBAR          = cfg_int("plugin:hyprbars:bar_height", TITLEBAR_FALLBACK)
-local GROUPBAR          = cfg_int("plugin:hyprbars:tab_height", GROUPBAR_FALLBACK)
 -- Read live: the panel's "No gaps" option rewrites general:gaps_out and
 -- general:border_size at runtime, and snap geometry has to follow.
 local function GAP_OUT()
@@ -286,12 +298,15 @@ end
 -- The dock overlays windows (it reserves no screen space). Snap zones keep the
 -- full work area and only the right edge is pulled in by the dock card plus half
 -- the outer gap, which is the dock's own screen margin (Style.gapsOut). The card
--- width matches Dock.qml (iconSize + pad*2) and is pushed to hyprbars below.
-local DOCK_CARD         = 40
+-- width is the dock's own (Dock.qml: iconSize + pad*2); it is read off the
+-- x-mode-dock layer below, so a change to the card moves the zones with it.
+-- Until that layer exists (the shell starts after this config) the last width
+-- it had is used, and this one only before it has ever been seen.
+local DOCK_CARD_FALLBACK = 40
+local dock_card = DOCK_CARD_FALLBACK
 local function DOCK_PULL()
-  return DOCK_CARD + math.floor(GAP_OUT() / 2)
+  return dock_card + math.floor(GAP_OUT() / 2)
 end
-local ALMOST_MAXIMIZE   = cfg_int("plugin:hyprbars:x_mode_almost_maximize_percent", 90) / 100
 local GROUP_MIN_W       = cfg_int("plugin:hyprbars:x_mode_group_min_width", 400)
 local GROUP_MIN_H       = cfg_int("plugin:hyprbars:x_mode_group_min_height", 300)
 
@@ -324,6 +339,34 @@ local function apply_gap_geometry()
 end
 
 apply_gap_geometry()
+
+-- The dock's card width, taken from its own layer surface (namespace
+-- x-mode-dock). The shell starts after this config, and the layer is gone for
+-- a moment while it restarts, so a missing layer keeps the last width: zones
+-- must not jump to the fallback and back every time the shell blinks. A layer
+-- that maps before its first arrange reports no width; that one is skipped.
+local function dock_card_now()
+  local ok, layers = pcall(hl.get_layers, { namespace = "x-mode-dock" })
+  if not ok or type(layers) ~= "table" then
+    return nil
+  end
+  for _, layer in ipairs(layers) do
+    local w = tonumber(layer.w)
+    if w ~= nil and w > 0 then
+      return math.floor(w)
+    end
+  end
+  return nil
+end
+
+local function refresh_dock_card()
+  local w = dock_card_now()
+  if w == nil or w == dock_card then
+    return
+  end
+  dock_card = w
+  apply_gap_geometry()
+end
 
 -- Load hyprpm-managed plugins, then the patched x-mode hyprbars on login
 -- (install.sh loads it immediately too). Disable a stock hyprbars first so only
@@ -373,44 +416,20 @@ local function vec(value)
 end
 
 -- The top the bar reserves. It is a layer-shell surface and is gone for a
--- moment while the shell restarts, so a snap in that window saw a zero top and
--- put the window under the bar. Remember the last non-zero top per monitor and
--- fall back to it for a few seconds, the same as Snap::usable in hyprbars: a
--- bar that really moved away (bottom/left/right, or none) stops applying. A
--- hardcoded height would leave a phantom inset over a bottom bar.
-local bar_top_seen = {}
-local function resolved_top(monitor, top)
-  local name = tostring(monitor.name or monitor.id or "")
-  if top > 0 then
-    bar_top_seen[name] = { top = top, at = os.time() }
-    return top
-  end
-  local seen = bar_top_seen[name]
-  if seen ~= nil and os.time() - seen.at < 10 then
-    return seen.top
-  end
-  return top
-end
-
 local function usable(monitor)
-  local _, top = geom.reserved(monitor)
-  -- Use the plugin's number when it is there: it keeps the bar's height through
-  -- the shell restart at install, and this Lua clamp has to lift a group's
-  -- tabbar out from under the bar with the same value the snap used. The Lua
-  -- memory below is only for a plugin that is not loaded.
+  -- The plugin's frame: the monitor minus its reserved area and the dock inset,
+  -- with the same bar-height memory across a shell restart a snap uses. It is
+  -- the frame a left and a right half split, so a clamp or a restore default
+  -- taken from it can never disagree with the zones.
   local p = bars()
-  local ok, plugin_top = false, nil
-  if p ~= nil and p.bar_top ~= nil then
-    ok, plugin_top = pcall(p.bar_top, monitor.name)
+  if p == nil or p.usable == nil or monitor == nil then
+    return nil
   end
-  if ok and type(plugin_top) == "number" then
-    top = plugin_top
-  else
-    top = resolved_top(monitor, top)
+  local ok, box = pcall(p.usable, monitor.name)
+  if not ok or type(box) ~= "table" then
+    return nil
   end
-  -- The frame already excludes the dock inset (see geom.frame), so the zone
-  -- fractions taken from it keep a left and a right half from overlapping.
-  return geom.frame(monitor, top, DOCK_PULL())
+  return box.x, box.y, box.w, box.h
 end
 
 local function window_class(w)
@@ -421,30 +440,17 @@ local function window_class(w)
 end
 
 local function chrome_h(window)
-  if window ~= nil then
-    local e = apps_cfg and apps_cfg[window_class(window)]
-    -- chrome=false → no titlebar/tabbar at all (mirrors Snap::chromeH's
-    -- no_bar check in hyprbars/snap.cpp). Without this the Lua cycle branch
-    -- of snap_or_expand added the bar height to a window that has no bar.
-    if e and e.chrome == false then
-      return 0
-    end
+  -- The plugin's number, including its no_bar check (Snap::chromeH): a window
+  -- with its titlebar off has no chrome to keep free above its content.
+  local p = bars()
+  if p == nil or p.chrome_height == nil then
+    return 0
   end
-  local h = TITLEBAR
-  if window ~= nil and window.group ~= nil then
-    h = h + GROUPBAR
-  elseif window ~= nil then
-    local e = apps_cfg and apps_cfg[window_class(window)]
-    if e and e.always_tabbar then
-      h = h + GROUPBAR
-    end
+  local ok, h = pcall(p.chrome_height, window)
+  if not ok or type(h) ~= "number" then
+    return 0
   end
   return h
-end
-
-local function with_chrome(x, y, w, h, window)
-  local bar = chrome_h(window)
-  return x, y + bar, w, h - bar
 end
 
 local function ensure_tab_group(window)
@@ -461,11 +467,6 @@ end
 local find_peer
 local join_same_app
 local apps_off = {}
-
-local function snap_geom(kind, monitor)
-  local fx, fy, fw, fh = usable(monitor)
-  return geom.zone_geom(kind, { x = fx, y = fy, w = fw, h = fh }, GAP_OUT(), BORDER(), ALMOST_MAXIMIZE)
-end
 
 local function window_by_addr(addr)
   if addr == nil then
@@ -520,6 +521,9 @@ local function snap(kind, window)
       return
     end
     local x, y, w, h = usable(monitor)
+    if x == nil then
+      return
+    end
     local prev = saved[window.address]
     if prev then
       place(prev.x, prev.y, prev.w, prev.h, window)
@@ -540,22 +544,23 @@ local function snap(kind, window)
       end)
     end
   end
+  -- The zone geometry (and the client minimum a zone grows to) is the plugin's
+  -- (Snap::applyKind / contentBox). Without the plugin there is no snap: the
+  -- pack is its plugin, and a second implementation in here is exactly the
+  -- drift the old fallback caused.
   local p = bars()
-  if p and p.snap then
-    p.snap({ kind = kind, window = window })
-    return
-  end
-  local monitor = window.monitor or hl.get_monitor_at_cursor() or hl.get_active_monitor()
-  if monitor == nil then
-    return
-  end
-  local gx, gy, gw, gh = snap_geom(kind, monitor)
-  if gx then
-    gx, gy, gw, gh = with_chrome(gx, gy, gw, gh, window)
-    place(gx, gy, gw, gh, window)
+  if p ~= nil and p.snap ~= nil then
+    pcall(function()
+      p.snap({ kind = kind, window = window })
+    end)
   end
 end
 
+-- Super+Alt+Left/Right step the window through the cycle sizes on that side
+-- (half, two thirds, a third) and snap it to the side's zone when it is not on
+-- one of them yet. Both the sizes and the matching live in the plugin
+-- (Snap::cycle): they are the same frame, chrome, client minimum and insets a
+-- zone is built from, so there is no second copy to keep in step.
 local function snap_or_expand(side)
   local window = hl.get_active_window()
   local monitor = hl.get_monitor_at_cursor() or hl.get_active_monitor()
@@ -563,53 +568,12 @@ local function snap_or_expand(side)
     return
   end
 
-  local wx, wy = vec(window.at)
-  local ww, wh = vec(window.size)
-  local candidates = {}
-  for _, hf in ipairs(CYCLE_HF) do
-    local zx, zy, zw, zh = cycle_geom(side, hf, monitor)
-    local cx, cy, cw, ch = with_chrome(zx, zy, zw, zh, window)
-    candidates[#candidates + 1] = { x = cx, y = cy, w = cw, h = ch }
-  end
-
-  local i = geom.cycle_index({ x = wx, y = wy, w = ww, h = wh }, candidates, side)
-  if i ~= nil then
-    local nx, ny, nw, nh = cycle_geom(side, CYCLE_HF[(i % #CYCLE_HF) + 1], monitor)
-    nx, ny, nw, nh = with_chrome(nx, ny, nw, nh, window)
-    place(nx, ny, nw, nh, window)
-    return
-  end
-  snap(side, window)
-end
-local CYCLE_HF = { 0.5, 2 / 3, 1 / 3 }
-
-local function cycle_geom(side, hf, monitor)
-  local fx, fy, fw, fh = usable(monitor)
-  return geom.cycle_geom(side, hf, { x = fx, y = fy, w = fw, h = fh }, GAP_OUT(), BORDER())
-end
-
-local function snap_or_expand(side)
-  local window = hl.get_active_window()
-  local monitor = hl.get_monitor_at_cursor() or hl.get_active_monitor()
-  if window == nil or monitor == nil then
-    return
-  end
-
-  local wx, wy = vec(window.at)
-  local ww, wh = vec(window.size)
-  local candidates = {}
-  for _, hf in ipairs(CYCLE_HF) do
-    local zx, zy, zw, zh = cycle_geom(side, hf, monitor)
-    local cx, cy, cw, ch = with_chrome(zx, zy, zw, zh, window)
-    candidates[#candidates + 1] = { x = cx, y = cy, w = cw, h = ch }
-  end
-
-  local i = geom.cycle_index({ x = wx, y = wy, w = ww, h = wh }, candidates, side)
-  if i ~= nil then
-    local nx, ny, nw, nh = cycle_geom(side, CYCLE_HF[(i % #CYCLE_HF) + 1], monitor)
-    nx, ny, nw, nh = with_chrome(nx, ny, nw, nh, window)
-    place(nx, ny, nw, nh, window)
-    return
+  local p = bars()
+  if p ~= nil and p.cycle ~= nil then
+    local ok, stepped = pcall(p.cycle, window, side)
+    if ok and stepped then
+      return
+    end
   end
   snap(side, window)
 end
@@ -631,114 +595,10 @@ local function is_fullscreen(w)
   return (w.fullscreen ~= nil and w.fullscreen ~= 0) or (w.fullscreen_client ~= nil and w.fullscreen_client ~= 0)
 end
 
--- Fit a floating window into the work area, keeping GAP_OUT + BORDER on every
--- side. Hyprland fits a floating window to the work area, but hyprbars draws its
--- titlebar *above* the window box (so the visual top is higher), and apps with an
--- explicit rule geometry ignore float_gaps. Nudge the window so its visual top,
--- content bottom and sides stay that far from the work-area edges, so nothing
--- hides under the bar and nothing opens flush to an edge.
--- Fit one floating window into the work area. Hyprland's resize is centered, so
--- a shrink would otherwise be paired with the *pre-resize* y and look like the
--- window jumped to the top (old y + new h overflowed the bottom clamp).
-local function clamp_window(w)
-  if w == nil or drag_owns(w) then
-    return
-  end
-  if not (w.floating and w.mapped and not w.hidden and not is_fullscreen(w)) then
-    return
-  end
-  local mon = w.monitor
-  if mon == nil then
-    return
-  end
-  local ux, uy, uw, uh = usable(mon)
-  local x, y = vec(w.at)
-  local ww, wh = vec(w.size)
-  local edge = GAP_OUT() + BORDER()
-  local chrome = 0
-  if not apps_off[window_class(w)] then
-    chrome = TITLEBAR
-    if w.group ~= nil then
-      chrome = chrome + GROUPBAR
-    end
-  end
-
-  local frame = { x = ux, y = uy, w = uw, h = uh }
-  local nx, ny, nw, nh = geom.fit_box({ x = x, y = y, w = ww, h = wh }, frame, edge, chrome)
-  if nw ~= ww or nh ~= wh then
-    hl.dispatch(hl.dsp.window.resize({ x = nw, y = nh, relative = false, window = w }))
-    -- Resize is centred: re-read so the clamp below works off the real box.
-    w = window_by_addr(w.address) or w
-    x, y = vec(w.at)
-    ww, wh = vec(w.size)
-    nx, ny, nw, nh = geom.fit_box({ x = x, y = y, w = ww, h = wh }, frame, edge, chrome)
-  end
-
-  if math.abs(x - nx) >= 1 or math.abs(y - ny) >= 1 then
-    hl.dispatch(hl.dsp.window.move({ x = nx, y = ny, relative = false, window = w }))
-  end
-end
-
-local function keep_below_topbar(window)
-  if window ~= nil then
-    clamp_window(window)
-    return
-  end
-  for _, w in ipairs(hl.get_windows()) do
-    clamp_window(w)
-  end
-end
-
--- The downward-only half of clamp_window: no resize, and never a move up, so it
--- is safe to run on any event. hyprbars draws the chrome above the box, so a
--- window (or a group, once the tabbar appears) whose visual top is above the
--- bar is pushed down until the chrome clears it. The open watch cannot cover
--- this: it skips grouped windows, and a group that grows after it stopped has
--- no geometry event of its own. window.update_rules is what a group change does
--- raise, so this is called from there and on focus.
---
--- `edge` defaults to the border alone: on an event the only bound this may
--- enforce is "the chrome does not reach the bar", the same one the C++ drag
--- clamp uses. Pulling a window the user left flush to the bar down by the
--- preferred gap as well would move a free window on the next rule change or
--- focus. clear_bars() passes gap + border because it is the load walk that
--- lands existing windows where float_gaps and snap put a new one.
-local function push_bars_below(w, edge)
-  if w == nil or drag_owns(w) then
-    return
-  end
-  if not (w.floating and w.mapped and not w.hidden and not is_fullscreen(w)) then
-    return
-  end
-  local chrome = chrome_h(w)
-  local mon = w.monitor
-  if chrome <= 0 or mon == nil then
-    return
-  end
-  edge = edge or BORDER()
-  local _, uy, uw, uh = usable(mon)
-  local ww, wh = vec(w.size)
-  -- A window in the middle of a fullscreen transition still carries the
-  -- fullscreen size while its flags are already clear. Moving it here calls
-  -- moveTarget, which records that box as the floating one, so Hyprland's own
-  -- restore on exit (FloatingAlgorithm::recenter) puts the fullscreen box
-  -- right back -- and the window stays fullscreen-sized below the bar. Leave
-  -- anything bigger than the work area alone; once Hyprland has the floating
-  -- box back, the next event re-clamps it normally.
-  if ww > uw - edge - edge or wh > uh - edge - edge then
-    return
-  end
-  local x, y = vec(w.at)
-  local min_top = uy + edge + chrome
-  if y < min_top then
-    hl.dispatch(hl.dsp.window.move({ x = x, y = min_top, relative = false, window = w }))
-  end
-end
-
--- keep_below_topbar is not polled: the drags clamp themselves (hyprbars in C++)
--- and Hyprland's own placement respects float_gaps. On window.open / join it
--- clamps only the window that changed. consolidate() still walks all windows
--- once after the config loads.
+-- Keeping a window below the bar is the plugin's job: CHyprBar::updateWindow
+-- runs on every move and resize (updateWindowDecos calls it) and
+-- Snap::clampToWorkArea fits the box with the same gap, border and chromeH the
+-- snap uses. Lua no longer watches geometry.
 
 -- GTK layer-shell helpers are not started from config: connecting back
 -- during Hyprland reload can freeze the compositor.
@@ -903,93 +763,28 @@ end
 
 -- A real focus change updates the MRU order. While the switcher is held the
 -- focus moves through every app tabbed over, so those are ignored here.
--- Focusing a window does not raise it. rawWindowFocus only runs setCurrent()
--- through bringTargetToTop for a grouped window, and a focus dispatch (dock,
--- switcher, a keybind) never raises at all — so the window can end up focused
--- while it stays behind the app that was in front. A browser reusing its window
--- for a login URL landed exactly like that. This desktop is always floating and
--- click-to-focus, so a focused window that is not on top is never wanted: raise
--- it here, once, for every focus path.
 --
--- The raise is deferred on purpose. alter_zorder ends with
--- simulateMouseMovement(), which synchronously re-emits input.mouse.move; the
--- patched hyprbars reorders tabs from that event (onMouseMove -> updateTabDrag),
--- and setCurrent()/swapWithNext() focus a tab, which lands back here. Raising
--- inline therefore re-entered updateTabDrag before it bumped m_iTabDragOver,
--- recursed, and froze the compositor on a tab drag. A 1ms timer runs after the
--- current event has unwound (hl.timer refuses a zero timeout), and the pending
--- flag stays set across the dispatch so a raise cannot trigger another one.
-local raise_pending = false
-local raise_queue = {}
-local raise_draining = false
-
-local function raise_active(w)
-  -- Every window that takes focus is raised, in order. A single "last wins"
-  -- slot dropped the raise of a window focused just before another -- e.g. a
-  -- window focused, then a dialog it opened grabbing focus in the same
-  -- millisecond: the first stayed behind whatever was already in front (a
-  -- full-width app behind the app that had focus before it, so a click on the
-  -- overlap went to the wrong one). Keep a queue. While it drains, new events
-  -- are ignored: alter_zorder ends with simulateMouseMovement, which re-enters
-  -- window.active.
-  if w == nil or raise_draining then
-    return
-  end
-  raise_queue[#raise_queue + 1] = w
-  if raise_pending then
-    return
-  end
-  raise_pending = true
-  hl.timer(function()
-    local queue = raise_queue
-    raise_queue = {}
-    -- Raise the window the event named, not the live active one: alter_zorder
-    -- ends with simulateMouseMovement(), which re-enters the patched hyprbars
-    -- tab reorder, and by the time this runs that can have moved focus to a tab.
-    -- If several windows took focus before the timer ran, the newest wins.
-    --
-    -- Everything is inside the pcall so raise_pending always clears: the target
-    -- can be a window that closed since the event, and an error reading it would
-    -- otherwise leave the flag set and swallow every later raise (a focused
-    -- window then never comes to the front).
-    if #queue > 0 then
-      raise_draining = true
-      pcall(function()
-        for _, target in ipairs(queue) do
-          if target ~= nil and target.floating then
-            -- Fullscreen already covers the workspace. Raising that window
-            -- runs simulateMouseMovement and focuses whatever is under the
-            -- cursor; raising any other sets allowedOverFullscreen and draws
-            -- it on top, so the two fight for the screen. Hold the other one
-            -- under. The plugin clears the flag without the mouse simulation
-            -- alter_zorder would do.
-            local fullscreen = target.fullscreen and target.fullscreen ~= 0
-            local p = bars()
-            local held = false
-            if not fullscreen and p ~= nil and p.hold_under_fullscreen ~= nil then
-              local ok, ret = pcall(p.hold_under_fullscreen, target)
-              held = ok and ret
-            end
-            if not fullscreen and not held then
-              hl.dispatch(hl.dsp.window.alter_zorder({ mode = "top", window = target }))
-            end
-          end
-        end
-      end)
-      raise_draining = false
-    end
-    raise_pending = false
-  end, { timeout = 1, type = "oneshot" })
-end
+-- Focusing a window does not raise it: rawWindowFocus only brings a grouped
+-- window's target to the top, and a focus dispatch never raises at all, so a
+-- focused window can sit behind another app. hyprbars.raise does the raise
+-- through CWindowState::raise, which does not run the simulateMouseMovement
+-- alter_zorder ends with — that re-entered the tab drag and froze the
+-- compositor — and it holds the window under a covering fullscreen one instead
+-- of drawing it on top.
+-- raising guards the re-entry: hyprbars.raise focuses the window, and a focus
+-- emits window.active again. The second pass would raise once more for nothing.
+local raising = false
 
 hl.on("window.active", function(w, reason)
-  if w == nil then
+  if w == nil or raising then
     return
   end
-  -- A group can carry chrome the open watch never clamped (the watch skips
-  -- grouped windows); focusing it is where a lingering one is pulled back down.
-  push_bars_below(w)
-  raise_active(w)
+  local p = bars()
+  if p ~= nil and p.raise ~= nil and w.floating then
+    raising = true
+    pcall(p.raise, w)
+    raising = false
+  end
   if switcher_active then
     return
   end
@@ -1279,11 +1074,16 @@ local nobar_applied = {}
 local always_applied = {}
 
 local function set_rule(name, cls, effect, on)
+  -- The stored key is lowercased, but Hyprland matches a rule's class as a
+  -- case-sensitive RE2 full match, so the pattern carries the case-insensitive
+  -- flag (and escapes the class's regex metacharacters). Without it an app with
+  -- an uppercase letter in its class -- Thunderbird's org.mozilla.Thunderbird --
+  -- kept its titlebar no matter what the panel said.
   pcall(function()
     hl.window_rule({
       name = name .. cls,
       enabled = on and true or false,
-      match = { class = cls },
+      match = { class = settings.rule_pattern(cls) },
       [effect] = true,
     })
   end)
@@ -1311,14 +1111,29 @@ local function apply_apps()
   always_applied = wanted_always
 end
 
-local function ungroup_chrome_off()
+local function ungroup_where(pred)
   for _, w in ipairs(hl.get_windows() or {}) do
-    if apps_off[window_class(w)] and w.group ~= nil then
+    if pred(window_class(w)) and w.group ~= nil then
       pcall(function()
         hl.dispatch(hl.dsp.window.move({ out_of_group = true, window = w }))
       end)
     end
   end
+end
+
+local function ungroup_chrome_off()
+  ungroup_where(function(cls)
+    return apps_off[cls]
+  end)
+end
+
+-- A nest that was already tabbed when this file loaded (the usual case on
+-- install) does not get a window.open, so skip_group never sees it. Pull it
+-- out here, same moment as a chrome-off window.
+local function ungroup_never()
+  ungroup_where(function(cls)
+    return group.never_group(cls)
+  end)
 end
 
 local function regroup_chrome_on()
@@ -1330,12 +1145,16 @@ local function regroup_chrome_on()
 end
 
 apply_apps()
-hl.timer(ungroup_chrome_off, { timeout = 250, type = "oneshot" })
+hl.timer(function()
+  ungroup_chrome_off()
+  ungroup_never()
+end, { timeout = 250, type = "oneshot" })
 
 x_mode = x_mode or {}
 function x_mode.refresh_apps_off()
   apply_apps()
   ungroup_chrome_off()
+  ungroup_never()
   regroup_chrome_on()
 end
 
@@ -1402,7 +1221,7 @@ local function zoned_hits(target)
 
   if #rest > 0 then
     -- No gaps means gaps_out is 0, so the inset is the dock card alone.
-    hl.config({ plugin = { hyprbars = { x_mode_dock_inset = DOCK_CARD } } })
+    hl.config({ plugin = { hyprbars = { x_mode_dock_inset = dock_card } } })
     for _, w in ipairs(rest) do
       local ok, kind = pcall(p.zone, w, { gap = 0, border = 1 })
       if ok and type(kind) == "string" and kind ~= "" and target ~= "no-gap" then
@@ -1445,6 +1264,42 @@ local function apply_no_gaps()
     pcall(function()
       p.snap({ kind = hit.kind, window = hit.window })
     end)
+  end
+end
+
+-- Put the windows that are still shaped like a zone back on that zone, with the
+-- live gaps. A window snapped and then nudged a little (or left a titlebar lower
+-- while its client settled) is still that zone -- the plugin's zone match reads a
+-- full-height zone by x and size, not by an exact y -- so a load re-applies the
+-- zone box instead of leaving it out of line with the gaps around it.
+--
+-- This is a *load-time* pass on purpose. The same re-apply used to fall out of
+-- Snap::clampToWorkArea, which runs from the bar's updateRules, and Hyprland
+-- re-evaluates every window's rules whenever *any* window opens: a snapped
+-- window dragged a little down flew back into its snap when another window
+-- opened, with nothing in sight to explain it. A window moved out of the zone's
+-- shape (another x or width) is free and is left alone, as is one being dragged
+-- right now.
+local function resnap_zoned()
+  local p = bars()
+  if p == nil or p.snap == nil or p.zone == nil then
+    return
+  end
+  if p.dragging ~= nil then
+    local ok, dragging = pcall(p.dragging)
+    if ok and dragging then
+      return
+    end
+  end
+  for _, w in ipairs(hl.get_windows() or {}) do
+    if w.floating and not w.pinned and not w.hidden then
+      local ok, kind = pcall(p.zone, w)
+      if ok and type(kind) == "string" and kind ~= "" then
+        pcall(function()
+          p.snap({ kind = kind, window = w })
+        end)
+      end
+    end
   end
 end
 
@@ -1520,6 +1375,13 @@ local function skip_group(w)
   if apps_off[class] then
     return true
   end
+  -- Nested compositor toplevels share one class, so same-app grouping would
+  -- put every nest in one tab. The titlebar stays. hyprbars.groupable refuses
+  -- the same classes; this also covers the size fallback below, which runs
+  -- when the plugin is not loaded yet.
+  if group.never_group(class) then
+    return true
+  end
   if class == "" or class:find("portal", 1, true) or class:find("polkit", 1, true) or class:find("titlebar", 1, true) then
     return true
   end
@@ -1583,6 +1445,9 @@ local function absorb_chrome_growth(w, old_x, old_y, old_w, old_h, old_chrome)
     return
   end
   local _, uy, _, uh = usable(mon)
+  if uy == nil then
+    return
+  end
   local x, y = vec(w.at)
   local ww, wh = vec(w.size)
   local new_chrome = chrome_h(w)
@@ -1751,82 +1616,29 @@ flush_pending_joins = function()
   end
 end
 
--- Keep a fresh window below the top bar while it settles. Hyprland has no
--- geometry event (hyprwm/Hyprland#15519 asks for one and is unanswered), and its
--- own fit for floating windows — CDefaultFloatingAlgorithm::fitBoxInWorkArea,
--- which does know about window extents — is only reached from placement and from
--- moving between monitors/workspaces, never from a resize. So a window that
--- changes size after it appears (a client sizing itself, or anything resizing it)
--- is never refitted: growing it moves its top-left up, because Hyprland resizes
--- around the centre.
---
--- Hence a watch rather than one clamp at a fixed delay: a single clamp can land
--- while the window is mid-resize, and the next step moves it out again. This
--- re-clamps while the geometry keeps changing and stops on its own two ticks
--- after it stops — a settled window costs two or three ticks, and the ceiling
--- bounds a window that never settles. Two seconds is long enough to cover a
--- client that reports its class and size late, or a harness that resizes a window
--- just after it opened.
---
--- Nothing else is needed to trigger this: window.update_rules fires for every
--- window whenever any window opens, so it is a worse handle than the watch, and
--- window.title can arrive before the window has a size at all.
---
--- Can go away if upstream ever refits on resize; then a plain clamp after open
--- is enough again.
-local WATCH_MS, WATCH_TICKS = 50, 40 -- 40 * 50ms = 2s
-
--- Watches in flight, by window address, so a drag can call one off.
-local watchers = {}
-
-local function stop_watch(w)
-  if w == nil or w.address == nil then
+-- A window already in Hyprland's maximized mode (open across a reload, or a
+-- dispatch) is just as stuck as a client request the rule above rejects.
+-- Super+Alt+F is this same snap: drop the mode, then place the floating box,
+-- which can be dragged. Mode 2 is real fullscreen and stays.
+local function release_hypr_maximize(w)
+  if w == nil then
     return
   end
-  local watch = watchers[w.address]
-  if watch ~= nil then
-    watch:set_enabled(false)
-    watchers[w.address] = nil
+  local internal = w.fullscreen or 0
+  local client = w.fullscreen_client or 0
+  if internal == 2 or client == 2 then
+    return
   end
+  if internal ~= 1 and client ~= 1 then
+    return
+  end
+  hl.dispatch(hl.dsp.window.fullscreen({ action = "unset", window = w }))
+  snap("maximize", w)
 end
 
-local function watch_until_settled(w)
-  local addr = w.address
-  local last, stable, ticks = nil, 0, 0
-  local watch
-  local function stop()
-    watch:set_enabled(false)
-    if watchers[addr] == watch then
-      watchers[addr] = nil
-    end
-  end
-  watch = hl.timer(function()
-    ticks = ticks + 1
-    local cur = refresh_window(w)
-    -- Grouped windows get their position from join_same_app: clamping a group
-    -- here would pin the whole group to the top. Only one window is watched at a
-    -- time, so the grouped case is dropped rather than retried.
-    if cur == nil or cur.group ~= nil then
-      stop()
-      return
-    end
-    keep_below_topbar(cur) -- no-op unless the chrome actually sits above the bar
-    local box = tostring(cur.at) .. tostring(cur.size)
-    if box == last then
-      stable = stable + 1
-      if stable >= 2 then
-        stop()
-        return
-      end
-    else
-      stable, last = 0, box
-    end
-    if ticks >= WATCH_TICKS then
-      stop()
-    end
-  end, { timeout = WATCH_MS, type = "repeat" })
-  watchers[addr] = watch
-end
+hl.on("window.fullscreen", function(w)
+  release_hypr_maximize(w)
+end)
 
 hl.on("window.open", function(w)
   -- Group immediately to avoid a visible "ungrouped" flash, then retry shortly
@@ -1851,7 +1663,6 @@ hl.on("window.open", function(w)
       reveal_if_hidden(w)
     end
   end, { timeout = 500, type = "oneshot" })
-  watch_until_settled(w)
 end)
 
 hl.on("window.close", function(w)
@@ -1883,10 +1694,9 @@ local function bind_drag()
   end
   local ok, sub = pcall(hl.on, "hyprbars.drag", function(active, w)
     if active then
-      -- A drag clamps the window itself in C++, and it lets a window hang off an
-      -- edge. Re-clamping from Lua after that would pull it back, so the watch
-      -- hands the window over the moment it is dragged.
-      stop_watch(w)
+      -- Remember where the window was, so a later restore snaps back to it. The
+      -- drag clamps itself in C++ and may hang off an edge; the work-area clamp
+      -- skips a window the drag owns, so nothing pulls it back mid-gesture.
       save(w)
     else
       flush_pending_joins()
@@ -1901,6 +1711,19 @@ local function bind_drag()
 end
 bind_drag()
 drag_timer = hl.timer(bind_drag, { timeout = 250, type = "repeat" })
+
+-- The dock's layer maps after this config (and again on every shell restart),
+-- which is the moment its real width becomes known. config.reloaded covers a
+-- reload where the layer was already mapped and no open event fires.
+hl.on("layer.opened", function(layer)
+  if layer ~= nil and layer.namespace == "x-mode-dock" then
+    refresh_dock_card()
+  end
+end)
+hl.on("config.reloaded", function()
+  refresh_dock_card()
+end)
+refresh_dock_card()
 
 -- Group every same-app window on a workspace into one group. Runs once after
 -- the config loads: after an install/reload re-floats windows, or when several
@@ -1946,34 +1769,7 @@ local function consolidate()
       end
     end
   end
-
-  -- Joining a group adds the tabbar, which grows the chrome upward. Move every
-  -- window down into the space that leaves, or a group formed while the bar was
-  -- momentarily gone (the shell restart at install) stays with its tabbar under
-  -- the top bar. This is the walk the comment above keep_below_topbar promises.
-  keep_below_topbar()
 end
-
--- hyprbars draws the titlebar (and the tabbar, once a window is grouped)
--- *above* the window box and does not move the window, so a window that was
--- already open ends up with its new bar under the top bar. snap() places the
--- content box below the chrome, so snapping clears it; this only covers the
--- windows a snap skips (hidden, fullscreen, still tiled, no monitor).
-local function clear_bars()
-  for _, w in ipairs(hl.get_windows() or {}) do
-    push_bars_below(refresh_window(w) or w, GAP_OUT() + BORDER())
-  end
-end
-
--- A group change (a second window joining, a tab closing, a lone window turned
--- into a group) grows or shrinks the chrome with no geometry event, so the open
--- watch, which skips grouped windows, never sees the tabbar. window.update_rules
--- is what a rule change raises, and it also fires for every window on every
--- open, so this runs often; push_bars_below is downward-only and idempotent, so
--- a window already clear of the bar costs a comparison.
-hl.on("window.update_rules", function(w)
-  push_bars_below(refresh_window(w) or w)
-end)
 
 -- The marker comes from install.sh (a fresh install) or from the off path
 -- above (the desktop was just switched back on from the bar panel). Spread
@@ -2030,24 +1826,104 @@ function x_mode.arrange_halves()
   end
 end
 
+-- Hide the switch-over behind a fade. Everything turning X Mode back on does
+-- to a window -- the titlebars coming back and the boxes being refitted on the
+-- reload, the re-float, the tab grouping, the arrange -- moves it, and a fade
+-- that starts at the arrange is already too late for the first of those: that
+-- move is seen on screen and then the fade runs on the new positions. So the
+-- fade starts here, as soon as the marker is read, and the windows stay
+-- invisible while the rest happens. The reveal is one step at the end,
+-- deliberately not animated, so the new layout simply appears.
+local FADE_STEPS   = 10
+local FADE_STEP_MS = 25
+local SETTLE_MS    = 120
+
+local function set_window_opacity(windows, value)
+  for _, w in ipairs(windows) do
+    if w ~= nil then
+      pcall(function()
+        -- Hyprland draws the focused window from "opacity" and every other one
+        -- from "opacity_inactive" (Window.cpp: alpha() vs alphaInactive()), so
+        -- both have to be set or only the focused window is seen to change.
+        hl.dispatch(hl.dsp.window.set_prop({ prop = "opacity", value = value, window = w }))
+        hl.dispatch(hl.dsp.window.set_prop({ prop = "opacity_inactive", value = value, window = w }))
+      end)
+    end
+  end
+end
+
+-- The windows an arrange can touch, named when the fade starts so the reveal
+-- targets the same set even after consolidate() folds same-app windows into a
+-- group.
+local function arrange_candidates()
+  local out = {}
+  for _, w in ipairs(hl.get_windows() or {}) do
+    w = refresh_window(w) or w
+    if w.mapped and not w.hidden and not is_fullscreen(w) and w.monitor ~= nil then
+      out[#out + 1] = w
+    end
+  end
+  return out
+end
+
+-- Float anything still tiled. A 300ms timer does this normally; with an
+-- arrange pending it is deferred to inside the fade, so the float happens on
+-- invisible windows instead of moving them on screen before the fade.
+local function float_tiled()
+  for _, w in ipairs(hl.get_windows() or {}) do
+    if w.mapped and not w.floating and not is_fullscreen(w) then
+      hl.dispatch(hl.dsp.window.float({ action = "enable", window = w }))
+    end
+  end
+end
+
+-- Fade the windows out and leave them invisible; the timer below reveals them
+-- after the arrange. Every step is pcall'd: a window can close mid-fade, and
+-- one bad handle must not leave the rest stuck at opacity 0.
+local function fade_out(windows)
+  if #windows == 0 then
+    return
+  end
+  local step = 0
+  local timer
+  timer = hl.timer(function()
+    step = step + 1
+    set_window_opacity(windows, string.format("%.3f", math.max(0, 1 - step / FADE_STEPS)))
+    if step >= FADE_STEPS then
+      timer:set_enabled(false)
+    end
+  end, { timeout = FADE_STEP_MS, type = "repeat" })
+end
+
 -- The marker is dropped by install.sh before its reload and by the off path
--- when the desktop is switched back on. Arrange once per load, and only after
--- the re-float below: a tiled window has no floating box for snap() to place,
--- and the re-float's own dispatch lands after this timer. A later pass (the
--- shell in install.sh calls x_mode.arrange_halves() again once it has floated
--- the windows itself) is harmless — the shuffle differs, the halves do not.
+-- when the desktop is switched back on. Arrange once per load: re-float the
+-- still-tiled windows, gather same-app windows into tabs, deal them into
+-- halves, and reveal once the new boxes have landed. The windows are named now,
+-- at the fade, so the reveal targets exactly the ones that were faded.
 local arrange_pending = take_arrange_marker()
+local arrange_fade = {}
 if arrange_pending then
   math.randomseed(os.time())
+  arrange_fade = arrange_candidates()
+  fade_out(arrange_fade)
 end
 
 hl.timer(function()
-  consolidate()
   if arrange_pending then
     arrange_pending = false
+    float_tiled()
+    consolidate()
     x_mode.arrange_halves()
+    hl.timer(function()
+      set_window_opacity(arrange_fade, "1")
+      arrange_fade = {}
+    end, { timeout = SETTLE_MS, type = "oneshot" })
+  else
+    consolidate()
   end
-  clear_bars()
+  for _, w in ipairs(hl.get_windows() or {}) do
+    release_hypr_maximize(refresh_window(w) or w)
+  end
 end, { timeout = 600, type = "oneshot" })
 
 pcall(function()
@@ -2057,11 +1933,16 @@ pcall(function()
 end)
 
 -- Catch-all float rule only applies to windows created after this config
--- loads; re-float anything still tiled (same as install.sh).
-hl.timer(function()
-  for _, w in ipairs(hl.get_windows() or {}) do
-    if w.mapped and not w.floating and not is_fullscreen(w) then
-      hl.dispatch(hl.dsp.window.float({ action = "enable", window = w }))
-    end
-  end
-end, { timeout = 300, type = "oneshot" })
+-- loads; re-float anything still tiled (same as install.sh). With an arrange
+-- pending the timer above does this after the fade instead, so the float is not
+-- seen (this 300ms timer would move the windows on screen before the fade).
+if not arrange_pending then
+  hl.timer(float_tiled, { timeout = 300, type = "oneshot" })
+end
+
+-- A load re-applies the zone box to every window that is still zone-shaped (see
+-- resnap_zoned). Not with an arrange pending: that one deals every window into
+-- the halves itself.
+if not arrange_pending then
+  resnap_zoned()
+end

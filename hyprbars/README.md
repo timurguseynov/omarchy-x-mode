@@ -7,8 +7,8 @@ plugin (pin `7644cec`), patched for [X Mode](../README.md): a single close
 button, a tab strip for same-app groups (per-tab close + `+` to open another
 window), titlebar drag-to-edge snapping, and a clean unload path.
 
-Built automatically by the pack installer (`install.sh`). Skip with
-`--no-hyprbars` (no titlebar, tab strip, or drag-to-edge snap). Manual build:
+Built by the pack installer (`install.sh`); the pack does not run without it.
+Manual build:
 
 ```sh
 ./build.sh
@@ -72,7 +72,7 @@ hl.plugin.hyprbars.add_button({
 
 | property | type | description | default |
 | --- | --- | --- | --- |
-| `x_mode_dock_inset` | int | right snap inset, dock card plus half of `gaps_out`; set by `x-mode.lua` from the dock card (40) | `45` |
+| `x_mode_dock_inset` | int | right snap inset, dock card plus half of `gaps_out`; set by `x-mode.lua` from the `x-mode-dock` layer’s width | `45` |
 | `x_mode_snap_margin` | int | edge strip that starts a snap (px) | `12` |
 | `x_mode_snap_corner` | int | corner square that picks a quarter (px) | `20` |
 | `x_mode_snap_short_edge` | int | side-edge px from top/bottom for half snaps | `145` |

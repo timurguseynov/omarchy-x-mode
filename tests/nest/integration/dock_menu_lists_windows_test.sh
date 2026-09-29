@@ -26,11 +26,11 @@ assert_ne "$other" "" "there is another window of the app"
 
 read -r px py <<<"$(dock_icon_point 0)"
 pointer_click "$px" "$py" right
-sleep 0.6
+settle
 
 read -r rx ry <<<"$(dock_menu_row_point 0 3 "26 7 26 26 7 26 26")"
 pointer_click "$rx" "$ry"
-sleep 0.6
+settle
 
 assert_eq "$(active_address)" "$other" "the window row focuses that window"
 

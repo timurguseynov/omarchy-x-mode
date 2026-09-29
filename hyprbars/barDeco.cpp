@@ -88,6 +88,16 @@ bool raiseFloating(PHLWINDOW w) {
     return true;
 }
 
+void raiseAndFocus(PHLWINDOW w) {
+    if (!w)
+        return;
+    // rawWindowFocus, not fullWindowFocus: the latter lifts a floating window
+    // over a covering fullscreen one on its own, which is the fight
+    // holdUnderFullscreen exists to stop.
+    if (raiseFloating(w) && Desktop::focusState()->window() != w)
+        Desktop::focusState()->rawWindowFocus(w, Desktop::FOCUS_REASON_CLICK);
+}
+
 void keepGroupFocusOnClose(PHLWINDOW w) {
     if (!w)
         return;
@@ -989,10 +999,12 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     // wallpaper / white while it comes up. This pass element is on the UNDER
     // layer, so it sits behind the window content; drawn before the bar's
     // scissor so it can cover the content area below the bar.
+    // The element's bounding box has to cover this fill as well as the bar
+    // (CBarPassElement::boundingBox): an element whose declared box misses the
+    // frame's damage is discarded, so with the bar's box alone the fill came and
+    // went and the band it covers flickered.
     {
-        CBox winBox = {PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x + PWINDOW->m_floatingOffset.x - pMonitor->m_position.x,
-                       PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y + PWINDOW->m_floatingOffset.y - pMonitor->m_position.y,
-                       PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).x, PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT).y};
+        CBox winBox = windowBoxGlobal().translate(-pMonitor->m_position);
         winBox.scale(pMonitor->m_scale).round();
         if (winBox.w >= 1 && winBox.h >= 1)
             g_pHyprOpenGL->renderRect(winBox, color, {.round = scaledRounding, .roundingPower = PWINDOW->roundingPower()});
@@ -1094,6 +1106,14 @@ eDecorationType CHyprBar::getDecorationType() {
 
 void CHyprBar::updateWindow(PHLWINDOW pWindow) {
     damageEntire();
+
+    // Every move and resize ends in updateWindowDecos, which calls this.
+    // Hyprland has no geometry event, so this is the one place a window that
+    // grew (a client sizing itself, a resize around the centre, a tabbar
+    // appearing) can be pulled back below the bar without a timer.
+    if (!pWindow)
+        return;
+    Snap::clampToWorkArea(pWindow);
 }
 
 void CHyprBar::onConfigReloaded() {
@@ -1135,6 +1155,21 @@ CBox CHyprBar::assignedBoxGlobal() {
     return box.translate(WORKSPACEOFFSET);
 }
 
+CBox CHyprBar::windowBoxGlobal() {
+    if (!validMapped(m_pWindow))
+        return {};
+
+    const auto PWINDOW         = m_pWindow.lock();
+    const auto PWORKSPACE      = PWINDOW->m_workspace;
+    const auto WORKSPACEOFFSET = PWORKSPACE && !PWINDOW->m_pinned ? PWORKSPACE->m_renderOffset->value() : Vector2D();
+
+    // The box the renderer gives the surfaces (renderWindow: position + workspace
+    // slide + floating offset), so the fill and the bar land where the window is
+    // -- including mid-slide, which the fill used to ignore.
+    return CBox{PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) + WORKSPACEOFFSET + PWINDOW->m_floatingOffset,
+                PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT)};
+}
+
 PHLWINDOW CHyprBar::getOwner() {
     return m_pWindow.lock();
 }
@@ -1158,6 +1193,13 @@ void CHyprBar::updateRules() {
     g_pDecorationPositioner->repositionDeco(this);
     if (prevForcedTitleColor != m_bForcedTitleColor)
         m_bTitleColorChanged = true;
+
+    // Hiding or showing the bar does not move the window, and the positioner
+    // does not call back into updateWindow, so the fit has to run from here.
+    // A window clamped while the bar was still reported gets its gap back once
+    // the no_bar rule has actually hidden it.
+    if (PWINDOW)
+        Snap::clampToWorkArea(PWINDOW);
 }
 
 void CHyprBar::damageOnButtonHover() {

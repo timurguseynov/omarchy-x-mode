@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# A window that has already settled, then grown to twice the monitor. The
-# open-time watch has stopped by then, and Hyprland does not refit a floating
-# window when it is resized, so nothing is required to pull this box back.
-# The lines below are the result: where it landed, and how far it hangs off
-# each edge of the monitor.
+# A window that has already settled, then grown to twice the monitor. Hyprland
+# resizes a float around its centre and does not refit it, so the top walks up
+# under the bar. The bar refits on that same resize: the chrome stays below the
+# bar and the box comes back inside the monitor.
 . "$(dirname "$0")/../../lib.sh"
 
 open_window foot
-# watch_until_settled runs for at most 2s from map. open_window already waited
-# for the window, so this clears the rest of that watch before the resize.
-sleep 2.2
+# Past the old open-time watch, so this is the settled window, not the one that
+# just mapped.
+wait_still foot
 
 extent="$(pointer_extent)"
 mw="${extent%x*}"
@@ -20,21 +19,16 @@ assert_ge "$req_w" $((mw + 1)) "the requested width is larger than the monitor"
 assert_ge "$req_h" $((mh + 1)) "the requested height is larger than the monitor"
 
 nest_ctl dispatch "hl.dsp.window.resize({ x = $req_w, y = $req_h, relative = false, window = 'class:foot' })" >/dev/null
-sleep 0.6
+settle
 
 read -r x y w h _ <<<"$(win_geom foot)"
 [ -n "$w" ] || fail "foot has no geometry after the resize"
 
 bar="$(bar_top)"
-python3 - "$mw" "$mh" "$bar" "$req_w" "$req_h" "$x" "$y" "$w" "$h" <<'PY'
-import sys
-mw, mh, bar, req_w, req_h, x, y, w, h = (int(v) for v in sys.argv[1:])
-print(f"monitor {mw}x{mh}, bar {bar}")
-print(f"asked {req_w}x{req_h}")
-print(f"landed at {x},{y} size {w}x{h}")
-print(
-    "hangs off"
-    f" left {max(0, -x)}, right {max(0, x + w - mw)},"
-    f" top {max(0, bar - (y - 28))}, bottom {max(0, y + h - mh)}"
-)
-PY
+assert_ge "$(visual_top foot)" "$bar" "a window grown past the monitor stays below the bar"
+assert_ge "$x" 0 "the grown window does not hang off the left"
+assert_ge "$y" "$bar" "the box stays below the bar"
+assert_le "$w" "$mw" "the grown window is no wider than the monitor"
+assert_le "$h" "$mh" "the grown window is no taller than the monitor"
+assert_le $((x + w)) "$mw" "the grown window stays on the monitor"
+assert_le $((y + h)) "$mh" "the grown window stays on the monitor"

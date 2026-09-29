@@ -13,7 +13,7 @@ assert_eq "$(group_size foot)" 3 "three windows share the group"
 read -r fx fy <<<"$(tab_point foot 0 3)"
 read -r tx ty <<<"$(tab_point foot 2 3)"
 pointer_drag "$fx" "$fy" "$tx" "$ty"
-sleep 0.5
+settle
 
 assert_eq "$(group_size foot)" 3 "the group survives the drag"
 assert_eq "$(topmost)" foot "the compositor is alive: z-order is still readable"
@@ -22,5 +22,5 @@ assert_eq "$(topmost)" foot "the compositor is alive: z-order is still readable"
 read -r fx fy <<<"$(tab_point foot 0 3)"
 read -r tx ty <<<"$(tab_point foot 2 3)"
 pointer_drag "$fx" "$fy" "$tx" "$ty"
-sleep 0.5
+settle
 assert_eq "$(group_size foot)" 3 "a second drag leaves the group intact"

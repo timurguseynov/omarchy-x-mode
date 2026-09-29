@@ -10,7 +10,7 @@ nest_ctl dispatch "hl.dsp.focus({ window = 'class:foot' })" >/dev/null
 sleep 0.3
 
 key super+w
-sleep 0.6
+settle
 
 assert_eq "$(count_class foot)" 0 "Super+W closes the focused window"
 assert_eq "$(count_class kitty)" 1 "the other app keeps running"

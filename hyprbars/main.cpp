@@ -18,6 +18,7 @@
 #include <hyprutils/string/VarList.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <format>
 #include <cstdio>
 #include <cstdlib>
@@ -280,18 +281,54 @@ static int luaZone(lua_State* L) {
     return 1;
 }
 
-// The top the bar currently reserves, with the shell-restart fallback applied
-// (see Snap::barTop). Lua clamps windows itself in a few places and has to lift
-// a group's tabbar out from under the bar with the same number the snap used.
-static int luaBarTop(lua_State* L) {
+// The work frame the zones are fractions of: the monitor minus its reserved area
+// and the dock inset (Snap::usable). The Lua layer's own clamp and its restore
+// default take the same frame, so the two cannot drift apart.
+static int luaUsable(lua_State* L) {
     const char* name = lua_isstring(L, 1) ? lua_tostring(L, 1) : nullptr;
     for (const auto& m : State::monitorState()->monitors()) {
         if (!m || (name && m->m_name != name))
             continue;
-        lua_pushnumber(L, Snap::barTop(m));
+        const CBox box = Snap::usable(m);
+        lua_newtable(L);
+        lua_pushnumber(L, box.x);
+        lua_setfield(L, -2, "x");
+        lua_pushnumber(L, box.y);
+        lua_setfield(L, -2, "y");
+        lua_pushnumber(L, box.w);
+        lua_setfield(L, -2, "w");
+        lua_pushnumber(L, box.h);
+        lua_setfield(L, -2, "h");
         return 1;
     }
     lua_pushnil(L);
+    return 1;
+}
+
+// The height of a window's chrome (titlebar, plus the tabbar when it has one),
+// 0 for a window with no bar: the strip a snap keeps free above the content and
+// the number a group's shift is measured in (Snap::chromeH).
+static int luaChromeHeight(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.chrome_height");
+    if (!w)
+        w = Desktop::focusState()->window();
+    lua_pushinteger(L, w ? Snap::chromeH(w) : 0);
+    return 1;
+}
+
+// Step a window through the cycle sizes on one side (Snap::cycle), the press of
+// Super+Alt+arrow: false when the window is on none of them, and the caller then
+// snaps it to that side's zone.
+static int luaCycle(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.cycle");
+    if (!w)
+        w = Desktop::focusState()->window();
+    const bool right = lua_isstring(L, 2) && std::string_view(lua_tostring(L, 2)) == "right";
+    lua_pushboolean(L, w && Snap::cycle(w, right));
     return 1;
 }
 
@@ -321,12 +358,37 @@ static int luaDragOwns(lua_State* L) {
 // Lua's raise runs on every focus. Hyprland has already marked a floating
 // window allowed-over by then; this clears it without alter_zorder's mouse
 // simulation, which would focus yet another window.
+// One dispatch for "bring this window to the front and focus it". alter_zorder
+// ends in simulateMouseMovement, which re-emits the mouse move synchronously and
+// re-enters the tab drag; two hyprctl dispatches also race each other. This does
+// neither.
+static int luaRaise(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.raise");
+    if (!w)
+        w = Desktop::focusState()->window();
+    raiseAndFocus(w);
+    return 0;
+}
+
 static int luaHoldUnderFullscreen(lua_State* L) {
     PHLWINDOW w = nullptr;
     if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
         w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.hold_under_fullscreen");
     lua_pushboolean(L, holdUnderFullscreen(w));
     return 1;
+}
+
+// Nested Hyprland toplevels share one class (aquamarine, the wayland backend's
+// app id; some builds still say Hyprland). Same-app grouping would put every
+// nest in one tab. The titlebar stays — this only refuses the group. The same
+// list lives in hypr/x-mode/group.lua, which Lua checks before it asks here.
+static bool neverGroupClass(const PHLWINDOW& w) {
+    std::string cls = w->m_initialClass.empty() ? w->m_class : w->m_initialClass;
+    for (auto& c : cls)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return cls == "aquamarine" || cls == "hyprland";
 }
 
 // Same classification Hyprland uses for auto-group / float: override-redirect,
@@ -340,7 +402,7 @@ static int luaGroupable(lua_State* L) {
         lua_pushboolean(L, false);
         return 1;
     }
-    if (w->isX11OverrideRedirect() || w->isModal() || g_pXWaylandManager->shouldBeFloated(w)) {
+    if (neverGroupClass(w) || w->isX11OverrideRedirect() || w->isModal() || g_pXWaylandManager->shouldBeFloated(w)) {
         lua_pushboolean(L, false);
         return 1;
     }
@@ -552,12 +614,15 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "add_button", ::newLuaButton);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "snap", ::luaSnap);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "zone", ::luaZone);
-        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "bar_top", ::luaBarTop);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "usable", ::luaUsable);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "chrome_height", ::luaChromeHeight);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "cycle", ::luaCycle);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "dragging", ::luaDragging);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_window", ::luaDragWindow);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_owns", ::luaDragOwns);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "groupable", ::luaGroupable);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "hold_under_fullscreen", ::luaHoldUnderFullscreen);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "raise", ::luaRaise);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "x_mode", ::luaXMode);
     }
 

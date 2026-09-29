@@ -26,5 +26,5 @@ assert_eq "$(group_size foot)" 2 "a background tab's close button must not close
 cur="$(active_tab_index foot)"
 read -r cx cy <<<"$(tab_close_point foot "$cur" 2)"
 pointer_click "$cx" "$cy"
-sleep 0.5
+settle
 assert_eq "$(group_size foot)" 1 "the current tab's close button closes it"

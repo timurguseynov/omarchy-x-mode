@@ -47,7 +47,6 @@ sentinel_add() {
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
 HYPR="$CONFIG/hypr"
 PLUGINS_DIR="$CONFIG/omarchy/plugins"
-WITH_HYPRBARS=1
 
 # Our patched plugin gets its own file name so it never clobbers a stock
 # hyprbars the user may already have. A stock one found loaded is disabled on
@@ -66,14 +65,11 @@ warn() { printf '\033[1;33mwarn\033[0m %s\n' "$*" >&2; }
 
 usage() {
   cat <<'EOF'
-Usage: ./install.sh [install|uninstall|status] [--no-hyprbars]
+Usage: ./install.sh [install|uninstall|status]
 
   install      (default) copy plugins + config, enable plugins, build hyprbars
   uninstall    remove everything the installer created
   status       show what is installed
-
-Options:
-  --no-hyprbars   skip building/installing the patched hyprbars plugin
 EOF
 }
 
@@ -133,36 +129,33 @@ print(json.dumps(out))
   # Compile first. The patched hyprbars build is the slow, failure-prone step
   # and it writes nothing until it succeeds, so doing it before we touch any
   # config keeps a failed build from leaving a half-installed pack behind.
-  if ((WITH_HYPRBARS)); then
-    log "building patched hyprbars"
-    if ! "$HERE/hyprbars/build.sh"; then
-      warn "hyprbars build failed; aborting before installing configs"
-      warn "re-run with --no-hyprbars to install without the patched titlebar"
-      exit 1
-    fi
-    manifest_add "$HYPRBARS_SO"
-
-    # If the user already has a stock hyprbars loaded, disable it and remember
-    # the path so uninstall can re-enable it. `plugin unload` prints
-    # "plugin not loaded" when that exact path isn't loaded.
-    if [ -f "$STOCK_HYPRBARS_SO" ] && [ "$(hyprctl plugin unload "$STOCK_HYPRBARS_SO" 2>/dev/null || true)" != "plugin not loaded" ]; then
-      mkdir -p "$X_MODE_STATE_DIR"
-      printf '%s\n' "$STOCK_HYPRBARS_SO" > "$PRIOR_HYPRBARS"
-      log "disabled existing hyprbars (will re-enable on uninstall)"
-    fi
-
-    log "loading patched hyprbars"
-    hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
-    hyprctl plugin load "$HYPRBARS_SO" >/dev/null 2>&1 || warn "could not load hyprbars now (it will load on next login)"
-    # Before either reload: the config spreads the already-open windows across
-    # the left and right halves, then deletes the marker. Whichever of the two
-    # reloads parses the new config first does the arrange; the other, and
-    # every reload after, leaves windows where the user put them.
-    mkdir -p "$X_MODE_STATE_DIR"
-    : > "$X_MODE_STATE_DIR/arrange"
-    log "reloading Hyprland to activate hyprbars"
-    hyprctl reload >/dev/null 2>&1 || true
+  log "building patched hyprbars"
+  if ! "$HERE/hyprbars/build.sh"; then
+    warn "hyprbars build failed; aborting before installing configs"
+    exit 1
   fi
+  manifest_add "$HYPRBARS_SO"
+
+  # If the user already has a stock hyprbars loaded, disable it and remember
+  # the path so uninstall can re-enable it. `plugin unload` prints
+  # "plugin not loaded" when that exact path isn't loaded.
+  if [ -f "$STOCK_HYPRBARS_SO" ] && [ "$(hyprctl plugin unload "$STOCK_HYPRBARS_SO" 2>/dev/null || true)" != "plugin not loaded" ]; then
+    mkdir -p "$X_MODE_STATE_DIR"
+    printf '%s\n' "$STOCK_HYPRBARS_SO" > "$PRIOR_HYPRBARS"
+    log "disabled existing hyprbars (will re-enable on uninstall)"
+  fi
+
+  log "loading patched hyprbars"
+  hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
+  hyprctl plugin load "$HYPRBARS_SO" >/dev/null 2>&1 || warn "could not load hyprbars now (it will load on next login)"
+  # Before either reload: the config spreads the already-open windows across
+  # the left and right halves, then deletes the marker. Whichever of the two
+  # reloads parses the new config first does the arrange; the other, and
+  # every reload after, leaves windows where the user put them.
+  mkdir -p "$X_MODE_STATE_DIR"
+  : > "$X_MODE_STATE_DIR/arrange"
+  log "reloading Hyprland to activate hyprbars"
+  hyprctl reload >/dev/null 2>&1 || true
 
   log "installing shell plugins"
   # Migrate from the old two-plugin layout (tim.dock + tim.snap-preview).
@@ -190,8 +183,9 @@ print(json.dumps(out))
   rm -f "$HYPR"/conf.d/5x-x-mode-*.lua 2>/dev/null || true
   rm -rf "$HYPR/x-mode" 2>/dev/null || true
   copy_file "$HERE/hypr/x-mode.lua" "$HYPR/x-mode.lua"
-  # Pure geometry lives next to it in x-mode/; x-mode.lua dofiles it relative to
-  # its own path, so the directory has to be installed too.
+  # The pure parsing modules live next to it in x-mode/; x-mode.lua dofiles them
+  # relative to its own path, so the directory has to be installed too. Geometry
+  # is not in there: that is the plugin's (hyprbars/snap.cpp).
   copy_tree "$HERE/hypr/x-mode" "$HYPR/x-mode"
 
   log "wiring x-mode into hyprland.lua"
@@ -205,27 +199,11 @@ print(json.dumps(out))
   log "reloading Hyprland"
   hyprctl reload >/dev/null 2>&1 || true
 
-  # The catch-all float rule only applies to new windows, so windows opened
-  # while the pack wasn't active stay tiled. Dragging a tiled window makes
-  # Hyprland float it and center it under the cursor (looks like a jump), so
-  # re-float anything still tiled. Skip fullscreen windows.
-  if hyprctl clients -j >/dev/null 2>&1; then
-    log "re-floating open windows"
-    while IFS= read -r addr; do
-      [ -n "$addr" ] || continue
-      hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"address:$addr\" })" >/dev/null 2>&1 || true
-    done < <(hyprctl clients -j | python3 -c '
-import json, sys
-for c in json.load(sys.stdin):
-    if c.get("mapped") and not c.get("floating") and not c.get("fullscreen"):
-        print(c["address"])
-')
-  fi
-
-  # The config's own arrange runs on a timer that races this re-float, so do
-  # it again now that every window is actually floating. Same shuffle, and it
-  # only changes which window lands on which half.
-  hyprctl eval 'if x_mode and x_mode.arrange_halves then x_mode.arrange_halves() end' >/dev/null 2>&1 || true
+  # The re-float and the arrange are both left to the config: install.sh drops
+  # the `arrange` marker before its reload, and x-mode.lua's own timer fades the
+  # windows out, re-floats them, arranges them and brings them back — all on
+  # invisible windows. Doing either here would move them on screen first and a
+  # second time a moment later.
 
   # `rescanPlugins` + `plugin enable` only update the registry: a plugin that is
   # already loaded keeps the QML instance it was created with, so updated files
@@ -338,7 +316,6 @@ cmd="install"
 for a in "$@"; do
   case "$a" in
     install | uninstall | status) cmd="$a" ;;
-    --no-hyprbars) WITH_HYPRBARS=0 ;;
     -h | --help) usage; exit 0 ;;
     *)
       echo "unknown argument: $a" >&2

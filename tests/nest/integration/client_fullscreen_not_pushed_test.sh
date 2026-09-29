@@ -10,8 +10,8 @@
 . "$(dirname "$0")/../../lib.sh"
 
 open_window foot
-# Let the open watch stop, so only the later re-clamp can move it.
-sleep 2.2
+# Wait until the box holds still, so only the later re-clamp can move it.
+wait_still foot
 
 # The app goes fullscreen on its own; the compositor stays out of it.
 nest_ctl dispatch "hl.dsp.window.fullscreen_state({ internal = 0, client = 2, action = 'set', window = 'class:foot' })" >/dev/null
@@ -23,7 +23,7 @@ sleep 0.3
 
 # Any window opening re-evaluates the rules of every window, the re-clamp included.
 open_window kitty
-sleep 0.5
+settle
 
 read -r x y _ _ _ <<<"$(win_geom foot)"
 assert_eq "$x" 0 "a client-fullscreen window is not moved sideways"

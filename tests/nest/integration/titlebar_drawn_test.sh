@@ -17,7 +17,7 @@ scale="$(nest_ctl monitors -j | python3 -c "import json,sys;print(int(json.load(
 nest_screenshot "$shots/warmup.png"
 nest_screenshot "$shots/empty.png"
 open_window foot
-sleep 0.5
+settle
 read -r x y w h _ <<<"$(win_geom foot)"
 nest_screenshot "$shots/open.png"
 

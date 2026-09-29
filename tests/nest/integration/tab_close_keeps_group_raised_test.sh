@@ -20,7 +20,7 @@ assert_eq "$(topmost)" foot "the group is on top before closing"
 idx="$(active_tab_index foot)"
 read -r cx cy <<<"$(tab_close_point foot "$idx" 2)"
 pointer_click "$cx" "$cy"
-sleep 0.5
+settle
 
 assert_eq "$(group_size foot)" 1 "the current tab closes"
 assert_eq "$(active_class)" foot "the focus stays in the group"

@@ -13,16 +13,16 @@
 . "$(dirname "$0")/../../lib.sh"
 
 open_window foot
-sleep 0.6
+settle
 
 read -r _ _ w h _ <<<"$(win_geom foot)"
 nest_ctl dispatch "hl.dsp.window.resize({ x = $((w + 120)), y = $((h + 150)), relative = false, window = 'class:foot' })" >/dev/null
-sleep 0.5
+settle
 
 assert_ge "$(visual_top foot)" "$(bar_top)" "a resized window clears the bar"
 
 # Shrinking never pushed anything up, and it is worth holding to anyway: if this
 # fails, something moved the window up while making it smaller.
 nest_ctl dispatch "hl.dsp.window.resize({ x = 200, y = 200, relative = false, window = 'class:foot' })" >/dev/null
-sleep 0.5
+settle
 assert_ge "$(visual_top foot)" "$(bar_top)" "shrinking a window does not push it over the bar"

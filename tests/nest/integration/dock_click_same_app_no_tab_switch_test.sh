@@ -16,7 +16,7 @@ before="$(active_tab_index foot)"
 
 read -r px py <<<"$(dock_icon_point 0)"
 pointer_click "$px" "$py"
-sleep 0.5
+settle
 
 assert_eq "$(active_tab_index foot)" "$before" "clicking the focused app's icon must not switch tabs"
 assert_eq "$(active_class)" foot "the group stays focused"

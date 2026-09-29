@@ -2,11 +2,13 @@
 
 Four layers:
 
+
 - **`lint/`** (via `lint.sh`) — `qmllint` over `quickshell/x-mode/*.qml`. The
   Quickshell/qs.* modules are not on the lint import path, so their "not found"
   warnings are expected; only real errors fail.
-- **`unit/`** — pure Lua, no compositor: the modules in `hypr/x-mode/`
-  (geometry, settings, theme, MRU).
+- **`unit/`** — pure Lua, no compositor: the parsing modules in `hypr/x-mode/`
+  (settings, theme, MRU). Geometry has no unit layer on purpose: it is the
+  plugin's (`Snap::`), and the nest covers it.
 - **`qml/`** — pure JS, no compositor: the shell plugin's shared logic in
   `quickshell/x-mode/logic.js`, run with `qmltestrunner` offscreen.
 - **`nest/`** — scenarios in a nested Hyprland: a window inside the real session
@@ -34,12 +36,33 @@ tests/nest/run.sh close                      # anything whose name matches
 A scenario's output is printed whether it passes or fails: a note it wants to
 make, or a message from a tool it ran, is exactly what swallowing would hide.
 
-The nest is one per run and `nest_clean()` runs between files, so a selected
-scenario is as isolated as it is in a full run. The startup is only a few
-seconds and the cost is per scenario, so selecting one is worth it: a single
-scenario runs in about 4s against about 30s for the whole nest layer.
+`nest_clean()` runs between files, so a selected scenario is as isolated as it
+is in a full run. The run starts one nest per worker (`NEST_JOBS`, default 3;
+`NEST_JOBS=1` keeps a single nest). `NEST_WORKSPACE=4` maps those windows on
+workspace 4 and leaves the view where it is. The workspace has to be the one
+on screen: a window whose workspace is not visible is suspended, and the nest
+stops committing. With a number set, the windows are not pinned, because a
+pinned window is drawn on every workspace. A scenario that fails is run once
+more on the same nest, and a failure that comes back is reported.
 
-The nest runs with a runtime directory of its own, `/tmp/x-mode-nest-runtime`.
+The nest is a window on this desktop. Its class is `aquamarine` (the wayland
+backend's app id). The pack keeps that class, and `Hyprland`, out of same-app
+groups, so several nests stay separate windows. A runtime window rule on that
+class keeps a nest from taking focus when it appears, and pins it. A covered
+window on this workspace gets no frames: the unfocused-render timer skips any
+window whose workspace is visible, so a nest that ends up under another app
+never finishes starting. The pin keeps it above the rest of the desktop. A
+1px corner layer commits ten times a second as a backstop for a nest something
+else has still covered; the layer goes away with the rule. A click on the
+titlebar focuses that nest. A nest that maps later does not hand focus back.
+The windows are staggered by a titlebar each, so the click lands on the one it
+is aimed at. The runner removes the rule when it exits. A screenshot reapplies
+the rule while grim is waiting, which is what produces the frame grim is
+blocked on.
+
+Each nest has its own runtime directory, `/tmp/xmn-<slot>`. The name is that
+short on purpose: Hyprland's event socket path has to fit in 107 bytes, and
+the dock connects to that socket.
 That is where its Hyprland socket, the x-mode state file and the command files
 the pack writes for the switcher and the snap preview all land. It has to be
 short (a unix socket path tops out around 108 bytes, and
@@ -51,11 +74,10 @@ the directory is not the test's own, anything that connects to the nest needs
 `nest_display` (the absolute socket path) rather than a bare socket name.
 
 The nest layer builds `hyprbars` first (incrementally) and needs a running
-Hyprland session (for the nest) plus the hyprpm headers. It starts one nest for
-the whole run. Between files it closes the windows and restores a clean
-`settings.json`, and a fresh run starts from an empty state dir: a test that
-fails midway otherwise leaves settings behind that change how the next one lays
-out windows.
+Hyprland session (for the nest) plus the hyprpm headers. Between files it
+closes the windows and restores a clean `settings.json`, and a fresh run starts
+from an empty state dir: a test that fails midway otherwise leaves settings
+behind that change how the next one lays out windows.
 
 Requirements: `hyprpm` headers (`hyprpm update`), `quickshell`/`qs` (the fake top
 bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
@@ -80,6 +102,8 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/alt_tab_switches_group_tab_test.sh` | Alt+Tab and Alt+Shift+Tab move through a group's tabs |
 | `integration/always_tabbar_single_tab_test.sh` | alwaysTabbar pushes a lone window down by the tabbar |
 | `integration/arrange_counts_group_once_test.sh` | a group of tabs takes one half, not two |
+| `integration/arrange_fades_test.sh` | the arrange fades the windows out first and reveals them at full opacity |
+| `integration/arrange_tiling_to_tabs_test.sh` | five tiled windows all fade, gather into tabs and come back together |
 | `integration/arrange_keeps_workspaces_test.sh` | the arrange arranges a window where it already is |
 | `integration/chrome_off_drag_reaches_bar_test.sh` | without chrome the box reaches the bar |
 | `integration/chrome_off_no_group_test.sh` | a chrome-off window is never grouped |
@@ -91,6 +115,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/dock_click_same_app_no_tab_switch_test.sh` | clicking the focused app's icon does not switch tabs |
 | `integration/dock_click_switches_workspace_test.sh` | clicking an icon on another workspace moves there |
 | `integration/dock_hides_when_x_mode_off_test.sh` | the dock follows the x-mode on/off flag |
+| `integration/dock_inset_follows_card_test.sh` | the snap inset follows the dock card’s real width |
 | `integration/dock_icon_layout_test.sh` | the icon layout the click helpers assume |
 | `integration/dock_menu_focuses_other_workspace_test.sh` | a window row on another workspace moves there |
 | `integration/dock_menu_hides_new_for_single_instance_test.sh` | a single-instance app gets no New row |
@@ -107,6 +132,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/drag_out_of_zone_test.sh` | a snapped window dragged out of its zone keeps its size |
 | `integration/drag_snap_survives_new_window_test.sh` | a window opening mid-drag does not steal the snap |
 | `integration/drag_snap_zones_test.sh` | side strips give halves, the top strip maximizes, corners quarter |
+| `integration/drag_down_then_focus_keeps_box_test.sh` | a dragged window keeps its drop when another window takes focus |
 | `integration/drag_up_clamps_to_bar_test.sh` | dragging up leaves the chrome below the bar |
 | `integration/arrow_keys_unbound_test.sh` | Cmd+arrows are unbound and do not move focus |
 | `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |
@@ -131,7 +157,8 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/no_gaps_symmetric_insets_test.sh` | every inset changes with the gaps and every one comes back |
 | `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
 | `integration/oversized_snap_anchors_test.sh` | a snap smaller than the client minimum keeps the snapped edge and overhangs |
-| `integration/oversized_window_test.sh` | a settled window grown to twice the monitor, and where it lands |
+| `integration/oversized_snap_cycle_test.sh` | a grown snap still cycles wider on the next press |
+| `integration/oversized_window_test.sh` | a settled window grown to twice the monitor is fitted back inside it |
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `integration/same_app_across_workspaces_no_group_test.sh` | a same-app window on another space is not a tab |
 | `integration/scratchpad_keys_unbound_test.sh` | Cmd+S and Cmd+Alt+S stay unbound |
@@ -261,37 +288,42 @@ settling for all three clients, after as well as before the geometry stops
 changing — but it does not fire on that resize either, and it fires for *every*
 window whenever one opens, because Hyprland re-evaluates the rules.
 
-So the pack cannot react, and it watches instead: `watch_until_settled` in
-`x-mode.lua` runs a 50ms repeat timer for a fresh ungrouped window, re-clamps it,
-and stops once two samples in a row are identical, with a 2s ceiling for a window
-that never settles. That replaced two one-shot clamps at 60ms and 200ms, which a
-resize could land after. It hands the window over the moment `hyprbars.drag`
-reports a drag for it: a drag clamps itself in C++ and lets a window hang off an
-edge, and the Lua fit would pull it back — `pointer_test.sh` caught exactly that,
-which is why the handover is on the event and not on a check inside the tick.
-Grouped windows are skipped, their position coming from the join; a group that
-changes shape afterwards is pushed back below the bar by `push_bars_below`,
-because `window.update_rules` is the only event a group change raises.
+There is still no geometry event. The fit lives in the plugin instead:
+`CHyprBar::updateWindow` runs at the end of every move and resize
+(`updateWindowDecos` calls it), and `Snap::clampToWorkArea` refits a box that is
+too big for the work area with the same gap, border and `chromeH` a snap uses,
+and keeps the chrome below the reserved top. A box that already fits is left
+where the user or the app put it: this runs from the *next* `updateWindow`, an
+unrelated later event, so pulling a moved window back inside would yank it into
+its old box whenever anything else touched the geometry — a snapped window
+dragged a little down flew back into its snap when another window opened
+(`drag_down_then_focus_keeps_box_test.sh`). A drag is left alone while it owns
+the window: a box that is too big stays too big for the whole drag, and the fit
+would fight it; `pointer_test.sh` is why that skip is on the drag, not after it.
+A group grows its chrome upward with no event of its own; the same `updateWindow`
+sees the new `chromeH` and pushes the box down.
 
 `resize_after_open_clears_bar_test.sh` holds that down: Hyprland resizes around
 the window's centre, so growing a window moves its top-left up (measured at -39
 with the bar at 24 before the fix), and the window has to end up clear of the bar
-again.
+again. `oversized_window_test.sh` is the same fit after the window has settled.
 
 A client can also refuse to shrink below its own minimum (kdenlive is 1027 wide
 on a 938 half). Hyprland then grows the box around its centre, which walked the
 left edge of a left snap off-screen (observed at x=-43). `Snap::contentBox`
 grows the target to `CWindow::minSize()` and keeps the snapped edge put, so the
 window overhangs the far side of its zone instead; `oversized_snap_anchors_test.sh`
-holds that down.
+holds that down, and `oversized_snap_cycle_test.sh` that the Super+Alt+arrow cycle
+still steps on from there (its candidates are grown the same way, or the wider
+window matches none of them and the next press only re-snaps the same half).
 
 Upstream has the fitting code but does not call it here:
 `CDefaultFloatingAlgorithm::fitBoxInWorkArea()` clamps into `space->workArea(true)`
 and accounts for the window's chrome through `getWindowExtentsUnified`, but it is
 only reached from `newTarget()` (placement) and `movedTarget()` (moving between
 monitors or workspaces) — never from a resize. The event request is
-hyprwm/Hyprland#15519, unanswered. If upstream ever refits on resize, the watch
-can go and a single clamp after `open` will do again.
+hyprwm/Hyprland#15519, unanswered. The plugin fit above is what stands in for
+it. If upstream ever refits on resize, `clampToWorkArea` can go.
 
 Waiting on a fixed sleep is how a test turns flaky. `wait_for_count CLASS N
 [SECONDS]` is the helper for "until it appears": a window opened through
@@ -466,11 +498,11 @@ leave a Quickshell running against the nest.
 ## unit layer
 
 Pure logic that does not need a compositor. It lives in sibling modules next to
-`x-mode.lua`, so the tests load them directly with plain `lua`:
+`x-mode.lua`, so the tests load them directly with plain `lua`. Geometry is not
+here any more: it is `Snap::` in the plugin, and the nest is its test layer.
 
 | file | module | covers |
 |---|---|---|
-| `geometry_test.lua` | `hypr/x-mode/geom.lua` | frame (including scale), zone insets with and without gaps, halves not overlapping, maximize, almost-maximize, cycle sizes, `fit_box` clamping, `cycle_index` |
 | `settings_test.lua` | `hypr/x-mode/settings.lua` | options/apps parsing, the apps section vs the whole file, the legacy array, the merge of the two old files, the rule diff |
 | `theme_test.lua` | `hypr/x-mode/theme.lua` | the TOML subset (inline comments, quotes), hex/rgb conversion, the bar color defaults |
 | `mru_test.lua` | `hypr/x-mode/mru.lua` | touch ordering, step wrapping, sort by MRU then focus |

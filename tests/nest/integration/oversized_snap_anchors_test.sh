@@ -18,11 +18,11 @@ minw=$((mw * 2 / 3))
 minh=$((mh / 2))
 
 open_window foot
-# Let the open watch stop, so this is only about the snap.
-sleep 2.2
+# Wait until the box holds still, so this is only about the snap.
+wait_still foot
 
 nest_ctl eval "hl.window_rule({ name = 'oversized-snap', match = { class = 'foot' }, min_size = '${minw} ${minh}' })" >/dev/null
-sleep 0.5
+settle
 
 snap foot left
 
