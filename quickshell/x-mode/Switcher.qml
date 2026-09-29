@@ -128,23 +128,14 @@ Item {
                 // A class with no desktop icon (a portal file dialog, a
                 // terminal launched under another app id) would otherwise be a
                 // blank slot. Same letter the dock draws until the image loads.
-                Text {
+                AppIcon {
                   anchors.centerIn: parent
-                  visible: iconImg.status !== Image.Ready
-                  text: Logic.iconLetter(modelData.cls)
-                  color: Color.foreground
-                  font.pixelSize: 22
-                  opacity: modelData.cls === root.activeClass ? 1 : 0.45
-                }
-
-                Image {
-                  id: iconImg
-                  anchors.centerIn: parent
+                  width: 40
+                  height: 40
+                  cls: String(modelData.cls)
                   source: root.iconFor(modelData.cls)
-                  sourceSize.width: 40
-                  sourceSize.height: 40
+                  letterPixelSize: 22
                   opacity: modelData.cls === root.activeClass ? 1 : 0.45
-                  visible: status === Image.Ready
                 }
 
                 Rectangle {

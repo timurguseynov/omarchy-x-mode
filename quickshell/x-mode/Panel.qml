@@ -328,32 +328,16 @@ Panel {
       anchors.rightMargin: Style.space(10)
       implicitHeight: Math.max(Style.font.iconLarge, arowInfo.implicitHeight)
 
-      Image {
-        id: arowIcon
+      AppIcon {
         width: Style.font.iconLarge
         height: Style.font.iconLarge
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        cls: String(arow.modelData.cls)
         source: root.appIcon(arow.modelData.cls)
-        sourceSize.width: width
-        sourceSize.height: height
-        fillMode: Image.PreserveAspectFit
-        asynchronous: false
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-        visible: status === Image.Ready
-      }
-
-      Text {
-        visible: !arowIcon.visible
-        text: String(arow.modelData.cls).charAt(0).toUpperCase()
-        color: root.contentForeground
-        font.family: root.contentFontFamily
-        font.pixelSize: Style.font.body
-        width: Style.font.iconLarge
-        height: Style.font.iconLarge
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
+        foreground: root.contentForeground
+        fontFamily: root.contentFontFamily
+        letterPixelSize: Style.font.body
       }
 
       Column {

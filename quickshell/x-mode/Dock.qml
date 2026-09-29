@@ -825,24 +825,12 @@ Item {
                   }
                 }
 
-                Text {
-                  anchors.centerIn: parent
-                  // Hide the source icon while the ghost is shown.
-                  visible: !item.isDragSource && iconImg.status !== Image.Ready
-                  text: String(item.modelData.cls).charAt(0).toUpperCase()
-                  color: Color.foreground
-                  font.pixelSize: Math.round(root.iconSize * 0.6)
-                }
-
-                Image {
-                  id: iconImg
+                // Hide the source icon while the ghost is shown.
+                AppIcon {
                   anchors.fill: parent
+                  cls: String(item.modelData.cls)
                   source: icons.iconFor(item.modelData.cls)
-                  sourceSize.width: root.iconSize
-                  sourceSize.height: root.iconSize
-                  fillMode: Image.PreserveAspectFit
-                  asynchronous: false
-                  visible: !item.isDragSource && status === Image.Ready
+                  iconVisible: !item.isDragSource
                 }
 
                 Rectangle {
@@ -967,23 +955,10 @@ Item {
                   z: 100
                   opacity: 0.95
 
-                  Image {
-                    id: ghostImg
+                  AppIcon {
                     anchors.fill: parent
+                    cls: String(root.dragCls || "")
                     source: root.dragActive ? icons.iconFor(root.dragCls) : ""
-                    sourceSize.width: root.iconSize
-                    sourceSize.height: root.iconSize
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: false
-                    visible: status === Image.Ready
-                  }
-
-                  Text {
-                    anchors.centerIn: parent
-                    visible: ghostImg.status !== Image.Ready
-                    text: String(root.dragCls || "").charAt(0).toUpperCase()
-                    color: Color.foreground
-                    font.pixelSize: Math.round(root.iconSize * 0.6)
                   }
                 }
               }
