@@ -7,8 +7,8 @@ plugin (pin `7644cec`), patched for [X Mode](../README.md): a single close
 button, a tab strip for same-app groups (per-tab close + `+` to open another
 window), titlebar drag-to-edge snapping, and a clean unload path.
 
-Built automatically by the pack installer (`install.sh`). Skip with
-`--no-hyprbars` (no titlebar, tab strip, or drag-to-edge snap). Manual build:
+Built by the pack installer (`install.sh`); the pack does not run without it.
+Manual build:
 
 ```sh
 ./build.sh

@@ -14,7 +14,7 @@ and run **on this machine**. Reinstall from here with:
 `./install.sh` is additive: it only creates files in its own namespace and one
 sentinel block in `~/.config/hypr/hyprland.lua`. `./uninstall.sh` removes
 exactly what the install recorded. `./install.sh status` shows what is
-installed. `--no-hyprbars` skips the titlebar plugin build.
+installed.
 
 For work on the pack, also read `_docs/AGENTS.md` if it exists: it documents the
 sandbox that surrounds this repo.
@@ -76,9 +76,6 @@ Pack code, in this repo:
   installed files (`~/.config/hypr/x-mode.lua`, `~/.config/hypr/x-mode/`,
   `~/.local/share/hyprbars/`): `install.sh` is the only writer, so its manifest
   stays right and a test build never lands on the live session half-done.
-- `./install.sh --no-hyprbars` installs the Lua and the modules without touching
-  the plugin; use it when `hyprbars/` did not change (the build is the slow
-  step).
 - Keep pure parsing (no `hl`) in the `hypr/x-mode/` modules so it stays unit
   testable; event/state code stays in `x-mode.lua` and is covered by the nest.
   Geometry is the plugin's (`Snap::`), so there is one implementation: the pack
