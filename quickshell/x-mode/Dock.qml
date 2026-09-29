@@ -153,6 +153,7 @@ Item {
     focusAddr(addr)
   }
 
+  function iconFor(cls) { return icons.iconFor(cls) }
   function appEntryFor(cls) { return icons.appEntryFor(cls) }
   function appDisplayName(cls) { return icons.appDisplayName(cls) }
   function isSingleInstance(cls) { return icons.isSingleInstance(cls) }

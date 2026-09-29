@@ -110,6 +110,13 @@ TestCase {
         compare(Logic.parseSnapCmd("show 12 64 900 1000", false).shown, false, "off means hidden")
     }
 
+    function test_iconScanCommand_covers_symbolic_categories() {
+        var cmd = Logic.iconScanCommand()
+        verify(cmd.indexOf("categories") !== -1, "portal dialogs ship category icons (applications-system-symbolic)")
+        verify(cmd.indexOf("apps") !== -1, "app icons still scanned")
+        verify(cmd.indexOf("pixmaps") !== -1, "pixmaps still scanned")
+    }
+
     function test_rectsIntersect() {
         compare(Logic.rectsIntersect({ x: 0, y: 0, w: 100, h: 100 }, { x: 50, y: 50, width: 100, height: 100 }), true)
         compare(Logic.rectsIntersect({ x: 0, y: 0, w: 100, h: 100 }, { x: 100, y: 0, width: 100, height: 100 }), false, "touching edges do not overlap")

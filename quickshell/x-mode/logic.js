@@ -120,6 +120,59 @@ function parseSnapCmd(raw, enabled) {
     return { shown: false }
 }
 
+// On-disk icon index scan: feeds IconResolver's name -> path map. Covers
+// apps/ and devices/ (app icons) as well as categories/ (symbolic icons like
+// the portal dialog's applications-system-symbolic), plus the top level of
+// /usr/share/pixmaps. Pure string building, so it is unit tested here and
+// IconResolver only runs it.
+function iconScanCommand() {
+    return [
+        'dirs="$HOME/.icons $HOME/.local/share/icons $HOME/.local/share/flatpak/exports/share/icons /var/lib/flatpak/exports/share/icons";',
+        'IFS=":"; for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do dirs="$dirs $d/icons"; done; unset IFS;',
+        'for ext in svg png; do',
+        '  for base in $dirs; do',
+        '    [[ -d $base ]] && find "$base" \\( -path "*/apps/*" -o -path "*/devices/*" -o -path "*/categories/*" \\) -name "*.$ext" 2>/dev/null;',
+        '  done;',
+        '  find /usr/share/pixmaps -maxdepth 1 -name "*.$ext" 2>/dev/null;',
+        'done'
+    ].join(' ')
+}
+
+// One id/StartupWMClass per desktop entry that declares it opens a single
+// main window. Pure string building, like iconScanCommand.
+function singleInstanceScanCommand() {
+    return [
+        'for d in "$HOME/.local/share/applications" /usr/local/share/applications /usr/share/applications /var/lib/flatpak/exports/share/applications "$HOME/.local/share/flatpak/exports/share/applications" /var/lib/snapd/desktop/applications; do',
+        '  [[ -d $d ]] || continue;',
+        '  for f in "$d"/*.desktop; do',
+        '    [[ -f $f ]] || continue;',
+        '    grep -qiE "^(SingleMainWindow|X-GNOME-SingleWindow|X-KDE-SingleMainWindow)=true" "$f" || continue;',
+        '    id=$(basename "$f" .desktop);',
+        '    wm=$(grep -i "^StartupWMClass=" "$f" | head -1 | cut -d= -f2-);',
+        '    printf "%s\\t%s\\n" "$id" "$wm";',
+        '  done;',
+        'done'
+    ].join(' ')
+}
+
+// Find the largest icon declared in every Chromium extension manifest under
+// the browser profiles. Pure string building, like iconScanCommand.
+function extensionScanCommand() {
+    return [
+        "for base in $(find \"$HOME/.config\" -maxdepth 4 -type d -name Extensions 2>/dev/null); do",
+        "  for mf in $(find \"$base\" -mindepth 3 -maxdepth 3 -name manifest.json 2>/dev/null); do",
+        "    id=$(basename \"$(dirname \"$(dirname \"$mf\")\")\")",
+        "    [[ $id =~ ^[a-p]{32}$ ]] || continue",
+        "    vdir=$(dirname \"$mf\")",
+        "    icon=$(jq -r '.icons // {} | to_entries | max_by(.key | tonumber) | .value // empty' \"$mf\" 2>/dev/null)",
+        "    [ -n \"$icon\" ] || continue",
+        "    case $icon in /*) p=$icon ;; *) p=$vdir/$icon ;; esac",
+        "    [ -f \"$p\" ] && printf '%s\\t%s\\n' \"$id\" \"$p\"",
+        "  done",
+        "done"
+    ].join("\n")
+}
+
 // Axis-aligned rectangle overlap. Reads w/h or width/height, so callers can
 // pass QML item boxes straight through.
 function rectsIntersect(a, b) {

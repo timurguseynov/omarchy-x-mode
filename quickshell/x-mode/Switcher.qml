@@ -16,10 +16,10 @@ Item {
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var shell: null
   property var manifest: null
-  // `dock` is only kept so the existing `Switcher { dock: root }` in Dock.qml
-  // still binds. The icon lookup moved out of the dock into IconResolver.
+  // Icon lookup reuses the dock's resolver (one scan per shell process),
+  // so this component owns no IconResolver of its own. Without a dock the
+  // row still shows the class letters.
   property var dock: null
-  IconResolver { id: icons }
 
   readonly property string cmdPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-switcher.cmd"
 
@@ -29,7 +29,9 @@ Item {
   property var classes: []
 
   function iconFor(cls) {
-    return icons.iconFor(cls)
+    if (root.dock && typeof root.dock.iconFor === "function")
+      return root.dock.iconFor(cls)
+    return ""
   }
 
   function applyXModeLine(raw) {
