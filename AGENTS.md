@@ -59,18 +59,19 @@ Pack code, in this repo:
 
 - A fix starts with a test that fails. Add the unit or nest scenario that
   reproduces the report, run it, and see it fail for the reason the report gives
-  (`tests/nest/run.sh <name>`), and only then change pack code. A fix with no
+  (`NEST_JOBS=5 NEST_WORKSPACE=5 tests/nest/run.sh <name>`), and only then change pack code. A fix with no
   test that failed first is a guess: the suite is the only thing that can tell a
   later edit from a regression.
 - Do not test by hand on the live session. If something needs to be checked
   there, say so and wait: the user will check it. If you need log output, ask
   for it instead of collecting it yourself.
-- `tests/run.sh` is the sanctioned check, and it is automated and isolated: the
-  unit layer is plain lua, the nest layer is a nested Hyprland with its own state
-  directory and a runtime directory of its own, so nothing the pack writes (the
-  state file, the switcher and preview command files) reaches the running
-  session. Run it before committing a change to `x-mode.lua`, a module, the
-  plugin or an install file.
+- `tests/run.sh` is the sanctioned check. Always run it, and `tests/nest/run.sh`,
+  as `NEST_JOBS=5 NEST_WORKSPACE=5`: five nests at once, mapped on workspace 5.
+  It is automated and isolated: the unit layer is plain lua, the nest layer is a
+  nested Hyprland with its own state directory and a runtime directory of its
+  own, so nothing the pack writes (the state file, the switcher and preview
+  command files) reaches the running session. Run it before committing a change
+  to `x-mode.lua`, a module, the plugin or an install file.
 - Editing and installing are separate steps: make the change in this repo, run
   `tests/run.sh`, and only then install. Never hand-edit or copy over the
   installed files (`~/.config/hypr/x-mode.lua`, `~/.config/hypr/x-mode/`,
