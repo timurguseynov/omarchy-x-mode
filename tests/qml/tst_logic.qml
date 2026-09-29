@@ -62,6 +62,15 @@ TestCase {
         compare(Logic.lastSegment("foot"), "foot")
     }
 
+    function test_iconLetter() {
+        compare(Logic.iconLetter("xdg-desktop-portal-gtk"), "X")
+        compare(Logic.iconLetter("dev.zed.Zed"), "Z")
+        compare(Logic.iconLetter("foot"), "F")
+        compare(Logic.iconLetter("org.omarchy.agent"), "A")
+        compare(Logic.iconLetter(""), "")
+        compare(Logic.iconLetter("---"), "")
+    }
+
     function test_webappHostFromExec() {
         compare(Logic.webappHostFromExec("omarchy-launch-webapp https://app.zoom.us/wc/123"), "app.zoom.us")
         compare(Logic.webappHostFromExec("chromium --app=https://www.example.com/x"), "example.com")

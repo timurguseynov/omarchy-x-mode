@@ -58,6 +58,19 @@ function lastSegment(name) {
     return parts.length > 1 ? parts[parts.length - 1] : String(name || "")
 }
 
+// Letter drawn in place of an icon that did not load. First letter of the last
+// class segment, so "xdg-desktop-portal-gtk" reads "X" and "dev.zed.Zed" reads
+// "Z" rather than a vendor initial. Empty when the class has no letter.
+function iconLetter(cls) {
+    var seg = lastSegment(String(cls || "").trim())
+    for (var i = 0; i < seg.length; i++) {
+        var c = seg.charAt(i)
+        if ((c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || (c >= "0" && c <= "9"))
+            return c.toUpperCase()
+    }
+    return ""
+}
+
 // Host of a web app's start URL, from the Exec of its desktop entry. Only
 // entries that actually launch a web app (omarchy-launch-webapp or --app=) count,
 // so a regular app with a URL argument cannot match.
