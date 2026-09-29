@@ -128,6 +128,15 @@ build_keyboard() {
 # commit, and the nest looks like it did not start. Same-app grouping already
 # skips class aquamarine and Hyprland. The pin dies with the window.
 #
+# NEST_WORKSPACE is a workspace id. Empty leaves the nests on the workspace
+# the run started on, pinned. A number maps every nest there and drops the
+# pin: a pinned window is drawn on every workspace, so it would still sit on
+# the one in view. The string is "N silent" so the view stays put. A named
+# rule keeps an effect it was given before, so the empty case sends "unset",
+# which is what clears a workspace stored by an earlier run. The workspace
+# has to be the one on screen: Hyprland suspends a window whose workspace is
+# not visible, and a suspended nest stops committing.
+#
 # The nest is not lowered. A covered window on the current workspace is not
 # drawn, so it gets no frame callback: Hyprland's unfocused-render timer skips
 # any window whose workspace is visible, and that timer is the only path that
@@ -141,7 +150,17 @@ build_keyboard() {
 # still calls the toplevel Hyprland. Each update sends the whole rule: a
 # partial one replaces the rest.
 nest_host_rule() { # true|false — render_unfocused
-  local render="${1:-false}" cls name
+  local render="${1:-false}" cls name pin=true ws_rule="unset"
+  if [ -n "${NEST_WORKSPACE:-}" ]; then
+    case "$NEST_WORKSPACE" in
+      *[!0-9]*|0)
+        echo "NEST_WORKSPACE wants a workspace number, got '${NEST_WORKSPACE}'" >&2
+        return 1
+        ;;
+    esac
+    pin=false
+    ws_rule="${NEST_WORKSPACE} silent"
+  fi
   for cls in aquamarine Hyprland; do
     case "$cls" in
       aquamarine) name="x-mode-nest" ;;
@@ -153,11 +172,12 @@ nest_host_rule() { # true|false — render_unfocused
       float = true,
       size = \"900 1000\",
       move = \"40 40\",
-      pin = true,
+      pin = ${pin},
+      workspace = \"${ws_rule}\",
       no_initial_focus = true,
       focus_on_activate = false,
       render_unfocused = ${render},
-    })" >/dev/null
+    })" >/dev/null || return 1
   done
 }
 
@@ -236,7 +256,7 @@ nest_host_tick_stop() {
 }
 
 nest_host_rule_on() {
-  nest_host_rule true
+  nest_host_rule true || return 1
   nest_host_tick_start
 }
 

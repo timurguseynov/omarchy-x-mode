@@ -8,7 +8,9 @@
 #
 # nest_clean() runs between files, so a single scenario is as isolated as it is
 # in a full run. NEST_JOBS (default 3) is how many nests run at once; the build
-# is once. Selecting one scenario still skips the other nests.
+# is once. NEST_WORKSPACE, when set to a number, maps those windows on that
+# workspace and leaves the view where it is. Selecting one scenario still
+# skips the other nests.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -62,7 +64,8 @@ build_nestq
 export NEST_SKIP_BUILD=1
 
 # Keep a newly mapped nest from taking focus, and pin it so a later focus
-# does not cover it. A covered nest on this workspace gets no frames, so its
+# does not cover it. NEST_WORKSPACE drops the pin and maps the nests on that
+# workspace instead. A covered nest on this workspace gets no frames, so its
 # bar and clients never commit. The rule and the 1px tick are
 # removed when this process exits, including after a failed run. A click on a
 # nest's titlebar focuses that nest. Placing another nest does not hand focus

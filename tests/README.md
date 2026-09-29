@@ -38,8 +38,12 @@ make, or a message from a tool it ran, is exactly what swallowing would hide.
 
 `nest_clean()` runs between files, so a selected scenario is as isolated as it
 is in a full run. The run starts one nest per worker (`NEST_JOBS`, default 3;
-`NEST_JOBS=1` keeps a single nest). A scenario that fails is run once more on
-the same nest, and a failure that comes back is reported.
+`NEST_JOBS=1` keeps a single nest). `NEST_WORKSPACE=4` maps those windows on
+workspace 4 and leaves the view where it is. The workspace has to be the one
+on screen: a window whose workspace is not visible is suspended, and the nest
+stops committing. With a number set, the windows are not pinned, because a
+pinned window is drawn on every workspace. A scenario that fails is run once
+more on the same nest, and a failure that comes back is reported.
 
 The nest is a window on this desktop. Its class is `aquamarine` (the wayland
 backend's app id). The pack keeps that class, and `Hyprland`, out of same-app
