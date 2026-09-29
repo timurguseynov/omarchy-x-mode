@@ -484,11 +484,22 @@ Item {
       // Style.gapsOut (the dock's screen margin) is only re-read on shell
       // startup and on a theme switch, so editing general:gaps_out left the
       // dock at the old distance until the shell restarted. Hyprland emits
-      // configreloaded once per reload; scheduleRefresh debounces and runs
-      // hyprctl getoption a single time, so this costs nothing while idle.
-      else if (event.name === "configreloaded")
+      // configreloaded once per reload. scheduleRefresh reads the option
+      // 200ms later, which is before x-mode has finished applying "No gaps"
+      // when the reload is busy, and that early read is the one the margin
+      // would keep. The follow-up reads it again once the new value is in.
+      else if (event.name === "configreloaded") {
         Style.scheduleRefresh()
+        gapRecheck.restart()
+      }
     }
+  }
+
+  Timer {
+    id: gapRecheck
+    interval: 800
+    repeat: false
+    onTriggered: Style.scheduleRefresh()
   }
 
   Variants {
