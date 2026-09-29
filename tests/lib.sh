@@ -280,15 +280,23 @@ for c in json.load(sys.stdin):
         break"
 }
 
+bar_height() { nest_ctl getoption plugin:hyprbars:bar_height | head -1 | awk '{print $2}'; }
+tab_height() { nest_ctl getoption plugin:hyprbars:tab_height | head -1 | awk '{print $2}'; }
+
 # Top of the titlebar: at.y minus the chrome (titlebar, plus the tabbar when
-# grouped). At/above the bar means it went under it.
-visual_top() { # CLASS [CHROME if not the default]
+# grouped). The heights come from the plugin's own options, so a config that
+# changes them does not leave this measuring a bar that is no longer there.
+# At/above the bar means it went under it.
+visual_top() { # CLASS
+  local bh th
+  bh="$(bar_height)"
+  th="$(tab_height)"
   nest_ctl clients -j | python3 -c "
 import json, sys
 for c in json.load(sys.stdin):
     if c['class'] == '$1' and c['mapped']:
         grp = len(c.get('grouped') or [])
-        print(c['at'][1] - (28 + (24 if grp else 0)))
+        print(c['at'][1] - ($bh + ($th if grp else 0)))
         break"
 }
 
@@ -323,9 +331,6 @@ import json, sys
 d = json.load(sys.stdin) or {}
 print(d.get('address') or '')"
 }
-
-bar_height() { nest_ctl getoption plugin:hyprbars:bar_height | head -1 | awk '{print $2}'; }
-tab_height() { nest_ctl getoption plugin:hyprbars:tab_height | head -1 | awk '{print $2}'; }
 
 # Set a plugin:hyprbars:* option at runtime. `hyprctl keyword` refuses plugin
 # values ('non-legacy parsers'), so it has to go through the Lua config.
@@ -689,13 +694,15 @@ place_frac() { # CLASS FX FY FW FH
   sleep 0.2
 }
 
-# Middle of a window's titlebar: the bar occupies the 28px above the window box.
+# Middle of a window's titlebar: the bar occupies bar_height above the window box.
 titlebar_point() { # CLASS -> "X Y"
+  local bh
+  bh="$(bar_height)"
   nest_ctl clients -j | python3 -c "
 import json, sys
 for c in json.load(sys.stdin):
     if c['class'] == '$1' and c['mapped']:
-        print(c['at'][0] + c['size'][0] // 2, c['at'][1] - 14)
+        print(c['at'][0] + c['size'][0] // 2, c['at'][1] - $bh // 2)
         break"
 }
 

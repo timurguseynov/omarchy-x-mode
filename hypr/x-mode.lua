@@ -297,10 +297,14 @@ end
 -- The dock overlays windows (it reserves no screen space). Snap zones keep the
 -- full work area and only the right edge is pulled in by the dock card plus half
 -- the outer gap, which is the dock's own screen margin (Style.gapsOut). The card
--- width matches Dock.qml (iconSize + pad*2) and is pushed to hyprbars below.
-local DOCK_CARD         = 40
+-- width is the dock's own (Dock.qml: iconSize + pad*2); it is read off the
+-- x-mode-dock layer below, so a change to the card moves the zones with it.
+-- Until that layer exists (the shell starts after this config) the last width
+-- it had is used, and this one only before it has ever been seen.
+local DOCK_CARD_FALLBACK = 40
+local dock_card = DOCK_CARD_FALLBACK
 local function DOCK_PULL()
-  return DOCK_CARD + math.floor(GAP_OUT() / 2)
+  return dock_card + math.floor(GAP_OUT() / 2)
 end
 local GROUP_MIN_W       = cfg_int("plugin:hyprbars:x_mode_group_min_width", 400)
 local GROUP_MIN_H       = cfg_int("plugin:hyprbars:x_mode_group_min_height", 300)
@@ -334,6 +338,34 @@ local function apply_gap_geometry()
 end
 
 apply_gap_geometry()
+
+-- The dock's card width, taken from its own layer surface (namespace
+-- x-mode-dock). The shell starts after this config, and the layer is gone for
+-- a moment while it restarts, so a missing layer keeps the last width: zones
+-- must not jump to the fallback and back every time the shell blinks. A layer
+-- that maps before its first arrange reports no width; that one is skipped.
+local function dock_card_now()
+  local ok, layers = pcall(hl.get_layers, { namespace = "x-mode-dock" })
+  if not ok or type(layers) ~= "table" then
+    return nil
+  end
+  for _, layer in ipairs(layers) do
+    local w = tonumber(layer.w)
+    if w ~= nil and w > 0 then
+      return math.floor(w)
+    end
+  end
+  return nil
+end
+
+local function refresh_dock_card()
+  local w = dock_card_now()
+  if w == nil or w == dock_card then
+    return
+  end
+  dock_card = w
+  apply_gap_geometry()
+end
 
 -- Load hyprpm-managed plugins, then the patched x-mode hyprbars on login
 -- (install.sh loads it immediately too). Disable a stock hyprbars first so only
@@ -1169,7 +1201,7 @@ local function zoned_hits(target)
 
   if #rest > 0 then
     -- No gaps means gaps_out is 0, so the inset is the dock card alone.
-    hl.config({ plugin = { hyprbars = { x_mode_dock_inset = DOCK_CARD } } })
+    hl.config({ plugin = { hyprbars = { x_mode_dock_inset = dock_card } } })
     for _, w in ipairs(rest) do
       local ok, kind = pcall(p.zone, w, { gap = 0, border = 1 })
       if ok and type(kind) == "string" and kind ~= "" and target ~= "no-gap" then
@@ -1652,6 +1684,19 @@ local function bind_drag()
 end
 bind_drag()
 drag_timer = hl.timer(bind_drag, { timeout = 250, type = "repeat" })
+
+-- The dock's layer maps after this config (and again on every shell restart),
+-- which is the moment its real width becomes known. config.reloaded covers a
+-- reload where the layer was already mapped and no open event fires.
+hl.on("layer.opened", function(layer)
+  if layer ~= nil and layer.namespace == "x-mode-dock" then
+    refresh_dock_card()
+  end
+end)
+hl.on("config.reloaded", function()
+  refresh_dock_card()
+end)
+refresh_dock_card()
 
 -- Group every same-app window on a workspace into one group. Runs once after
 -- the config loads: after an install/reload re-floats windows, or when several

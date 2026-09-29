@@ -63,8 +63,10 @@ Item {
   readonly property int pad: 7
   readonly property int iconSpacing: 6
   // Visible card. Style.gapsOut is already half of Hyprland's general:gaps_out
-  // (see Style.qml), so it is the screen margin the snap zones also use.
-  readonly property int cardWidth: iconSize + pad * 2
+  // (see Style.qml), so it is the screen margin the snap zones also use. Not
+  // readonly: the inset test overrides it, and x-mode.lua reads the result off
+  // the layer rather than keeping its own copy of this sum.
+  property int cardWidth: iconSize + pad * 2
   readonly property int dockGap: Style.gapsOut || 0
   // Empty dock still paints a one-icon card so it does not collapse to a pill.
   readonly property int minIconsHeight: iconSize

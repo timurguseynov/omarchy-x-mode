@@ -95,6 +95,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/dock_click_same_app_no_tab_switch_test.sh` | clicking the focused app's icon does not switch tabs |
 | `integration/dock_click_switches_workspace_test.sh` | clicking an icon on another workspace moves there |
 | `integration/dock_hides_when_x_mode_off_test.sh` | the dock follows the x-mode on/off flag |
+| `integration/dock_inset_follows_card_test.sh` | the snap inset follows the dock card’s real width |
 | `integration/dock_icon_layout_test.sh` | the icon layout the click helpers assume |
 | `integration/dock_menu_focuses_other_workspace_test.sh` | a window row on another workspace moves there |
 | `integration/dock_menu_hides_new_for_single_instance_test.sh` | a single-instance app gets no New row |
