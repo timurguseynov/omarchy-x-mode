@@ -8,7 +8,7 @@
 open_window foot
 # Past the old open-time watch, so this is the settled window, not the one that
 # just mapped.
-sleep 2.2
+wait_still foot
 
 extent="$(pointer_extent)"
 mw="${extent%x*}"
@@ -19,7 +19,7 @@ assert_ge "$req_w" $((mw + 1)) "the requested width is larger than the monitor"
 assert_ge "$req_h" $((mh + 1)) "the requested height is larger than the monitor"
 
 nest_ctl dispatch "hl.dsp.window.resize({ x = $req_w, y = $req_h, relative = false, window = 'class:foot' })" >/dev/null
-sleep 0.6
+settle
 
 read -r x y w h _ <<<"$(win_geom foot)"
 [ -n "$w" ] || fail "foot has no geometry after the resize"

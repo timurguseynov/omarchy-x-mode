@@ -21,7 +21,7 @@ else:
 open_window foot
 
 nest_ctl dispatch "hl.dsp.window.fullscreen({ mode = 'maximized', action = 'set', window = 'class:foot' })" >/dev/null
-sleep 0.5
+settle
 
 assert_eq "$(client_field foot fullscreen)" 0 "a maximize request does not stay in Hyprland's maximized mode"
 assert_ge "$(visual_top foot)" "$(bar_top)" "the floating maximize stays below the bar"

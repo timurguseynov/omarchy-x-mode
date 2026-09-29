@@ -12,11 +12,11 @@ assert_eq "$(cat "$(dock_pinned_file)" 2>/dev/null || echo absent)" absent "noth
 
 read -r px py <<<"$(dock_icon_point 0)"
 pointer_click "$px" "$py" right
-sleep 0.6
+settle
 
 read -r rx ry <<<"$(dock_menu_row_point 0 4 "26 7 26 7 26 26")"
 pointer_click "$rx" "$ry"
-sleep 0.6
+settle
 
 assert_eq "$(python3 -c "import json;print(','.join(json.load(open('$(dock_pinned_file)'))))")" foot \
   "the pin row writes the class to the pinned file"
@@ -29,10 +29,10 @@ assert_eq "$(dock_box | awk '{print $4}')" 40 "one pinned running app is a one-i
 # The same row now reads Unpin. Clicking it clears the file again.
 read -r px py <<<"$(dock_icon_point 0)"
 pointer_click "$px" "$py" right
-sleep 0.6
+settle
 read -r rx ry <<<"$(dock_menu_row_point 0 4 "26 7 26 7 26 26")"
 pointer_click "$rx" "$ry"
-sleep 0.6
+settle
 
 assert_eq "$(python3 -c "import json;print(','.join(json.load(open('$(dock_pinned_file)'))))")" "" \
   "the same row unpins"

@@ -20,9 +20,12 @@ read -r x1 y1 <<<"$(dock_icon_point 0)"
 read -r x2 y2 <<<"$(dock_icon_point 1)"
 
 pointer_drag "$x1" "$y1" "$x2" "$y2"
-sleep 0.8
+swapped() {
+  [ "$(python3 -c "import json;print(','.join(json.load(open('$(dock_pinned_file)'))))" 2>/dev/null || true)" = kitty,foot ]
+}
+wait_until 3 swapped || true
 
-after="$(python3 -c "import json;print(','.join(json.load(open('$(dock_pinned_file)'))))")"
-assert_eq "$after" kitty,foot "dragging the first icon past the second swaps them"
+after="$(python3 -c "import json;print(','.join(json.load(open('$(dock_pinned_file)'))))" 2>/dev/null || echo missing)"
+assert_eq "$after" kitty,foot "dragging the first icon past the second swaps them (got $after)"
 
 dock_stop

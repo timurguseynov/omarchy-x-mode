@@ -9,8 +9,8 @@
 . "$(dirname "$0")/../../lib.sh"
 
 open_window foot
-# Let the open watch stop: this is only about the drag and the focus change.
-sleep 2.2
+# Wait until the box holds still: this is only about the drag and the focus change.
+wait_still foot
 
 snap foot left
 read -r x0 y0 _ _ _ <<<"$(win_geom foot)"
@@ -25,7 +25,7 @@ assert_ge "$y1" "$((y0 + 40))" "the drag lands the window lower"
 
 # A second program takes focus.
 open_window kitty
-sleep 0.6
+settle
 read -r x2 y2 _ _ _ <<<"$(win_geom foot)"
 assert_eq "$x2" "$x1" "focusing another window keeps the dragged column"
 assert_eq "$y2" "$y1" "focusing another window keeps the dragged drop"

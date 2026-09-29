@@ -13,7 +13,7 @@ nest_ctl dispatch "hl.dsp.focus({ window = 'class:foot' })" >/dev/null
 sleep 0.3
 
 key super+w
-sleep 0.6
+settle
 
 assert_eq "$(count_class foot)" 1 "Super+W closes the focused window"
 assert_eq "$(active_class)" foot "the focus stays in the group"

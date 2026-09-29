@@ -15,7 +15,7 @@ assert_eq "$(active_class)" foot "foot is focused to begin with"
 
 read -r px py <<<"$(dock_icon_point 1)"
 pointer_click "$px" "$py"
-sleep 0.5
+settle
 
 assert_eq "$(active_class)" kitty "clicking an icon focuses that app"
 assert_eq "$(topmost)" kitty "clicking an icon raises that app"

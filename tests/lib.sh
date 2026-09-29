@@ -4,30 +4,49 @@
 #
 # The nest is a nested Hyprland (a window inside the real session) running the
 # repo's x-mode.lua with its own $X_MODE_STATE, so nothing here touches the live
-# session or ~/.local/state.
+# session's files. The one runtime touch is a window rule, removed when the run
+# ends, so that nest toplevel does not take focus.
 
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$TESTS_DIR/.." && pwd)"
-NEST_STATE="$TESTS_DIR/.nest"
-# The nest gets a runtime directory of its own, and it has to be SHORT: a unix
-# socket path tops out around 108 bytes, and $XDG_RUNTIME_DIR/hypr/<signature>/
-# .socket.sock under tests/.nest runs past that.
-#
-# This is also what keeps a test out of the live session. The pack's Lua writes
-# the switcher and snap-preview command files into $XDG_RUNTIME_DIR, and the
-# shell of the running session reads those same paths: with the real runtime
-# directory, a keypress or a drag in the nest would flash an overlay on the
-# desktop the user is sitting in front of.
-NEST_RUNTIME="/tmp/x-mode-nest-runtime"
-NEST_LOG="$NEST_STATE/nest.log"
+# Paths that depend on which nest this process talks to. A parallel run gives
+# each worker its own slot; the built pointer, keyboard and nestq stay shared.
+nest_paths() {
+  NEST_SLOT="${NEST_SLOT:-0}"
+  NEST_ROOT="$TESTS_DIR/.nest"
+  # The runtime directory has to be SHORT. A unix socket path is 107 bytes plus
+  # a NUL, and Hyprland puts two sockets in it:
+  #   $XDG_RUNTIME_DIR/hypr/<40hex>_<time>_<rand>/.socket2.sock
+  # The event socket is the longer one. Quickshell (the dock) connects to it;
+  # a path that does not fit is a missing socket, and the dock then has no
+  # windows to click. /tmp/xmn-<slot> leaves about 16 bytes of spare for a
+  # longer signature. The old /tmp/x-mode-nest-runtime-<slot> was one byte over
+  # and the menu tests never saw a layer.
+  #
+  # A private runtime is also what keeps a test out of the live session. The
+  # pack's Lua writes the switcher and snap-preview command files into
+  # $XDG_RUNTIME_DIR, and the shell of the running session reads those same
+  # paths: with the real runtime directory, a keypress or a drag in the nest
+  # would flash an overlay on the desktop the user is sitting in front of.
+  NEST_RUNTIME="/tmp/xmn-$NEST_SLOT"
+  NEST_STATE="$NEST_ROOT/slot-$NEST_SLOT"
+  NEST_IPC_SOCK="/tmp/x-mode-nest-ipc-$NEST_SLOT"
+  NEST_LOG="$NEST_STATE/nest.log"
+  NESTQ="$NEST_ROOT/nestq"
+  POINTER_BIN="$NEST_ROOT/pointer/pointer"
+  KEYBOARD_BIN="$NEST_ROOT/keyboard/keyboard"
+  SIG="${SIG:-$(cat "$NEST_STATE/sig" 2>/dev/null || true)}"
+  DOCK_RUNTIME="$NEST_RUNTIME"
+  DOCK_CFG="$NEST_STATE/dock"
+  DOCK_LOG="$NEST_STATE/dock.log"
+  NEST_DIRTY="$NEST_STATE/config-dirty"
+}
 NEST_LUA="$REPO_DIR/hypr/x-mode.lua"
 PLUGIN_SO="$REPO_DIR/hyprbars/hyprbars.so"
 POINTER_DIR="$TESTS_DIR/pointer"
-POINTER_BIN="$NEST_STATE/pointer/pointer"
 KEYBOARD_DIR="$TESTS_DIR/keyboard"
-KEYBOARD_BIN="$NEST_STATE/keyboard/keyboard"
-SIG="${SIG:-$(cat "$TESTS_DIR/.nest/sig" 2>/dev/null || true)}"
 NEST_BAR="${NEST_BAR:-1}"
+nest_paths
 
 RED=$'\033[31m'; GREEN=$'\033[32m'; RESET=$'\033[0m'
 
@@ -54,8 +73,12 @@ build_plugin() {
 # The pointer injects real input through zwlr_virtual_pointer_manager_v1, so a
 # test can drag a titlebar instead of calling the pack's snap function. Built
 # into .nest/ so the generated protocol code stays out of the tree.
+build_nestq() {
+  cc -O2 -Wall -Wextra -o "$NESTQ" "$TESTS_DIR/nestq.c" || fail "nestq build failed"
+}
+
 build_pointer() {
-  local out="$NEST_STATE/pointer"
+  local out="$NEST_ROOT/pointer"
   command -v wayland-scanner >/dev/null || fail "wayland-scanner not found"
   pkg-config --exists wayland-client || fail "wayland-client headers not found"
   mkdir -p "$out"
@@ -73,7 +96,7 @@ build_pointer() {
 # codes, so Hyprland's bind matching resolves the same keysyms it would for a real
 # keyboard. Built into .nest/ like the pointer.
 build_keyboard() {
-  local out="$NEST_STATE/keyboard"
+  local out="$NEST_ROOT/keyboard"
   command -v wayland-scanner >/dev/null || fail "wayland-scanner not found"
   pkg-config --exists wayland-client || fail "wayland-client headers not found"
   pkg-config --exists xkbcommon || fail "xkbcommon headers not found"
@@ -89,22 +112,83 @@ build_keyboard() {
     || fail "keyboard build failed"
 }
 
+# The nest is a toplevel on the host. Without this rule the host focuses it on
+# map and again whenever the nested compositor asks to be activated, which is
+# every time a window inside it takes focus. The rule is runtime-only: it is
+# not written into the user's config, and the runner drops it when the run ends.
+# Same name on every slot, so three nests share one rule.
+#
+# render_unfocused is off here. Left on, every nest keeps presenting at
+# misc:render_unfocused_fps while it sits under the other windows, and three of
+# those running together starve the pointer and the dock. A screenshot turns
+# the flag on for the one frame grim needs, then turns it off again.
+#
+# The toplevel's class is the wayland backend's app id, "aquamarine", not
+# "Hyprland". A rule on the wrong class never matches, so the nest takes focus
+# every time a window inside it does. The second name covers a build that
+# still calls the toplevel Hyprland. Each update sends the whole rule: a
+# partial one replaces the rest.
+nest_host_rule() { # true|false — render_unfocused
+  local render="${1:-false}" cls name
+  for cls in aquamarine Hyprland; do
+    case "$cls" in
+      aquamarine) name="x-mode-nest" ;;
+      *) name="x-mode-nest-hl" ;;
+    esac
+    hyprctl eval "hl.window_rule({
+      name = \"${name}\",
+      match = { class = \"${cls}\" },
+      float = true,
+      size = \"900 1000\",
+      move = \"40 40\",
+      no_focus = true,
+      no_initial_focus = true,
+      focus_on_activate = false,
+      suppress_event = \"activate activatefocus\",
+      render_unfocused = ${render},
+    })" >/dev/null
+  done
+}
+
+nest_host_rule_on() { nest_host_rule false; }
+
+nest_host_rule_off() {
+  hyprctl eval 'hl.window_rule({ name = "x-mode-nest", enabled = false })' >/dev/null 2>&1 || true
+  hyprctl eval 'hl.window_rule({ name = "x-mode-nest-hl", enabled = false })' >/dev/null 2>&1 || true
+}
+
+nest_host_focus() {
+  hyprctl activewindow -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    print((json.load(sys.stdin) or {}).get("address") or "")
+except Exception:
+    print("")'
+}
+
 nest_start() {
-  build_plugin
-  build_pointer
-  build_keyboard
+  nest_paths
+  if [ "${NEST_SKIP_BUILD:-0}" != 1 ]; then
+    build_plugin
+    build_pointer
+    build_keyboard
+    build_nestq
+  fi
+  [ -x "$NESTQ" ] || fail "nestq is missing (build failed)"
   nest_stop
   # The nest is a Wayland client of the host, so its own WAYLAND_DISPLAY has to be
   # absolute once XDG_RUNTIME_DIR points elsewhere.
   local host_socket="${WAYLAND_DISPLAY:-wayland-1}"
   case "$host_socket" in /*) ;; *) host_socket="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$host_socket" ;; esac
   rm -rf "$NEST_RUNTIME"
-  mkdir -p "$NEST_RUNTIME"
+  mkdir -p "$NEST_RUNTIME" "$NEST_ROOT"
   # Start from a clean state dir: a run that fails midway can leave settings.json
   # behind, and the next run would inherit it.
   rm -rf "$NEST_STATE/state" "$NEST_STATE/home"
   mkdir -p "$NEST_STATE/state" "$NEST_STATE/home"
 
+  # setsid makes this pid the process-group leader, so nest_stop can kill the
+  # nest without the pattern match that would also kill every other slot.
   setsid env \
     HOME="$NEST_STATE/home" \
     WAYLAND_DISPLAY="$host_socket" \
@@ -113,6 +197,7 @@ nest_start() {
     X_MODE_STATE="$NEST_STATE/state" \
     Hyprland -c "$TESTS_DIR/nest.lua" > "$NEST_LOG" 2>&1 < /dev/null &
   local pid=$! i
+  echo "$pid" > "$NEST_STATE/pid"
   for i in $(seq 1 60); do
     SIG="$(XDG_RUNTIME_DIR="$NEST_RUNTIME" hyprctl instances 2>/dev/null | awk -v pid="$pid" '
       /^instance / { n = $2; sub(/:$/, "", n) }
@@ -122,6 +207,7 @@ nest_start() {
   done
   [ -n "$SIG" ] || { tail -20 "$NEST_LOG" >&2; fail "nest did not come up"; }
   echo "$SIG" > "$NEST_STATE/sig"
+  nest_ipc_start
 
   # The config parses before the plugin exists, so its plugin:* keys are unknown
   # on the first pass. Load the plugin and reload once; the second parse is clean.
@@ -134,17 +220,76 @@ nest_start() {
   return 0
 }
 
-nest_bar_start() {
-  env WAYLAND_DISPLAY="$(nest_display)" setsid qs -p "$TESTS_DIR/bar.qml" \
+# The output can report a reserved top before this bar exists (anything >= 24
+# used to satisfy the old check). Geometry is then computed against that
+# phantom, and a later real bar stacks on top of it. Ready means the layer
+# itself is up and the reserved top is its 24px, nothing else.
+nest_bar_ready() {
+  nest_ctl layers -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin) or {}
+except Exception:
+    raise SystemExit(1)
+for out in data.values():
+    for layers in ((out or {}).get("levels") or {}).values():
+        for layer in layers or []:
+            if layer.get("namespace") == "x-mode-nest-bar" and int(layer.get("h") or 0) == 24:
+                raise SystemExit(0)
+raise SystemExit(1)' && [ "$(bar_top 2>/dev/null)" = 24 ]
+}
+
+# The output shows up after the wayland socket. A bar started before that
+# binds no screen and never maps, and the reserved top stays whatever the
+# output reported on the way up.
+nest_output_ready() {
+  nest_ctl monitors -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    mons = json.load(sys.stdin) or []
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if any(int(m.get("width") or 0) > 0 for m in mons) else 1)
+'
+}
+
+nest_bar_spawn() {
+  local disp i
+  disp="$(nest_display)"
+  # qs falls back to the host display if this socket is not there yet, and a
+  # bar on the host is not the nest's reserved top.
+  for i in $(seq 1 50); do
+    [ -S "$disp" ] && break
+    sleep 0.05
+  done
+  [ -S "$disp" ] || fail "the nest wayland socket is not there"
+  for i in $(seq 1 50); do
+    nest_output_ready && break
+    sleep 0.1
+  done
+  env WAYLAND_DISPLAY="$disp" \
+    XDG_RUNTIME_DIR="$NEST_RUNTIME" \
+    QT_QPA_PLATFORM=wayland \
+    setsid qs -p "$TESTS_DIR/bar.qml" \
     > "$NEST_STATE/bar.log" 2>&1 < /dev/null &
   echo $! > "$NEST_STATE/bar.pid"
-  # Wait for the bar to reserve the top instead of a fixed sleep: the geometry
-  # tests are meaningless until the nest reports a reserved top.
-  for _ in $(seq 1 40); do
-    [ "$(bar_top 2>/dev/null)" -ge 24 ] 2>/dev/null && return 0
-    sleep 0.25
+}
+
+nest_bar_start() {
+  local attempt _
+  # Two tries: three nests starting together sometimes drop the first shell
+  # before it maps a layer. The second one has the socket to itself.
+  for attempt in 1 2; do
+    nest_bar_spawn
+    for _ in $(seq 1 40); do
+      nest_bar_ready && return 0
+      sleep 0.1
+    done
+    nest_bar_stop
   done
-  return 0
+  echo "bar reserved '$(bar_top 2>/dev/null)'" >&2
+  sed 's/^/       /' "$NEST_STATE/bar.log" >&2
+  fail "the nest bar did not reserve the top"
 }
 
 nest_bar_stop() {
@@ -155,8 +300,20 @@ nest_bar_stop() {
 
 nest_stop() {
   nest_bar_stop
-  pkill -f "Hyprland -c $TESTS_DIR/nest.lua" 2>/dev/null || true
-  sleep 0.5
+  nest_ipc_stop
+  local pid=""
+  [ -f "$NEST_STATE/pid" ] && pid="$(cat "$NEST_STATE/pid")"
+  if [ -n "$pid" ]; then
+    # The group, not just the leader: Hyprland's children go with it. A negative
+    # pid is the process group setsid created.
+    kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    local i
+    for i in $(seq 1 25); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.05
+    done
+  fi
+  rm -f "$NEST_STATE/pid"
 }
 
 # The nest is a toplevel on the host and the host layout can put it off-screen.
@@ -174,33 +331,104 @@ for c in json.load(sys.stdin):
   done
   [ -n "$addr" ] || return 0
   local w="address:$addr"
+  # The host rule already floats, sizes and refuses focus. These dispatches are
+  # the fallback when that rule did not match, and they must not raise the
+  # window: alter_zorder top is what pulled it over the desktop on every run.
   hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"$w\" })" >/dev/null 2>&1 || true
   hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 1000, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
   hyprctl dispatch "hl.dsp.window.move({ x = 40, y = 40, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
-  hyprctl dispatch "hl.dsp.window.alter_zorder({ mode = \"top\", window = \"$w\" })" >/dev/null 2>&1 || true
+  hyprctl dispatch "hl.dsp.window.alter_zorder({ mode = \"bottom\", window = \"$w\" })" >/dev/null 2>&1 || true
+  # A dispatch above can still activate the window once, before no_focus sticks.
+  # Hand focus back to whoever had it when the run started.
+  if [ -n "${NEST_HOST_FOCUS:-}" ] && [ "$(nest_host_focus)" = "$addr" ]; then
+    hyprctl dispatch "hl.dsp.focus({ window = \"address:$NEST_HOST_FOCUS\" })" >/dev/null 2>&1 || true
+  fi
 }
 
-nest_ctl() { XDG_RUNTIME_DIR="$NEST_RUNTIME" hyprctl -i "$SIG" "$@"; }
+# What the current scenario changed in the live config. A plugin option is read
+# back by the pack on every event, so only a reload puts it back; a named window
+# rule can be switched off on its own. Everything else a scenario does (windows,
+# the workspace, settings.json) nest_clean undoes without one, and reloading
+# every time reparsed the whole config between all 105 scenarios.
+# A scenario runs in its own process, so a variable it set is gone by the time
+# nest_clean runs in the runner. The file survives. A line of "reload" means the
+# scenario reparsed the config or set a plugin option, and both are read back
+# live, so only another reload restores them. A "rule <name>" line is a named
+# window rule to switch off, which does not need a reload.
+nest_ctl() {
+  case "$*" in
+    *"reload"* | *"hl.config"*) printf 'reload\n' >> "$NEST_DIRTY" ;;
+    *"hl.window_rule"*)
+      local rule
+      rule="$(printf '%s' "$*" | sed -n "s/.*name = '\([^']*\)'.*/\1/p")"
+      [ -n "$rule" ] && printf 'rule %s\n' "$rule" >> "$NEST_DIRTY"
+      ;;
+  esac
+  nest_hyprctl "$@"
+}
+
+# The request socket is one command per connection, so a long-lived python
+# opens it per call and nestq is the thin client. hyprctl from the shell paid
+# a process start every time; this does not.
+nest_ipc_start() {
+  [ -n "$SIG" ] || return 1
+  # The worker owns the server. A scenario is a child process and must not
+  # start a second one: binding unlinks the socket the worker is serving.
+  if [ -S "$NEST_IPC_SOCK" ] && "$NESTQ" "$NEST_IPC_SOCK" active class >/dev/null 2>&1; then
+    return 0
+  fi
+  python3 -u "$TESTS_DIR/ipc.py" "$NEST_IPC_SOCK" "$NEST_RUNTIME/hypr/$SIG/.socket.sock" \
+    > "$NEST_STATE/ipc.log" 2>&1 &
+  NEST_IPC_PID=$!
+  echo "$NEST_IPC_PID" > "$NEST_STATE/ipc.pid"
+  local i
+  for i in $(seq 1 50); do
+    [ -S "$NEST_IPC_SOCK" ] && return 0
+    sleep 0.02
+  done
+  return 1
+}
+
+nest_ipc_stop() {
+  local pid="${NEST_IPC_PID:-}"
+  [ -z "$pid" ] && [ -f "$NEST_STATE/ipc.pid" ] && pid="$(cat "$NEST_STATE/ipc.pid")"
+  [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+  NEST_IPC_PID=""
+  rm -f "$NEST_STATE/ipc.pid" "$NEST_IPC_SOCK"
+}
+
+nest_query() { # words...  -> body on stdout
+  nest_ipc_start || fail "nest ipc did not come up"
+  "$NESTQ" "$NEST_IPC_SOCK" "$@"
+}
+
+nest_hyprctl() { nest_query "$@"; }
 
 # Absolute path to the nest's Wayland socket. The nest's runtime directory is not
 # the test's, so a bare socket name would point a client at the live session.
+# The name does not change for the life of the nest, so it is read once.
 nest_display() { printf '%s/%s' "$NEST_RUNTIME" "$(nest_socket)"; }
 
 nest_socket() {
-  XDG_RUNTIME_DIR="$NEST_RUNTIME" hyprctl instances 2>/dev/null | python3 -c "
+  if [ -z "${NEST_WL:-}" ]; then
+    NEST_WL="$(cat "$NEST_STATE/wl" 2>/dev/null || true)"
+  fi
+  if [ -z "$NEST_WL" ]; then
+    NEST_WL="$(XDG_RUNTIME_DIR="$NEST_RUNTIME" hyprctl instances 2>/dev/null | python3 -c "
 import sys, re
 for b in sys.stdin.read().split('instance ')[1:]:
     if '$SIG' in b:
         print(re.search(r'wl socket: (\S+)', b).group(1)); break
-"
+")"
+    [ -n "$NEST_WL" ] && printf '%s' "$NEST_WL" > "$NEST_STATE/wl"
+  fi
+  printf '%s' "$NEST_WL"
 }
 
 # Close every window in the nest, so each test starts from nothing.
 nest_clean() {
   local addrs a
-  addrs="$(nest_ctl clients -j | python3 -c "
-import json, sys
-print(' '.join(c['address'] for c in json.load(sys.stdin)))")"
+  addrs="$(nest_query addrs)"
   for a in $addrs; do
     nest_ctl dispatch "hl.dsp.window.close({ window = 'address:$a' })" >/dev/null 2>&1 || true
   done
@@ -221,17 +449,82 @@ print(' '.join(c['address'] for c in json.load(sys.stdin)))")"
   # does) would otherwise decide where the next one opens its windows, and two
   # same-app windows that land on one space group instead of staying apart.
   nest_ctl dispatch "hl.dsp.focus({ workspace = \"1\" })" >/dev/null 2>&1 || true
-  nest_ctl reload >/dev/null 2>&1 || true
-  sleep 0.4
+  # A scenario that reparsed the config (or set a plugin option, which is read
+  # back live) leaves the next one with that config, because the file it wrote is
+  # wiped above but the running config is not. Reparse once to put it back. A
+  # named window rule needs no reparse: switching it off is the removal.
+  if [ -f "$NEST_DIRTY" ] && grep -q '^reload$' "$NEST_DIRTY"; then
+    nest_hyprctl reload >/dev/null 2>&1 || true
+    sleep 0.4
+  elif [ -f "$NEST_DIRTY" ]; then
+    local rule
+    while read -r rule; do
+      [ -n "$rule" ] && nest_hyprctl eval "hl.window_rule({ name = '$rule', enabled = false })" >/dev/null 2>&1 || true
+    done < <(sed -n 's/^rule //p' "$NEST_DIRTY")
+  fi
+  rm -f "$NEST_DIRTY"
+  # App chrome rules live in the running config, not only in the file just
+  # reset. refresh_apps_off drops them from the empty file, so a scenario that
+  # turned chrome off does not leave that rule for the next one, and a reload
+  # is not required to do it.
+  nest_hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null 2>&1 || true
 }
+
+# The panel's path for an app-list change: write settings.json, then this.
+# Options (no gaps, ctrl-tab) still go through a reload, because the dock reads
+# its margin on configreloaded and this call does not emit that.
+refresh_apps() {
+  nest_ctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null
+}
+
+# Poll until a command succeeds. The command is the condition the next assert
+# checks, so the wait ends when the compositor has landed instead of after a
+# fixed pause.
+wait_until() { # SECONDS COMMAND...
+  local secs="$1" i
+  shift
+  for i in $(seq 1 $((secs * 20))); do
+    "$@" && return 0
+    sleep 0.05
+  done
+  return 1
+}
+
+# The join retry is 200ms and the chrome absorb is 120ms. A box that holds
+# still after that is done moving. The 2s open watch scenarios used to outlast
+# is gone: geometry is the plugin's, and it runs inside updateWindow.
+wait_still() { # CLASS
+  local cls="$1" i geom prev=""
+  for i in $(seq 1 20); do
+    geom="$(win_geom "$cls" 2>/dev/null || true)"
+    if [ "$i" -ge 6 ] && [ -n "$geom" ] && [ "$geom" = "$prev" ]; then
+      return 0
+    fi
+    prev="$geom"
+    sleep 0.05
+  done
+  return 0
+}
+
+# Short timers only: join retry, chrome absorb, the 300ms tiled-float pass.
+# The arrange timer is 600ms and the scenarios that wait for it keep an
+# explicit sleep.
+settle() { sleep 0.32; }
 
 # --- windows -----------------------------------------------------------------
 
 open_window() { # CLASS [COUNT]
-  local cls="$1" want="${2:-1}" i
+  local cls="$1" want="${2:-1}" i got
   env WAYLAND_DISPLAY="$(nest_display)" setsid "$cls" >/dev/null 2>&1 < /dev/null &
-  for i in $(seq 1 40); do
-    [ "$(count_class "$cls")" -ge "$want" ] && { sleep 0.5; return 0; }
+  # Wait until the window is mapped and has a box, not merely listed. A fixed
+  # pause after the count would sleep the same half second on every call, and a
+  # step that reads the geometry right after would otherwise race the map.
+  for i in $(seq 1 80); do
+    got="$(nest_query count "$cls")"
+    # Whether the window joins a group is the scenario's to check. Waiting for it
+    # here made a scenario that asserts "these do not group" wait for a join
+    # that never comes.
+    [ "$got" -ge "$want" ] 2>/dev/null && return 0
     sleep 0.1
   done
   fail "window '$cls' did not appear"
@@ -246,7 +539,7 @@ open_command() { # CLASS COMMAND...
   want=$(( $(count_class "$cls") + 1 ))
   env WAYLAND_DISPLAY="$(nest_display)" setsid "$@" >/dev/null 2>&1 < /dev/null &
   for i in $(seq 1 60); do
-    [ "$(count_class "$cls")" -ge "$want" ] && { sleep 0.5; return 0; }
+    [ "$(count_class "$cls")" -ge "$want" ] && return 0
     sleep 0.1
   done
   fail "command did not open another '$cls' window: $*"
@@ -258,30 +551,19 @@ open_command() { # CLASS COMMAND...
 wait_for_count() { # CLASS COUNT [TIMEOUT]
   local cls="$1" want="$2" timeout="${3:-10}" i
   for i in $(seq 1 $((timeout * 10))); do
-    [ "$(count_class "$cls")" -ge "$want" ] && { sleep 0.4; return 0; }
+    [ "$(count_class "$cls")" -ge "$want" ] && return 0
     sleep 0.1
   done
   fail "waited ${timeout}s for $want '$cls' windows, saw $(count_class "$cls")"
 }
 
-count_class() {
-  nest_ctl clients -j | python3 -c "
-import json, sys
-print(sum(1 for c in json.load(sys.stdin) if c['class'] == '$1' and not c['hidden']))"
-}
+count_class() { nest_query count_listed "$1"; }
 
 # "atx aty w h grouped"
-win_geom() {
-  nest_ctl clients -j | python3 -c "
-import json, sys
-for c in json.load(sys.stdin):
-    if c['class'] == '$1' and c['mapped']:
-        print(c['at'][0], c['at'][1], c['size'][0], c['size'][1], len(c.get('grouped') or []))
-        break"
-}
+win_geom() { nest_query geom "$1"; }
 
-bar_height() { nest_ctl getoption plugin:hyprbars:bar_height | head -1 | awk '{print $2}'; }
-tab_height() { nest_ctl getoption plugin:hyprbars:tab_height | head -1 | awk '{print $2}'; }
+bar_height() { nest_query option plugin:hyprbars:bar_height 2; }
+tab_height() { nest_query option plugin:hyprbars:tab_height 2; }
 
 # Top of the titlebar: at.y minus the chrome (titlebar, plus the tabbar when
 # grouped). The heights come from the plugin's own options, so a config that
@@ -310,27 +592,12 @@ for c in json.load(sys.stdin):
 print(n)"
 }
 
-active_class() {
-  nest_ctl activewindow -j | python3 -c "
-import json, sys
-d = json.load(sys.stdin) or {}
-print(d.get('class') or '')"
-}
+active_class() { nest_query active class; }
 
 # Id of the workspace the user is looking at.
-viewed_workspace() {
-  nest_ctl activeworkspace -j | python3 -c "
-import json, sys
-d = json.load(sys.stdin) or {}
-print(d.get('id', ''))"
-}
+viewed_workspace() { nest_query active workspace; }
 
-active_address() {
-  nest_ctl activewindow -j | python3 -c "
-import json, sys
-d = json.load(sys.stdin) or {}
-print(d.get('address') or '')"
-}
+active_address() { nest_query active address; }
 
 # Set a plugin:hyprbars:* option at runtime. `hyprctl keyword` refuses plugin
 # values ('non-legacy parsers'), so it has to go through the Lua config.
@@ -453,9 +720,7 @@ snap() { # CLASS KIND
   sleep 0.3
 }
 
-bar_top() {
-  nest_ctl monitors -j | python3 -c "import json,sys;print(json.load(sys.stdin)[0]['reserved'][1])"
-}
+bar_top() { nest_query reserved_top; }
 
 # --- dock ---------------------------------------------------------------------
 # The dock is a Quickshell layer surface in the nest, so it needs a Quickshell of
@@ -499,7 +764,7 @@ QML
   echo $! > "$NEST_STATE/dock.pid"
   local i
   for i in $(seq 1 60); do
-    dock_box >/dev/null 2>&1 && { sleep 0.5; return 0; }
+    dock_box >/dev/null 2>&1 && return 0
     sleep 0.25
   done
   sed 's/^/       /' "$DOCK_LOG" >&2
@@ -509,7 +774,12 @@ QML
 dock_stop() {
   [ -f "$NEST_STATE/dock.pid" ] && kill "$(cat "$NEST_STATE/dock.pid")" 2>/dev/null || true
   rm -f "$NEST_STATE/dock.pid"
-  sleep 0.3
+  # The pack reads the dock's width off its layer and keeps the last one it saw,
+  # so a dock that has gone still leaves the snap inset at the card width. Put it
+  # back, or the next scenario's right half stops short of where it should.
+  if [ -n "$SIG" ]; then
+    nest_hyprctl eval "hl.config({ plugin = { hyprbars = { x_mode_dock_inset = 45 } } })" >/dev/null 2>&1 || true
+  fi
 }
 
 dock_box() { # "X Y W H" of the dock's layer surface
@@ -542,18 +812,101 @@ dock_icon_point() { # INDEX
   python3 -c "print($x + $w // 2, $y + $DOCK_PAD + $DOCK_ICON // 2 + $1 * ($DOCK_ICON + $DOCK_SPACING))"
 }
 
-# Wait for the dock to pick up the current window list (it re-queries on
-# Hyprland events and every 3s).
-dock_settle() { sleep 1.0; }
+# Wait for the dock to pick up the current window list. It re-queries 120ms
+# after the last Hyprland event and resizes its layer to the new icon column,
+# so the layer box changing is the signal, and a second identical read means the
+# rebuild has landed. A fixed second would sleep the same whether the dock had
+# already caught up or not.
+# Height of the card the dock should be showing for the windows and pins that
+# exist right now. A box that is merely stable can still be the previous
+# column (one icon, height 40) when the second window's event is late, and
+# the click then hits the wrong app. The card is padding plus one icon per
+# pinned class and per other running class, with a 1px separator when both
+# sections exist.
+dock_expect_h() {
+  nest_ctl clients -j | PIN="$(dock_pinned_file)" python3 -c '
+import json, os, sys
+clients = json.load(sys.stdin)
+pinned = []
+path = os.environ.get("PIN") or ""
+if path and os.path.exists(path):
+    try:
+        pinned = json.load(open(path))
+    except Exception:
+        pinned = []
+if not isinstance(pinned, list):
+    pinned = []
+seen = []
+for c in clients:
+    if not c.get("mapped") or c.get("hidden"):
+        continue
+    cls = c.get("class") or ""
+    if cls and cls not in seen:
+        seen.append(cls)
+pin = []
+for cls in pinned:
+    if isinstance(cls, str) and cls not in pin:
+        pin.append(cls)
+running = [cls for cls in seen if cls not in pin]
+kp, kr = len(pin), len(running)
+pad, icon, sp = 14, 26, 6
+if kp == 0 and kr == 0:
+    print(40)
+elif kp == 0:
+    print(pad + kr * icon + (kr - 1) * sp)
+elif kr == 0:
+    print(pad + kp * icon + (kp - 1) * sp)
+else:
+    pinned_box = kp * icon + (kp - 1) * sp
+    print(pad + pinned_box + sp + 1 + sp + kr * icon + (kr - 1) * sp)
+'
+}
+
+dock_settle() {
+  local want prev="" cur i stable=0 h
+  # The wanted height is recomputed as windows come and go during the wait.
+  # A value taken once at the start is the list from before the dock has
+  # caught up, and the card then settles on a height we refuse to accept.
+  # The dock learns about those windows through its own hyprctl, on the same
+  # socket these queries use. Hammering it every 100ms keeps that hyprctl
+  # queued, so the card stays on the previous column. A short yield, then a
+  # slower poll, leaves the socket free for the dock.
+  sleep 0.2
+  for i in $(seq 1 32); do
+    [ $((i % 4)) -eq 1 ] && want="$(dock_expect_h)"
+    cur="$(dock_box 2>/dev/null || true)"
+    h="${cur##* }"
+    if [ -n "$cur" ] && [ -n "$want" ] && [ "$cur" = "$prev" ] && [ "$h" = "$want" ]; then
+      stable=$((stable + 1))
+      [ "$stable" -ge 2 ] && return 0
+    else
+      stable=0
+    fi
+    prev="$cur"
+    sleep 0.25
+  done
+  fail "the dock did not settle (wanted height ${want:-?}, last '${cur:-none}')"
+}
 
 # The dock's pinned list. HOME is the nest's for the dock process, so writing
 # this file is how a test pins without going through the menu. The dock watches
 # the file, so no restart is needed.
 dock_pinned_file() { printf '%s/.config/omarchy/x-mode-dock.json' "$NEST_STATE/home"; }
 dock_pin() {
+  local before="" cur i
+  # A dock that is not running reads the file at startup, so there is nothing
+  # to wait for. One that is running rebuilds when the file changes; the card
+  # changing is that rebuild.
+  before="$(dock_box 2>/dev/null || true)"
   mkdir -p "$(dirname "$(dock_pinned_file)")"
   printf '%s\n' "$1" > "$(dock_pinned_file)"
-  sleep 0.6
+  [ -n "$before" ] || return 0
+  for i in $(seq 1 30); do
+    cur="$(dock_box 2>/dev/null || true)"
+    [ -n "$cur" ] && [ "$cur" != "$before" ] && { dock_settle; return 0; }
+    sleep 0.1
+  done
+  dock_settle
 }
 
 # Middle of a row in the dock's context menu. ROWS is the row-height list the test
@@ -563,10 +916,17 @@ dock_pin() {
 dock_menu_row_point() { # ICON_INDEX ROW_INDEX "26 7 26 ..."
   local dx dy _ _
   read -r dx dy _ _ <<<"$(dock_box)"
-  local screen_w
-  screen_w="$(dock_layer_box x-mode-dock-menu | awk '{print $3}')"
+  # The menu is a layer of its own and is not up in the same breath as the
+  # click. Its width is the screen the card is placed against; the point is
+  # meaningless until that width exists.
+  local screen_w i
+  for i in $(seq 1 40); do
+    screen_w="$(dock_layer_box x-mode-dock-menu 2>/dev/null | awk '{print $3}')"
+    [ -n "$screen_w" ] && break
+    sleep 0.05
+  done
+  [ -n "$screen_w" ] || fail "the dock menu did not open"
   python3 -c "
-import sys
 rows = [int(x) for x in '$3'.split()]
 idx = $2
 screen_w, dock_x, dock_y = $screen_w, $dx, $dy
@@ -610,19 +970,46 @@ pointer_release() { pointer button "${1:-left}" release; }
 # titlebar, a tab or the snap preview was actually drawn. grim talks to the nest,
 # so the picture is of the nested compositor and not of the desktop the user is
 # sitting in front of.
-# grim against a nested compositor occasionally fails to get a buffer, and a shot
-# taken mid-frame is not what a pixel comparison wants, so this settles first and
-# retries a few times.
+# grim blocks until the nest presents a frame. A covered nest presents one when
+# the host rule is applied while grim is already waiting; a frame that lands
+# before grim subscribes is missed, and another does not follow. The attempt
+# is capped so a missed poke fails the test instead of hanging the run. The
+# nest is pushed back under the other windows afterwards: applying the rule
+# can lift it for that one frame.
 nest_screenshot() { # FILE
-  local attempt
-  sleep 0.4
+  local attempt gpid
   for attempt in 1 2 3 4; do
-    if env WAYLAND_DISPLAY="$(nest_display)" grim "$1" 2>/dev/null; then
+    env WAYLAND_DISPLAY="$(nest_display)" timeout 4 grim "$1" >/dev/null 2>&1 &
+    gpid=$!
+    sleep 0.2
+    nest_host_rule true
+    if wait "$gpid"; then
+      nest_host_rule false
+      nest_host_lower
       return 0
     fi
-    sleep 0.4
   done
+  nest_host_rule false
+  nest_host_lower
   fail "grim could not capture the nest"
+}
+
+# Every nest toplevel back to the bottom of the host stack, and focus back to
+# whoever had it when the run started if a poke took it.
+nest_host_lower() {
+  local addr
+  while read -r addr; do
+    [ -n "$addr" ] || continue
+    hyprctl dispatch "hl.dsp.window.alter_zorder({ mode = \"bottom\", window = \"address:$addr\" })" >/dev/null 2>&1 || true
+    if [ -n "${NEST_HOST_FOCUS:-}" ] && [ "$(nest_host_focus)" = "$addr" ]; then
+      hyprctl dispatch "hl.dsp.focus({ window = \"address:$NEST_HOST_FOCUS\" })" >/dev/null 2>&1 || true
+    fi
+  done < <(hyprctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+for c in json.load(sys.stdin):
+    if c.get("class") in ("aquamarine", "Hyprland"):
+        print(c.get("address") or "")
+')
 }
 
 # Number of pixels that differ between two shots. magick prints the count
@@ -706,6 +1093,6 @@ for c in json.load(sys.stdin):
         break"
 }
 
-gaps_out() { nest_ctl getoption general:gaps_out | head -1 | awk '{print $4}'; }
+gaps_out() { nest_query option general:gaps_out 4; }
 
-border_size() { nest_ctl getoption general:border_size | head -1 | awk '{print $2}'; }
+border_size() { nest_query option general:border_size 2; }

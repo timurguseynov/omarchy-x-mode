@@ -7,8 +7,7 @@
 SETTINGS="$NEST_STATE/state/settings.json"
 
 printf '%s\n' '{"options":{},"apps":{"foot":{"chrome":false}}}' > "$SETTINGS"
-nest_ctl reload >/dev/null
-sleep 0.6
+refresh_apps
 
 open_window foot
 open_window foot 2

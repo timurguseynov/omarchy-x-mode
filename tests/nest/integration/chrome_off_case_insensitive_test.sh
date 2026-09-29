@@ -20,8 +20,8 @@ assert_ge "$y_on" 60 "the titlebar is on before the panel toggle"
 
 # What the panel writes is lowercased; the window's class keeps its capital.
 printf '%s\n' '{"options":{},"apps":{"org.mozilla.thunderbird":{"chrome":false}}}' > "$SETTINGS"
-nest_ctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null
-sleep 0.6
+refresh_apps
+settle
 
 snap org.mozilla.Thunderbird left
 read -r _ y_off _ _ _ <<<"$(win_geom org.mozilla.Thunderbird)"

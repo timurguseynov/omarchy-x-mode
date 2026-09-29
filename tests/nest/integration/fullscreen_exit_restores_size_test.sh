@@ -10,15 +10,15 @@
 . "$(dirname "$0")/../../lib.sh"
 
 open_window foot
-# Let the open watch stop, so only the fullscreen transition can move it.
-sleep 2.2
+# Wait until the box holds still, so only the fullscreen transition can move it.
+wait_still foot
 
 read -r x0 y0 w0 h0 _ <<<"$(win_geom foot)"
 
 nest_ctl dispatch "hl.dsp.window.fullscreen({ mode = 'fullscreen', action = 'set', window = 'class:foot' })" >/dev/null
 sleep 0.4
 nest_ctl dispatch "hl.dsp.window.fullscreen({ action = 'unset', window = 'class:foot' })" >/dev/null
-sleep 0.6
+settle
 
 read -r x y w h _ <<<"$(win_geom foot)"
 assert_eq "$x" "$x0" "leaving fullscreen restores the floating x"

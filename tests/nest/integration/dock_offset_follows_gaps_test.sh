@@ -18,7 +18,8 @@ assert_ge "$(gaps_out)" 1 "gaps are on to begin with"
 
 printf '%s\n' '{"options":{"noGaps":true},"apps":{}}' > "$SETTINGS"
 nest_ctl reload >/dev/null
-sleep 1.2
+dock_x_ge() { local x; read -r x _ <<<"$(dock_box)"; [ "$x" -ge "$1" ]; }
+wait_until 5 dock_x_ge $((x1 + 3)) || true
 
 read -r x2 _ _ _ <<<"$(dock_box)"
 assert_ge "$x2" $((x1 + 3)) "with the gaps gone the dock moves to the edge"
@@ -26,7 +27,8 @@ assert_eq "$(dock_box | awk '{print $4}')" "$h1" "the dock keeps its height"
 
 printf '%s\n' '{"options":{}}' > "$SETTINGS"
 nest_ctl reload >/dev/null
-sleep 1.2
+dock_x_is() { local x; read -r x _ <<<"$(dock_box)"; [ "$x" = "$1" ]; }
+wait_until 5 dock_x_is "$x1" || true
 
 read -r x3 _ _ _ <<<"$(dock_box)"
 assert_eq "$x3" "$x1" "the dock moves back when the gaps return"

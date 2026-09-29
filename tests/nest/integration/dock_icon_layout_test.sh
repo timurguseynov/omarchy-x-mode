@@ -12,7 +12,7 @@ dock_settle
 
 read -r x y w h <<<"$(dock_box)"
 assert_eq "$w" 40 "the card is iconSize + 2*pad wide"
-assert_eq "$h" 72 "two icons, the gap between them and the padding"
+assert_eq "$h" 72 "two icons, the gap between them and the padding (got $h)"
 
 # Every icon's point has to land inside the card.
 for i in 0 1; do

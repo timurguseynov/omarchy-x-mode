@@ -9,11 +9,13 @@ dock_settle
 assert_ne "$(dock_box 2>/dev/null || echo none)" none "the dock is there while x-mode is on"
 
 echo off > "$DOCK_RUNTIME/omarchy-x-mode.state"
-sleep 1.0
+dock_hidden() { [ -z "$(dock_box 2>/dev/null || true)" ]; }
+wait_until 5 dock_hidden || fail "turning x-mode off hides the dock"
 assert_eq "$(dock_box 2>/dev/null || echo none)" none "turning x-mode off hides the dock"
 
 echo on > "$DOCK_RUNTIME/omarchy-x-mode.state"
-sleep 1.0
+dock_shown() { [ -n "$(dock_box 2>/dev/null || true)" ]; }
+wait_until 5 dock_shown || fail "turning x-mode back on shows it again"
 assert_ne "$(dock_box 2>/dev/null || echo none)" none "turning x-mode back on shows it again"
 
 dock_stop

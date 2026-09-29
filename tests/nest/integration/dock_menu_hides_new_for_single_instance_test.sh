@@ -25,11 +25,11 @@ dock_settle
 
 read -r px py <<<"$(dock_icon_point 0)"
 pointer_click "$px" "$py" right
-sleep 0.6
+settle
 
 read -r rx ry <<<"$(dock_menu_row_point 0 3 "26 7 26 26")"
 pointer_click "$rx" "$ry"
-sleep 0.8
+settle
 
 assert_eq "$(count_class foot)" 0 "a single-instance app has no New row, so that row is Quit"
 

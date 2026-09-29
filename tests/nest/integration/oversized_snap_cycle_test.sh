@@ -19,11 +19,11 @@ minw=$((mw * 55 / 100))
 minh=$((mh / 2))
 
 open_window foot
-# Let the open watch stop: this is only about the snap and the cycle.
-sleep 2.2
+# Wait until the box holds still: this is only about the snap and the cycle.
+wait_still foot
 
 nest_ctl eval "hl.window_rule({ name = 'oversized-cycle', match = { class = 'foot' }, min_size = '${minw} ${minh}' })" >/dev/null
-sleep 0.5
+settle
 
 key super+alt+left
 sleep 0.4

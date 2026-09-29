@@ -12,7 +12,7 @@ assert_eq "$(dock_layer_box x-mode-dock-menu 2>/dev/null || echo none)" none \
 
 read -r px py <<<"$(dock_icon_point 0)"
 pointer_click "$px" "$py" right
-sleep 0.6
+settle
 
 w="$(dock_layer_box x-mode-dock-menu | awk '{print $3}')"
 assert_ge "$w" 100 "right-clicking an icon opens the context menu layer"

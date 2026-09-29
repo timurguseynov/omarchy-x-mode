@@ -11,13 +11,14 @@ dock_settle
 
 read -r px py <<<"$(dock_icon_point 0)"
 pointer_click "$px" "$py" right
-sleep 0.6
+settle
 
 read -r rx ry <<<"$(dock_menu_row_point 0 5 "26 7 26 7 26 26")"
 pointer_click "$rx" "$ry"
-sleep 0.8
+foot_gone() { [ "$(count_class foot)" = 0 ]; }
+wait_until 3 foot_gone || true
 
-assert_eq "$(count_class foot)" 0 "the quit row closes the app's windows"
+assert_eq "$(count_class foot)" 0 "the quit row closes the app's windows (got $(count_class foot))"
 assert_eq "$(count_class kitty)" 1 "the other app is left alone"
 
 dock_stop

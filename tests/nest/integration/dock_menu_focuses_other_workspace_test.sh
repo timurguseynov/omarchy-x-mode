@@ -18,13 +18,14 @@ assert_eq "$(viewed_workspace)" 1 "the test starts on workspace 1"
 # foot sorts before kitty, so its icon is the first one.
 read -r px py <<<"$(dock_icon_point 0)"
 pointer_click "$px" "$py" right
-sleep 0.6
+settle
 
 read -r rx ry <<<"$(dock_menu_row_point 0 2 "26 7 26 7 26 26")"
 pointer_click "$rx" "$ry"
-sleep 0.8
+on_foot_ws() { [ "$(viewed_workspace)" = 2 ] && [ "$(active_class)" = foot ]; }
+wait_until 3 on_foot_ws || true
 
-assert_eq "$(viewed_workspace)" 2 "the window row moves to that window's workspace"
-assert_eq "$(active_class)" foot "the window row focuses that window"
+assert_eq "$(viewed_workspace)" 2 "the window row moves to that window's workspace (got $(viewed_workspace))"
+assert_eq "$(active_class)" foot "the window row focuses that window (got $(active_class))"
 
 dock_stop

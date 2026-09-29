@@ -15,7 +15,7 @@ read -r x1 y1 _ _ _ <<<"$(visible_geom foot)"
 read -r fx fy <<<"$(tab_point foot 0 3)"
 read -r tx ty <<<"$(tab_point foot 2 3)"
 pointer_drag "$fx" "$fy" "$tx" "$ty"
-sleep 0.5
+settle
 
 after="$(group_order foot)"
 assert_ne "$after" "$before" "dragging a tab rewrites the order"

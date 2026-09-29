@@ -22,13 +22,13 @@ sleep 0.4
 assert_eq "$(active_class)" foot "foot is focused by hand"
 
 key super+tab
-sleep 0.5
+settle
 assert_eq "$(active_class)" xmode-extra "the next app is the one used before foot"
 
 key super+tab
-sleep 0.5
+settle
 assert_eq "$(active_class)" foot "and the one used before that is foot itself"
 
 key super+tab
-sleep 0.5
+settle
 assert_eq "$(active_class)" xmode-extra "so the presses alternate"

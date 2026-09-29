@@ -16,6 +16,10 @@ read -r tx ty <<<"$(titlebar_point foot)"
 # Down and to the left, away from the screen edges: a snap zone starts only
 # within x_mode_snap margin of an edge, and a snap would change the size.
 pointer_drag "$tx" "$ty" "$((tx - 60))" "$((ty + 60))"
+# The drag's events are in before pointer_drag returns. The window box catches
+# up a moment later when the nest is busy, which is the usual case with three
+# nests running.
+wait_still foot
 
 read -r x1 y1 w1 h1 _ <<<"$(win_geom foot)"
 

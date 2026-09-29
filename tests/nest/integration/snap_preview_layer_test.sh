@@ -27,13 +27,13 @@ pointer_do "move $tx $ty"
 pointer_do "press left"
 pointer_do "move $((tx - 30)) $((ty + 30))"
 pointer_do "move 6 $((mh / 2))"
-sleep 0.6
+settle
 
 w="$(dock_layer_box omarchy-snap-preview | awk '{print $3}')"
 assert_ge "$w" 20 "the preview layer is up while the cursor is in a zone"
 
 pointer_do "move $((mw / 2)) $((mh / 3))"
-sleep 0.5
+settle
 assert_eq "$(dock_layer_box omarchy-snap-preview 2>/dev/null || echo none)" none \
   "the preview goes away when the cursor leaves the zone"
 

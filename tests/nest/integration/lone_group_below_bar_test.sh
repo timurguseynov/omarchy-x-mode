@@ -12,11 +12,11 @@
 . "$(dirname "$0")/../../lib.sh"
 
 open_window foot
-# Clear the open watch so this is only about the group change, not the watch.
-sleep 2.2
+# Wait until the box holds still, so this is only about the group change.
+wait_still foot
 assert_ge "$(visual_top foot)" "$(bar_top)" "a lone window starts below the bar"
 
 nest_ctl dispatch "hl.dsp.group.toggle({ window = 'class:foot' })" >/dev/null
-sleep 0.5
+settle
 assert_eq "$(group_size foot)" 1 "the lone window is now a group of one"
 assert_ge "$(visual_top foot)" "$(bar_top)" "the lone group's tabbar stays below the bar"

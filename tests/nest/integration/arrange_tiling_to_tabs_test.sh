@@ -21,7 +21,7 @@ open_command foot foot
 open_command foot foot
 open_command foot foot
 open_command foot foot
-sleep 0.5
+settle
 
 addrs="$(nest_ctl clients -j | python3 -c 'import json,sys
 print(" ".join(c["address"] for c in json.load(sys.stdin) if c["class"] == "foot"))')"
@@ -76,7 +76,7 @@ PY
 fi
 printf '%s\n' "$out"
 
-sleep 0.6
+settle
 assert_eq "$(group_size foot)" 5 "the five windows end up as tabs of one group"
 
 # Leave the flag where the next scenario expects it.

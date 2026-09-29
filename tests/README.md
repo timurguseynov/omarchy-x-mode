@@ -36,12 +36,23 @@ tests/nest/run.sh close                      # anything whose name matches
 A scenario's output is printed whether it passes or fails: a note it wants to
 make, or a message from a tool it ran, is exactly what swallowing would hide.
 
-The nest is one per run and `nest_clean()` runs between files, so a selected
-scenario is as isolated as it is in a full run. The startup is only a few
-seconds and the cost is per scenario, so selecting one is worth it: a single
-scenario runs in about 4s against about 30s for the whole nest layer.
+`nest_clean()` runs between files, so a selected scenario is as isolated as it
+is in a full run. The run starts one nest (`NEST_JOBS`, default 1).
+`NEST_JOBS=2` or `3` gives each worker its own nest. A second nest on this
+machine drops dock events, so a parallel run fails a scenario that passes on
+its own, and the default stays one. A scenario that fails is run once more on
+the same nest, and a failure that comes back is reported.
 
-The nest runs with a runtime directory of its own, `/tmp/x-mode-nest-runtime`.
+The nest is a window on this desktop. Its class is `aquamarine` (the wayland
+backend's app id). A runtime window rule on that class keeps it from taking
+focus and puts it under the other windows, and the runner removes that rule
+when it exits. A screenshot reapplies the rule while grim is waiting: a
+covered nest does not present a frame on its own, and grim blocks until one
+arrives.
+
+Each nest has its own runtime directory, `/tmp/xmn-<slot>`. The name is that
+short on purpose: Hyprland's event socket path has to fit in 107 bytes, and
+the dock connects to that socket.
 That is where its Hyprland socket, the x-mode state file and the command files
 the pack writes for the switcher and the snap preview all land. It has to be
 short (a unix socket path tops out around 108 bytes, and
@@ -53,11 +64,10 @@ the directory is not the test's own, anything that connects to the nest needs
 `nest_display` (the absolute socket path) rather than a bare socket name.
 
 The nest layer builds `hyprbars` first (incrementally) and needs a running
-Hyprland session (for the nest) plus the hyprpm headers. It starts one nest for
-the whole run. Between files it closes the windows and restores a clean
-`settings.json`, and a fresh run starts from an empty state dir: a test that
-fails midway otherwise leaves settings behind that change how the next one lays
-out windows.
+Hyprland session (for the nest) plus the hyprpm headers. Between files it
+closes the windows and restores a clean `settings.json`, and a fresh run starts
+from an empty state dir: a test that fails midway otherwise leaves settings
+behind that change how the next one lays out windows.
 
 Requirements: `hyprpm` headers (`hyprpm update`), `quickshell`/`qs` (the fake top
 bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's

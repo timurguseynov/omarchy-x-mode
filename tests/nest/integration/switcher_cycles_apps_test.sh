@@ -19,11 +19,11 @@ before="$(active_class)"
 assert_ne "$before" "" "something is focused to begin with"
 
 key super+tab
-sleep 0.5
+settle
 assert_ne "$(active_class)" "$before" "Super+Tab moves to the next app"
 
 key super+tab
-sleep 0.5
+settle
 assert_eq "$(active_class)" "$before" "and the next press comes back"
 
 assert_ge "$(wc -c < "$NEST_RUNTIME/omarchy-switcher.cmd")" 1 \
