@@ -157,6 +157,194 @@ check("plan.punct.no-shift", empty_plan["comma/shift"], nil)
 -- Junk input plans nothing rather than raising.
 check("plan.junk", #supermap.plan("not a bind table"), 0)
 
+-- Occupied Super keys the panel can steal: in KEYS, Super or Super+Shift, not
+-- a generated super-ctrl bind, not a submap, not the digits (those move to F
+-- keys in the main panel), not Super+W (its own toggle). A foreign __lua bind
+-- cannot be replayed, so stealable() drops it unless the pack wraps that key
+-- itself (Q, Tab).
+check("id.plain", supermap.key_id("Q", false), "Q")
+check("id.shift", supermap.key_id("TAB", true), "SHIFT+TAB")
+check("canon.q", supermap.canonical_id("q"), "Q")
+check("canon.shift-tab", supermap.canonical_id("shift+tab"), "SHIFT+TAB")
+check("canon.bad", supermap.canonical_id("mouse:272"), nil)
+
+local occ_raw = [[
+bind
+	modmask: 64
+	submap: 
+	key: T
+	keycode: 0
+	catchall: false
+	description: Toggle floating
+	dispatcher: exec
+	arg: x
+
+bind
+	modmask: 64
+	submap: 
+	key: W
+	keycode: 0
+	catchall: false
+	description: Close window
+	dispatcher: __lua
+	arg: 1
+
+bind
+	modmask: 64
+	submap: 
+	key: Q
+	keycode: 0
+	catchall: false
+	description: Close app
+	dispatcher: __lua
+	arg: 2
+
+bind
+	modmask: 64
+	submap: 
+	key: F
+	keycode: 0
+	catchall: false
+	description: Full screen
+	dispatcher: __lua
+	arg: 7
+
+bind
+	modmask: 64
+	submap: 
+	key: C
+	keycode: 0
+	catchall: false
+	description: Universal copy
+	dispatcher: __lua
+	arg: 3
+
+bind
+	modmask: 64
+	submap: 
+	key: B
+	keycode: 0
+	catchall: false
+	description: Browser
+	dispatcher: exec
+	arg: omarchy-launch-browser
+
+bind
+	modmask: 64
+	submap: 
+	key: SUPER + code:10
+	keycode: 0
+	catchall: false
+	description: Switch to workspace 1
+	dispatcher: workspace
+	arg: 1
+
+bind
+	modmask: 64
+	submap: 
+	key: L
+	keycode: 0
+	catchall: false
+	description: x-mode-super-ctrl L
+	dispatcher: __lua
+	arg: 4
+
+bind
+	modmask: 64
+	submap: resize
+	key: H
+	keycode: 0
+	catchall: false
+	description: 
+	dispatcher: submap
+	arg: reset
+
+bind
+	modmask: 65
+	submap: 
+	key: TAB
+	keycode: 0
+	catchall: false
+	description: Focus on previous window
+	dispatcher: __lua
+	arg: 5
+
+bind
+	modmask: 64
+	submap: 
+	key: K
+	keycode: 0
+	catchall: false
+	description: x-mode-super-steal K Keybindings
+	dispatcher: __lua
+	arg: 6
+]]
+
+local function by_id(list)
+  local set = {}
+  for _, e in ipairs(list) do
+    set[e.id] = e
+  end
+  return set
+end
+
+local occ = by_id(supermap.occupied_list(occ_raw))
+check("occ.t", occ["T"] ~= nil, true)
+check("occ.t.disp", occ["T"].dispatcher, "exec")
+check("occ.w.skip", occ["W"], nil)
+check("occ.digit.skip", occ["1"], nil)
+check("occ.own-ctrl.skip", occ["L"], nil)
+check("occ.submap.skip", occ["H"], nil)
+check("occ.q", occ["Q"] ~= nil, true)
+check("occ.f", occ["F"] ~= nil, true)
+check("occ.c", occ["C"] ~= nil, true)
+check("occ.b", occ["B"] ~= nil, true)
+check("occ.shift-tab", occ["SHIFT+TAB"] ~= nil, true)
+check("occ.steal-wrap", occ["K"] ~= nil, true)
+check("occ.t.label", occ["T"].label, "⌘+T")
+check("occ.shift-tab.label", occ["SHIFT+TAB"].label, "⌘+⇧+Tab")
+check("pretty.comma", supermap.label("comma", false), "⌘+,")
+check("pretty.esc", supermap.label("ESCAPE", false), "⌘+Esc")
+check("pretty.enter", supermap.label("RETURN", false), "⌘+Enter")
+check("pretty.bksp", supermap.label("BACKSPACE", false), "⌘+⌫")
+check("pretty.left", supermap.label("LEFT", false), "⌘+←")
+check("pretty.pgup", supermap.label("PAGE_UP", false), "⌘+PgUp")
+
+local steal = by_id(supermap.stealable(occ_raw, { Q = true, TAB = true }))
+check("steal.t", steal["T"] ~= nil, true)
+check("steal.b", steal["B"] ~= nil, true)
+check("steal.q", steal["Q"] ~= nil, true)
+check("steal.shift-tab", steal["SHIFT+TAB"] ~= nil, true)
+check("steal.f.foreign-lua", steal["F"], nil)
+check("steal.c.foreign-lua", steal["C"], nil)
+local steal_f = by_id(supermap.stealable(occ_raw, { Q = true, TAB = true, F = true }))
+check("steal.f.own", steal_f["F"] ~= nil, true)
+check("steal.k.wrap", steal["K"] ~= nil, true)
+check("steal.k.desc", steal["K"].description, "Keybindings")
+
+local json = supermap.occupied_json(supermap.stealable(occ_raw, { Q = true, TAB = true }))
+check("json.has-q", json:find('"id":"Q"', 1, true) ~= nil, true)
+check("json.no-c", json:find('"id":"C"', 1, true) == nil, true)
+check("json.escapes", supermap.occupied_json({ { id = "Q", key = "Q", shift = false, label = "Super+Q", description = 'say "hi"' } }):find('\\"hi\\"') ~= nil, true)
+
+local with_exec = by_id(supermap.stealable(occ_raw, { Q = true, TAB = true }, { C = "x" }))
+check("steal.c.exec-map", with_exec["C"] ~= nil, true)
+
+local omarchy = supermap.parse_omarchy_binds([[
+o.bind("SUPER + K", "Keybindings", "omarchy-menu-keybindings")
+o.bind("SUPER + RETURN", "Terminal", { omarchy = "terminal" })
+o.bind("SUPER + SHIFT + RETURN", "Browser", { omarchy = "browser" })
+o.bind("SUPER + ALT + K", "Tmux keybindings", "omarchy-menu-tmux-keybindings")
+o.bind("SUPER + C", "Universal copy", universal_clipboard_shortcut("CTRL", "C"))
+o.bind_toggle("SUPER + SHIFT + SPACE", "Toggle top bar", "bar")
+]])
+check("omarchy.k", omarchy["K"], "omarchy-menu-keybindings")
+check("omarchy.return", omarchy["RETURN"], "omarchy-launch-terminal")
+check("omarchy.shift-return", omarchy["SHIFT+RETURN"], "omarchy-launch-browser")
+check("omarchy.alt.skip", omarchy["SHIFT+K"], nil)
+check("omarchy.c.fn.skip", omarchy["C"], nil)
+check("omarchy.toggle", omarchy["SHIFT+SPACE"], "omarchy-toggle-bar")
+
 if failures > 0 then
   os.exit(1)
 end

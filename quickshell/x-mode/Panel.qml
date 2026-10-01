@@ -8,7 +8,7 @@ import "logic.js" as Logic
 
 // X Mode settings, laid out like the Omarchy Bluetooth panel: a hero header
 // with the on/off switch, settings rows, then the app list. Opening an app
-// shows its two chrome toggles.
+// shows its chrome flags, Super-as-Ctrl, and a toggle per occupied Super key.
 Panel {
   id: root
   moduleName: "x-mode.toggle"
@@ -28,7 +28,7 @@ Panel {
   // sized to the space actually left in the capped card. Excludes `listFlick`
   // itself -- referencing its height here would be circular.
   readonly property real listFixedHeight: {
-    var items = [hero, sepTop, scrollRow, tabKeysRow, gapsRow, sepMid, backRow, sectionHeader, searchField, detailColumn]
+    var items = [hero, sepTop, scrollRow, tabKeysRow, workspaceKeysRow, gapsRow, sepMid, backRow, sectionHeader, searchField]
     var h = 0
     var n = 0
     for (var i = 0; i < items.length; i++) {
@@ -50,12 +50,17 @@ Panel {
   // The card is capped so it never spills past the popup. The app list gets a
   // taller cap than the per-app card: with the fixed content above it, the 480
   // left room for barely two rows before the list had to scroll.
-  readonly property int cardCap: openCls === "" ? Style.space(720) : Style.space(480)
-  readonly property int listCap: Style.space(480)
+  // Same cap on the app list and the per-app page: the occupied-key rows need
+  // the same room, and they scroll inside the card instead of shrinking it.
+  readonly property int cardCap: Style.space(720)
   property var appsCfg: ({})
   property var running: []
   property string query: ""
   property string openCls: ""
+  // Occupied Super keys the pack can steal, written by x-mode.lua from the live
+  // bind table. Super+W and the workspace digits stay out of this list.
+  property var occupiedKeys: []
+  readonly property string occupiedPath: (Quickshell.env("HOME") || "") + "/.local/state/omarchy-x-mode/occupied.json"
 
   // Pure list work lives in logic.js (unit tested); the resolver callback is
   // the only Quickshell-adjacent bit that stays here.
@@ -89,14 +94,26 @@ Panel {
     writeSettings("hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null")
   }
 
+  function setOccupiedKey(id, value) {
+    var next = Logic.setOccupiedKey(appsCfg, openCls, id, value)
+    if (!next)
+      return
+    appsCfg = next
+    writeSettings("hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null")
+  }
+
   // The panel's whole state in one file, so the options and the app list can
   // never drift apart. `followUp` is the hyprctl call the change needs.
   function writeSettings(followUp) {
     var apps = {}
     for (var k in appsCfg) {
       var e = appsCfg[k]
-      if (e && (e.chrome === false || e.alwaysTabbar || e.ctrlW || e.ctrlAsSuper || e.ctrlCShift))
-        apps[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlCShift: !!e.ctrlCShift }
+      if (e && (e.chrome === false || e.alwaysTabbar || e.ctrlW || e.ctrlAsSuper || e.ctrlCShift || e.ctrlClick || (e.ctrlAsSuperKeys && e.ctrlAsSuperKeys.length))) {
+        var row = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlCShift: !!e.ctrlCShift, ctrlClick: !!e.ctrlClick }
+        if (e.ctrlAsSuperKeys && e.ctrlAsSuperKeys.length)
+          row.ctrlAsSuperKeys = e.ctrlAsSuperKeys
+        apps[k] = row
+      }
     }
     var json = JSON.stringify({
       options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps, workspacesOnFkeys: root.workspacesOnFkeys },
@@ -170,6 +187,26 @@ Panel {
       root.workspacesOnFkeys = false
       root.appsCfg = {}
     }
+  }
+
+  FileView {
+    id: occupiedFile
+    path: root.occupiedPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try {
+        var d = JSON.parse(text())
+        var list = Array.isArray(d) ? d : []
+        if (!Logic.sameOccupiedList(root.occupiedKeys, list))
+          root.occupiedKeys = list
+      } catch (e) {
+        if (root.occupiedKeys.length)
+          root.occupiedKeys = []
+      }
+    }
+    onLoadFailed: if (root.occupiedKeys.length) root.occupiedKeys = []
   }
 
   Process {
@@ -508,51 +545,90 @@ Panel {
         onTextChanged: root.query = text
       }
 
-      Column {
-        id: detailColumn
+      Flickable {
+        id: detailFlick
         width: parent.width
-        spacing: Style.space(4)
         visible: root.openCls !== ""
-
-        SwitchRow {
-          width: parent.width
-          label: "Titlebar and grouping"
-          description: "Mac titlebar, tabs, same-app groups"
-          checked: root.cfgFor(root.openCls).chrome
-          onToggled: root.setFlag("chrome", !root.cfgFor(root.openCls).chrome)
+        // Same leftover-space math as the app list: the chrome flags and the
+        // occupied Super keys are one page, so they scroll inside the card
+        // instead of sitting above it and getting clipped.
+        height: {
+          var cap = root.cardCap
+          var avail = panel.availableCardHeight > 0 ? panel.availableCardHeight : cap
+          var cardContent = Math.max(0, Math.min(cap, avail) - panel.verticalContentInset)
+          var room = cardContent - root.listFixedHeight - column.spacing
+          var wanted = Math.max(Style.space(80), detailColumn.implicitHeight)
+          return Math.max(Style.space(80), Math.min(wanted, room))
         }
+        contentHeight: detailColumn.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
 
-        SwitchRow {
-          width: parent.width
-          label: "Always show tabbar"
-          description: "Tab strip with + even for a single window"
-          checked: root.cfgFor(root.openCls).alwaysTabbar
-          rowEnabled: root.cfgFor(root.openCls).chrome
-          onToggled: root.setFlag("alwaysTabbar", !root.cfgFor(root.openCls).alwaysTabbar)
-        }
+        Column {
+          id: detailColumn
+          width: detailFlick.width
+          spacing: Style.space(4)
 
-        SwitchRow {
-          width: parent.width
-          label: "Super+W closes the tab"
-          description: "Send Ctrl+W to the app instead of closing the window"
-          checked: root.cfgFor(root.openCls).ctrlW
-          onToggled: root.setFlag("ctrlW", !root.cfgFor(root.openCls).ctrlW)
-        }
+          SwitchRow {
+            width: parent.width
+            label: "Titlebar and grouping"
+            description: "Mac titlebar, tabs, same-app groups"
+            checked: root.cfgFor(root.openCls).chrome
+            onToggled: root.setFlag("chrome", !root.cfgFor(root.openCls).chrome)
+          }
 
-        SwitchRow {
-          width: parent.width
-          label: "Super works as Ctrl"
-          description: "Unbound Super+key reaches the app as Ctrl+key"
-          checked: root.cfgFor(root.openCls).ctrlAsSuper
-          onToggled: root.setFlag("ctrlAsSuper", !root.cfgFor(root.openCls).ctrlAsSuper)
-        }
+          SwitchRow {
+            width: parent.width
+            label: "Always show tabbar"
+            description: "Tab strip with + even for a single window"
+            checked: root.cfgFor(root.openCls).alwaysTabbar
+            rowEnabled: root.cfgFor(root.openCls).chrome
+            onToggled: root.setFlag("alwaysTabbar", !root.cfgFor(root.openCls).alwaysTabbar)
+          }
 
-        SwitchRow {
-          width: parent.width
-          label: "Ctrl+C as Ctrl+Shift+C"
-          description: "For an app with a terminal: Ctrl+C goes in shifted, Super+C still copies"
-          checked: root.cfgFor(root.openCls).ctrlCShift
-          onToggled: root.setFlag("ctrlCShift", !root.cfgFor(root.openCls).ctrlCShift)
+          SwitchRow {
+            width: parent.width
+            label: "Super works as Ctrl"
+            description: "Keys Omarchy does not already use"
+            checked: root.cfgFor(root.openCls).ctrlAsSuper
+            onToggled: root.setFlag("ctrlAsSuper", !root.cfgFor(root.openCls).ctrlAsSuper)
+          }
+
+          SwitchRow {
+            width: parent.width
+            label: "⌘+click as Ctrl+click"
+            description: "Links, multi-select"
+            checked: root.cfgFor(root.openCls).ctrlClick
+            onToggled: root.setFlag("ctrlClick", !root.cfgFor(root.openCls).ctrlClick)
+          }
+
+          SwitchRow {
+            width: parent.width
+            label: "⌘+W as Ctrl+W"
+            description: "Close window"
+            checked: root.cfgFor(root.openCls).ctrlW
+            onToggled: root.setFlag("ctrlW", !root.cfgFor(root.openCls).ctrlW)
+          }
+
+          Repeater {
+            model: root.occupiedKeys
+            SwitchRow {
+              width: detailColumn.width
+              label: Logic.stealToggleLabel(modelData.label || modelData.id)
+              description: String(modelData.description || "")
+              checked: Logic.hasOccupiedKey(root.cfgFor(root.openCls), modelData.id)
+              onToggled: root.setOccupiedKey(modelData.id, !Logic.hasOccupiedKey(root.cfgFor(root.openCls), modelData.id))
+            }
+          }
+
+          SwitchRow {
+            width: parent.width
+            label: "Ctrl+C as Ctrl+Shift+C"
+            description: "Interrupt in a terminal; Super+C still copies"
+            checked: root.cfgFor(root.openCls).ctrlCShift
+            onToggled: root.setFlag("ctrlCShift", !root.cfgFor(root.openCls).ctrlCShift)
+          }
         }
       }
 
@@ -569,7 +645,7 @@ Panel {
           var cardContent = Math.max(0, Math.min(cap, avail) - panel.verticalContentInset)
           var room = cardContent - root.listFixedHeight - column.spacing
           var wanted = Math.max(Style.space(80), appColumn.implicitHeight)
-          return Math.max(Style.space(80), Math.min(root.listCap, wanted, room))
+          return Math.max(Style.space(80), Math.min(wanted, room))
         }
         contentHeight: appColumn.implicitHeight
         clip: true

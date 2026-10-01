@@ -31,8 +31,8 @@ It is **additive**. The installer only creates files in its own namespace and on
   * No gaps: no space between windows, with a hairline border kept
   * Per-app titlebar and grouping
   * Always show the tab bar, including the `+` for a single window
-  * Per-app: send `Ctrl`+`W` on `Super`+`W`, so the tab closes and the window stays
-  * Per-app: `Super` works as `Ctrl`, so unbound `Super`+key reaches the app as `Ctrl`+key. The keys the desktop already uses stay put, `Super`+`Tab` included
+  * Per-app: `Super` works as `Ctrl` for keys the desktop does not use. Occupied keys (`Super`+`W` as `Ctrl`+`W`, `Super`+`Q` as `Ctrl`+`Q`, `Super`+`F` as `Ctrl`+`F`, …) each have their own toggle; the row says what desktop action that key replaces. `Super`+`1`…`0` are not in that list: they move to `F1`…`F10` from the main panel
+  * Per-app: `Super`+click is `Ctrl`+click (links, multi-select)
   * Per-app: `Ctrl`+`C` as `Ctrl`+`Shift`+`C`, for an app with a terminal inside: the key goes in shifted so the app's own binding can make it the interrupt, while `Super`+`C` still copies
 
 ---

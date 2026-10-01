@@ -486,10 +486,16 @@ local ctrl_w_apps = {}
 -- Classes with the panel's "Super works as Ctrl" flag: unbound Super+key
 -- combinations reach them as Ctrl+key.
 local ctrl_as_super = {}
+-- Occupied Super keys stolen per class (supermap ids: Q, TAB, SHIFT+TAB, B).
+-- Unbind is global; the wrap checks this set for the focused window, like Super+W.
+local steal_keys = {}
 -- Classes with the panel's "Ctrl+C as Ctrl+Shift+C" flag: an app that hosts a
 -- terminal needs Ctrl+C left to the shell, so the pack hands it Ctrl+Shift+C
 -- instead and lets the app's own binding decide what that means.
 local ctrl_c_shift_apps = {}
+-- Classes with the panel's "⌘+click as Ctrl+click" flag: Super+mouse button
+-- is sent as Ctrl+click. Unflagged apps still get Super+click (pass_event).
+local ctrl_click_apps = {}
 local ctrl_c_binds = {}
 -- Defined with the other option appliers (it reads the bind table out of band),
 -- forward-declared so the app refresh can call it.
@@ -514,6 +520,11 @@ end
 
 local function send_ctrl(key, shift, w)
   return send_chord(shift and "CTRL SHIFT" or "CTRL", key, w)
+end
+
+local function key_stolen(cls, key, shift)
+  local ids = steal_keys[cls]
+  return ids ~= nil and ids[supermap.key_id(key, shift)] == true
 end
 
 local function window_by_addr(addr)
@@ -626,9 +637,48 @@ local function snap_or_expand(side)
   snap(side, window)
 end
 
--- Super+LMB window dragging is disabled in x-mode. Titlebar drag-to-edge
--- lives in hyprbars (CDragSession).
+-- Super+LMB was window drag, Super+RMB was resize. Titlebar drag-to-edge
+-- lives in hyprbars (CDragSession); Super+click is Ctrl+click for apps with
+-- the panel flag, and otherwise reaches the app as Super+click.
 hl.unbind("SUPER + mouse:272")
+hl.unbind("SUPER + mouse:273")
+local function window_at_cursor()
+  local pos = hl.get_cursor_pos()
+  if pos == nil then
+    return nil
+  end
+  local x, y = vec(pos)
+  local hit = nil
+  for _, w in ipairs(as_list(hl.get_windows())) do
+    if w.mapped and not w.hidden then
+      local ax, ay = vec(w.at)
+      local ww, hh = vec(w.size)
+      if x >= ax and y >= ay and x < ax + ww and y < ay + hh then
+        hit = w
+      end
+    end
+  end
+  return hit
+end
+local function super_ctrl_click(button)
+  return function()
+    -- Titlebar / empty space: let the click through (hyprbars, focus).
+    -- The window under the cursor, not the focused one: Cmd+click a link in
+    -- a background window should still be Ctrl+click there.
+    local w = window_at_cursor()
+    if w == nil or not ctrl_click_apps[window_class(w)] then
+      return { pass_event = true }
+    end
+    hl.dispatch(hl.dsp.send_shortcut({
+      mods = "CTRL",
+      key = "mouse:" .. tostring(button),
+      window = w,
+    }))
+  end
+end
+o.bind("SUPER + mouse:272", "Ctrl+click", super_ctrl_click(272), { mouse = true })
+o.bind("SUPER + mouse:273", "Ctrl+click", super_ctrl_click(273), { mouse = true })
+o.bind("SUPER + mouse:274", "Ctrl+click", super_ctrl_click(274), { mouse = true })
 
 -- Hyprland tracks two fullscreen flags: the compositor's own (internal) and the
 -- client's xdg request. Either one means the window is not a normal floating
@@ -912,6 +962,10 @@ o.bind("SUPER + Q", "Close app", function()
   if w == nil then
     return
   end
+  if key_stolen(window_class(w), "Q", false) then
+    send_ctrl("Q", false, w)
+    return
+  end
   if w.group ~= nil then
     for _, m in ipairs(w.group.members) do
       hl.dispatch(hl.dsp.window.close({ window = m }))
@@ -921,16 +975,42 @@ o.bind("SUPER + Q", "Close app", function()
   end
 end)
 
+-- Cmd+F is Omarchy fullscreen: a Lua dispatcher, so hyprctl cannot replay it
+-- after unbind. Wrap it here like Super+Q. A stolen F is Ctrl+F (Find);
+-- otherwise the compositor fullscreen stays.
+hl.unbind("SUPER + F")
+o.bind("SUPER + F", "Full screen", function()
+  local w = hl.get_active_window()
+  if w == nil then
+    return
+  end
+  if key_stolen(window_class(w), "F", false) then
+    send_ctrl("F", false, w)
+    return
+  end
+  hl.dispatch(hl.dsp.window.fullscreen({ mode = "fullscreen" }))
+end)
+
 -- Cmd+Tab cycles through windows (like an app switcher) instead of Omarchy's
--- next/previous workspace; Cmd+Shift+Tab goes the other way. This is the
--- desktop's own key, so "Super works as Ctrl" never takes it: a flagged app
--- gets the switcher as well.
+-- next/previous workspace; Cmd+Shift+Tab goes the other way. The generated
+-- Super-as-Ctrl map never takes it, so a flagged app still gets the switcher
+-- unless the panel steals Tab for that app (then it is Ctrl+Tab, like Super+W).
 hl.unbind("SUPER + TAB")
 hl.unbind("SUPER + SHIFT + TAB")
 o.bind("SUPER + TAB", "Focus on next window", function()
+  local w = hl.get_active_window()
+  if w ~= nil and key_stolen(window_class(w), "TAB", false) then
+    send_ctrl("TAB", false, w)
+    return
+  end
   switcher_step(1)
 end)
 o.bind("SUPER + SHIFT + TAB", "Focus on previous window", function()
+  local w = hl.get_active_window()
+  if w ~= nil and key_stolen(window_class(w), "TAB", true) then
+    send_ctrl("TAB", true, w)
+    return
+  end
   switcher_step(-1)
 end)
 
@@ -1058,10 +1138,13 @@ end
 -- it) and out of the state dir (also removed).
 -- { "options": { "nativeScroll": ..., ... },
 --   "apps": { "class": { "chrome": true, "alwaysTabbar": false,
---                      "ctrlW": false, "ctrlAsSuper": false, "ctrlCShift": false } } }
+--                      "ctrlW": false, "ctrlAsSuper": false, "ctrlCShift": false,
+--                      "ctrlClick": false, "ctrlAsSuperKeys": [] } } }
 -- chrome=false → no titlebar/tabbar/grouping. alwaysTabbar → tab strip even
 -- when the window is not grouped. ctrlW → Super+W closes the app's tab (Ctrl+W);
--- ctrlAsSuper → unbound Super+key reaches the app as Ctrl+key; ctrlCShift →
+-- ctrlAsSuper → unbound Super+key reaches the app as Ctrl+key; ctrlAsSuperKeys →
+-- occupied Super keys stolen for this app (same wrap as Super+W); ctrlClick →
+-- Super+click is Ctrl+click; ctrlCShift →
 -- Ctrl+C reaches it as Ctrl+Shift+C, so the app's own binding can make it the
 -- interrupt while Super+C stays the copy. Missing entries mean chrome on, flags
 -- off.
@@ -1143,6 +1226,13 @@ local function sync_app_flags()
   ctrl_w_apps = settings.ctrl_w_set(apps_cfg)
   ctrl_as_super = settings.flag_set(apps_cfg, "ctrl_as_super")
   ctrl_c_shift_apps = settings.flag_set(apps_cfg, "ctrl_c_shift")
+  ctrl_click_apps = settings.flag_set(apps_cfg, "ctrl_click")
+  steal_keys = {}
+  for cls, e in pairs(apps_cfg) do
+    if e.ctrl_as_super_keys and next(e.ctrl_as_super_keys) then
+      steal_keys[cls] = e.ctrl_as_super_keys
+    end
+  end
 end
 sync_app_flags()
 
@@ -1495,8 +1585,161 @@ local function super_ctrl_key(key, shift)
   send_ctrl(key, shift, w)
 end
 
+-- Pack-owned Super binds wrapped at the source (like Super+W). Everything
+-- else that is stealable is an Omarchy command we unbind and replay: hyprctl
+-- prints those as __lua, so the command is recovered from Omarchy's bind files.
+local STEAL_OWN = { Q = true, TAB = true, F = true }
+-- [id] = { keys, originals, handle } for wraps we installed on Omarchy keys.
+local steal_wraps = {}
+local omarchy_exec = nil
+
+local function ensure_omarchy_exec()
+  if omarchy_exec ~= nil then
+    return
+  end
+  omarchy_exec = {}
+  local p = io.popen("ls /usr/share/omarchy/default/hypr/bindings/*.lua 2>/dev/null")
+  if p == nil then
+    return
+  end
+  local listing = p:read("*a") or ""
+  p:close()
+  for path in listing:gmatch("[^\n]+") do
+    local text = slurp(path)
+    if text ~= nil then
+      for id, cmd in pairs(supermap.parse_omarchy_binds(text)) do
+        omarchy_exec[id] = cmd
+      end
+    end
+  end
+end
+
+local function steal_bind_string(key, shift)
+  if shift then
+    return "SUPER + SHIFT + " .. key
+  end
+  return "SUPER + " .. key
+end
+
+local function replay_orig(orig)
+  local d = orig.dispatcher or ""
+  if d == "exec" or d == "exec_cmd" then
+    hl.exec_cmd(orig.arg or "")
+    return
+  end
+  if d ~= "" and d ~= "__lua" then
+    hl.exec_cmd("hyprctl dispatch " .. d .. " " .. (orig.arg or ""))
+  end
+end
+
+local function restore_orig(keys, orig)
+  local d = orig.dispatcher or ""
+  if d == "exec" or d == "exec_cmd" then
+    pcall(o.bind, keys, orig.description, orig.arg)
+    return
+  end
+  if d ~= "" and d ~= "__lua" then
+    pcall(function()
+      hl.bind(keys, function()
+        replay_orig(orig)
+      end, { description = orig.description })
+    end)
+  end
+end
+
+local function drop_steal_wrap(id)
+  local wrap = steal_wraps[id]
+  if wrap == nil then
+    return
+  end
+  pcall(function()
+    wrap.handle:unbind()
+  end)
+  for _, orig in ipairs(wrap.originals) do
+    restore_orig(wrap.keys, orig)
+  end
+  steal_wraps[id] = nil
+end
+
+-- Ids that need an Omarchy-key wrap: stolen somewhere, and not a pack bind
+-- already wrapped at the source (Q, Tab, W, F).
+local function needed_steals()
+  local set = {}
+  for _, ids in pairs(steal_keys) do
+    for id in pairs(ids) do
+      if id ~= "Q" and id ~= "TAB" and id ~= "SHIFT+TAB" and id ~= "W" and id ~= "F" then
+        set[id] = true
+      end
+    end
+  end
+  return set
+end
+
+local function apply_steal_wraps(raw)
+  local needed = needed_steals()
+  for id in pairs(steal_wraps) do
+    if not needed[id] then
+      drop_steal_wrap(id)
+    end
+  end
+  if next(needed) == nil then
+    return
+  end
+  local by_id = {}
+  for _, e in ipairs(supermap.stealable(raw, STEAL_OWN, omarchy_exec)) do
+    by_id[e.id] = e
+  end
+  for id in pairs(needed) do
+    if steal_wraps[id] == nil then
+      local e = by_id[id]
+      if e ~= nil and not e.wrapped then
+        local keys = steal_bind_string(e.key, e.shift)
+        local originals = e.binds
+        if omarchy_exec[id] then
+          originals = { { dispatcher = "exec", arg = omarchy_exec[id], description = e.description } }
+        end
+        hl.unbind(keys)
+        local code = supermap.key_code(e.key)
+        if code ~= nil then
+          local ck = e.shift and ("SUPER + SHIFT + code:" .. tostring(code)) or ("SUPER + code:" .. tostring(code))
+          hl.unbind(ck)
+        end
+        local key, shift = e.key, e.shift
+        local ok, kb = pcall(hl.bind, keys, function()
+          local w = hl.get_active_window()
+          if w ~= nil and key_stolen(window_class(w), key, shift) then
+            send_ctrl(key, shift, w)
+            return
+          end
+          for _, orig in ipairs(originals) do
+            replay_orig(orig)
+          end
+        end, { description = supermap.steal_desc(id, e.description) })
+        if ok and kb then
+          steal_wraps[id] = { keys = keys, originals = originals, handle = kb }
+        end
+      end
+    end
+  end
+end
+
+local function write_occupied(raw)
+  local file = io.open(X_MODE_STATE .. "/occupied.json", "w")
+  if file == nil then
+    return
+  end
+  file:write(supermap.occupied_json(supermap.stealable(raw, STEAL_OWN, omarchy_exec)), "\n")
+  file:close()
+end
+
 local function bind_super_ctrl(raw, gen)
   if gen ~= super_ctrl_gen then
+    return
+  end
+  ensure_omarchy_exec()
+  write_occupied(raw)
+  apply_steal_wraps(raw)
+  if next(ctrl_as_super) == nil then
     return
   end
   for _, b in ipairs(supermap.plan(raw)) do
@@ -1531,9 +1774,8 @@ end
 apply_super_ctrl = function()
   drop_super_ctrl()
   super_ctrl_gen = super_ctrl_gen + 1
-  if next(ctrl_as_super) == nil then
-    return
-  end
+  -- Always re-read: the occupied list feeds the panel even when no app has
+  -- Super-as-Ctrl on, and steal wraps can exist without that flag.
   local path = X_MODE_STATE .. "/binds.txt"
   os.remove(path)
   hl.exec_cmd("sh -c 'hyprctl binds > \"" .. path .. "\" 2>/dev/null'")

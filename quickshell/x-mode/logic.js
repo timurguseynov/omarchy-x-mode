@@ -19,23 +19,42 @@ function shellQuote(s) {
     return "'" + String(s).replace(/'/g, "'\\''") + "'"
 }
 
+// Occupied Super keys stolen for this app, as an array of supermap ids
+// ("Q", "TAB", "SHIFT+TAB"). Empty when the field is missing.
+function copyOccupiedKeys(keys) {
+    var out = []
+    if (!keys || !keys.length)
+        return out
+    for (var i = 0; i < keys.length; i++) {
+        var k = String(keys[i] || "")
+        if (k !== "")
+            out.push(k)
+    }
+    return out
+}
+
+function emptyAppCfg() {
+    return { chrome: false, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlCShift: false, ctrlClick: false, ctrlAsSuperKeys: [] }
+}
+
 // The panel's apps map: { "class": { chrome, alwaysTabbar, ctrlW, ctrlAsSuper,
-// ctrlCShift } }. Accepts the parsed object (from settings.json) or a raw JSON
-// string (the old apps.json). A legacy array of classes means chrome off.
+// ctrlCShift, ctrlAsSuperKeys } }. Accepts the parsed object (from settings.json)
+// or a raw JSON string (the old apps.json). A legacy array of classes means
+// chrome off.
 function parseApps(raw) {
     var set = {}
     try {
         var d = typeof raw === "string" ? JSON.parse(raw) : raw
         if (Array.isArray(d)) {
             for (var i = 0; i < d.length; i++)
-                set[String(d[i]).toLowerCase()] = { chrome: false, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlCShift: false }
+                set[String(d[i]).toLowerCase()] = emptyAppCfg()
         } else if (d && typeof d === "object") {
             for (var k in d) {
                 var e = d[k]
                 if (e && typeof e === "object")
-                    set[String(k).toLowerCase()] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlCShift: !!e.ctrlCShift }
+                    set[String(k).toLowerCase()] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlCShift: !!e.ctrlCShift, ctrlClick: !!e.ctrlClick, ctrlAsSuperKeys: copyOccupiedKeys(e.ctrlAsSuperKeys) }
                 else
-                    set[String(k).toLowerCase()] = { chrome: false, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlCShift: false }
+                    set[String(k).toLowerCase()] = emptyAppCfg()
             }
         }
     } catch (err) {}
@@ -301,19 +320,21 @@ function panelCfgFor(appsCfg, cls) {
     var key = String(cls || "").toLowerCase()
     var e = (appsCfg || {})[key]
     if (!e)
-        return { chrome: true, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlCShift: false }
+        return { chrome: true, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlCShift: false, ctrlClick: false, ctrlAsSuperKeys: [] }
     return {
         chrome: e.chrome !== false,
         alwaysTabbar: !!e.alwaysTabbar,
         ctrlW: !!e.ctrlW,
         ctrlAsSuper: !!e.ctrlAsSuper,
-        ctrlCShift: !!e.ctrlCShift
+        ctrlCShift: !!e.ctrlCShift,
+        ctrlClick: !!e.ctrlClick,
+        ctrlAsSuperKeys: copyOccupiedKeys(e.ctrlAsSuperKeys)
     }
 }
 
 // Per-app config update: a copy with the entry set, or dropped when every field
 // is back at its default (chrome on, nothing else). Null for an empty class.
-function mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar, ctrlW, ctrlAsSuper, ctrlCShift) {
+function mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar, ctrlW, ctrlAsSuper, ctrlCShift, ctrlClick, ctrlAsSuperKeys) {
     var key = String(cls || "").toLowerCase()
     if (key === "")
         return null
@@ -321,10 +342,11 @@ function mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar, ctrlW, ctrlAsSuper, c
     var cfg = appsCfg || {}
     for (var k in cfg)
         next[k] = cfg[k]
-    if (chrome && !alwaysTabbar && !ctrlW && !ctrlAsSuper && !ctrlCShift)
+    var keys = copyOccupiedKeys(ctrlAsSuperKeys)
+    if (chrome && !alwaysTabbar && !ctrlW && !ctrlAsSuper && !ctrlCShift && !ctrlClick && keys.length === 0)
         delete next[key]
     else
-        next[key] = { chrome: chrome, alwaysTabbar: !!alwaysTabbar, ctrlW: !!ctrlW, ctrlAsSuper: !!ctrlAsSuper, ctrlCShift: !!ctrlCShift }
+        next[key] = { chrome: chrome, alwaysTabbar: !!alwaysTabbar, ctrlW: !!ctrlW, ctrlAsSuper: !!ctrlAsSuper, ctrlCShift: !!ctrlCShift, ctrlClick: !!ctrlClick, ctrlAsSuperKeys: keys }
     return next
 }
 
@@ -336,7 +358,68 @@ function setPanelFlag(appsCfg, cls, flag, value) {
         return null
     var cfg = panelCfgFor(appsCfg, key)
     cfg[flag] = !!value
-    return mergePanelCfg(appsCfg, key, cfg.chrome, cfg.alwaysTabbar, cfg.ctrlW, cfg.ctrlAsSuper, cfg.ctrlCShift)
+    return mergePanelCfg(appsCfg, key, cfg.chrome, cfg.alwaysTabbar, cfg.ctrlW, cfg.ctrlAsSuper, cfg.ctrlCShift, cfg.ctrlClick, cfg.ctrlAsSuperKeys)
+}
+
+// Occupied-key rows in the panel. Same ids/labels means the Repeater can keep
+// its delegates (and the flickable its scroll) when the file is rewritten.
+// Panel label for an occupied Super key: "⌘+Q as Ctrl+Q". The description
+// under it is the desktop action that toggle replaces, not this string.
+function stealToggleLabel(label) {
+    var s = String(label || "")
+    if (s.indexOf("⌘+") === 0)
+        return s + " as Ctrl+" + s.substring(2)
+    return s
+}
+
+function sameOccupiedList(a, b) {
+    a = a || []
+    b = b || []
+    if (a.length !== b.length)
+        return false
+    for (var i = 0; i < a.length; i++) {
+        var x = a[i] || {}
+        var y = b[i] || {}
+        if (String(x.id || "") !== String(y.id || "") ||
+            String(x.key || "") !== String(y.key || "") ||
+            !!x.shift !== !!y.shift ||
+            String(x.label || "") !== String(y.label || "") ||
+            String(x.description || "") !== String(y.description || ""))
+            return false
+    }
+    return true
+}
+
+function hasOccupiedKey(cfg, id) {
+    var keys = (cfg && cfg.ctrlAsSuperKeys) || []
+    for (var i = 0; i < keys.length; i++) {
+        if (keys[i] === id)
+            return true
+    }
+    return false
+}
+
+// Steal or give back one occupied Super key for this app. The id is the
+// supermap spelling ("Q", "SHIFT+TAB"). Empty class or id returns null.
+function setOccupiedKey(appsCfg, cls, id, on) {
+    id = String(id || "")
+    if (id === "")
+        return null
+    var cfg = panelCfgFor(appsCfg, cls)
+    var keys = []
+    var seen = false
+    for (var i = 0; i < cfg.ctrlAsSuperKeys.length; i++) {
+        if (cfg.ctrlAsSuperKeys[i] === id) {
+            seen = true
+            if (on)
+                keys.push(id)
+        } else {
+            keys.push(cfg.ctrlAsSuperKeys[i])
+        }
+    }
+    if (on && !seen)
+        keys.push(id)
+    return mergePanelCfg(appsCfg, cls, cfg.chrome, cfg.alwaysTabbar, cfg.ctrlW, cfg.ctrlAsSuper, cfg.ctrlCShift, cfg.ctrlClick, keys)
 }
 
 // Settings-panel running list: one row per app class with the best-focus

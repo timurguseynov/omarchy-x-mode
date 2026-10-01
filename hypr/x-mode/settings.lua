@@ -3,6 +3,10 @@
 -- this can be tested with plain lua (tests/unit/settings_test.lua).
 local M = {}
 
+-- Occupied Super-key ids are canonicalised the same way the bind plan spells
+-- them (Q, TAB, SHIFT+TAB), so a hand-edited "q" still matches Super+Q.
+local supermap = dofile(((debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "./") .. "supermap.lua")
+
 -- The apps object on its own. The class scan below takes every "key": { ... } it
 -- finds, so it must not be pointed at the whole file: "options" would come back
 -- as an app class.
@@ -11,9 +15,25 @@ function M.apps_section(raw)
 end
 
 -- { "class": { "chrome": true, "alwaysTabbar": false, "ctrlW": false,
---   "ctrlAsSuper": false, "ctrlCShift": false } }.
+--   "ctrlAsSuper": false, "ctrlCShift": false, "ctrlClick": false,
+--   "ctrlAsSuperKeys": [] } }.
 -- Missing chrome means on; the rest missing means off.
 -- A legacy array of classes means chrome off.
+local function parse_steal_keys(body)
+  local keys = {}
+  local arr = body:match('"ctrlAsSuperKeys"%s*:%s*(%b[])')
+  if arr == nil then
+    return keys
+  end
+  for item in arr:gmatch('"([^"]+)"') do
+    local id = supermap.canonical_id(item)
+    if id ~= nil then
+      keys[id] = true
+    end
+  end
+  return keys
+end
+
 function M.parse_apps(raw)
   local cfg = {}
   for cls, body in raw:gmatch('"([^"]+)"%s*:%s*(%b{})') do
@@ -22,12 +42,15 @@ function M.parse_apps(raw)
     local ctrl_w = body:find('"ctrlW"%s*:%s*true') ~= nil
     local ctrl_super = body:find('"ctrlAsSuper"%s*:%s*true') ~= nil
     local ctrl_c = body:find('"ctrlCShift"%s*:%s*true') ~= nil
+    local ctrl_click = body:find('"ctrlClick"%s*:%s*true') ~= nil
     cfg[string.lower(cls)] = {
       chrome = chrome,
       always_tabbar = always,
       ctrl_w = ctrl_w,
       ctrl_as_super = ctrl_super,
       ctrl_c_shift = ctrl_c,
+      ctrl_click = ctrl_click,
+      ctrl_as_super_keys = parse_steal_keys(body),
     }
   end
   if next(cfg) == nil then
@@ -38,6 +61,8 @@ function M.parse_apps(raw)
         ctrl_w = false,
         ctrl_as_super = false,
         ctrl_c_shift = false,
+        ctrl_click = false,
+        ctrl_as_super_keys = {},
       }
     end
   end

@@ -27,17 +27,21 @@ TestCase {
     }
 
     function test_parseApps_object() {
-        var s = Logic.parseApps('{"Chromium":{"chrome":false,"alwaysTabbar":true,"ctrlW":true,"ctrlAsSuper":true,"ctrlCShift":true},"Zed":{}}')
+        var s = Logic.parseApps('{"Chromium":{"chrome":false,"alwaysTabbar":true,"ctrlW":true,"ctrlAsSuper":true,"ctrlCShift":true,"ctrlClick":true},"Zed":{}}')
         compare(s["chromium"].chrome, false)
         compare(s["chromium"].alwaysTabbar, true)
         compare(s["chromium"].ctrlW, true)
         compare(s["chromium"].ctrlAsSuper, true)
         compare(s["chromium"].ctrlCShift, true)
+        compare(s["chromium"].ctrlClick, true)
+        compare(s["chromium"].ctrlAsSuperKeys.length, 0)
         compare(s["zed"].chrome, true)
         compare(s["zed"].alwaysTabbar, false)
         compare(s["zed"].ctrlW, false)
         compare(s["zed"].ctrlAsSuper, false)
         compare(s["zed"].ctrlCShift, false)
+        compare(s["zed"].ctrlClick, false)
+        compare(s["zed"].ctrlAsSuperKeys.length, 0)
     }
 
     function test_parseApps_accepts_object() {
@@ -218,6 +222,8 @@ TestCase {
         compare(dflt.ctrlW, false)
         compare(dflt.ctrlAsSuper, false)
         compare(dflt.ctrlCShift, false)
+        compare(dflt.ctrlClick, false)
+        compare(dflt.ctrlAsSuperKeys.length, 0)
         var off = Logic.panelCfgFor({ "zed": { chrome: false } }, "ZED")
         compare(off.chrome, false)
         compare(Logic.panelCfgFor({ "zed": { ctrlW: true } }, "zed").ctrlW, true)
@@ -230,6 +236,8 @@ TestCase {
         compare(supermap.chrome.ctrlAsSuper, true, "ctrlAsSuper alone keeps the entry")
         var clip = Logic.mergePanelCfg({}, "zed", true, false, false, false, true)
         compare(clip.zed.ctrlCShift, true, "ctrlCShift alone keeps the entry")
+        var click = Logic.mergePanelCfg({}, "zed", true, false, false, false, false, true)
+        compare(click.zed.ctrlClick, true, "ctrlClick alone keeps the entry")
         compare(Logic.mergePanelCfg({}, "", true, false, false, false, false), null, "empty class")
     }
 
@@ -246,6 +254,38 @@ TestCase {
         var none = Logic.setPanelFlag(back, "chromium", "ctrlW", false)
         compare(none.chromium, undefined, "the entry is dropped at the default")
         compare(Logic.setPanelFlag({}, "", "ctrlW", true), null, "empty class")
+    }
+
+    function test_occupiedKeys() {
+        var parsed = Logic.parseApps('{"Chromium":{"ctrlAsSuperKeys":["Q","TAB"]}}')
+        compare(parsed["chromium"].ctrlAsSuperKeys.length, 2)
+        compare(parsed["chromium"].ctrlAsSuperKeys[0], "Q")
+        compare(parsed["chromium"].ctrlAsSuperKeys[1], "TAB")
+        var on = Logic.setOccupiedKey({}, "Chromium", "Q", true)
+        compare(on.chromium.ctrlAsSuperKeys.length, 1)
+        compare(on.chromium.ctrlAsSuperKeys[0], "Q")
+        compare(Logic.hasOccupiedKey(on.chromium, "Q"), true)
+        compare(Logic.hasOccupiedKey(on.chromium, "TAB"), false)
+        var two = Logic.setOccupiedKey(on, "chromium", "TAB", true)
+        compare(two.chromium.ctrlAsSuperKeys.length, 2, "a second key is kept")
+        var flag = Logic.setPanelFlag(two, "chromium", "ctrlAsSuper", true)
+        compare(flag.chromium.ctrlAsSuper, true)
+        compare(flag.chromium.ctrlAsSuperKeys.length, 2, "steals survive another flag")
+        var off = Logic.setOccupiedKey(flag, "chromium", "Q", false)
+        compare(Logic.hasOccupiedKey(off.chromium, "Q"), false)
+        compare(Logic.hasOccupiedKey(off.chromium, "TAB"), true)
+        var none = Logic.setOccupiedKey(Logic.setPanelFlag(off, "chromium", "ctrlAsSuper", false), "chromium", "TAB", false)
+        compare(none.chromium, undefined, "the entry is dropped at the default")
+        compare(Logic.setOccupiedKey({}, "", "Q", true), null, "empty class")
+        compare(Logic.stealToggleLabel("⌘+Q"), "⌘+Q as Ctrl+Q")
+        compare(Logic.stealToggleLabel("⌘+⇧+Tab"), "⌘+⇧+Tab as Ctrl+⇧+Tab")
+        compare(Logic.stealToggleLabel(""), "")
+        compare(Logic.setOccupiedKey({}, "chromium", "", true), null, "empty key")
+        var occ = [{ id: "Q", key: "Q", shift: false, label: "Super+Q", description: "Close app" }]
+        compare(Logic.sameOccupiedList(occ, [{ id: "Q", key: "Q", shift: false, label: "Super+Q", description: "Close app" }]), true, "same list")
+        compare(Logic.sameOccupiedList(occ, [{ id: "Q", key: "Q", shift: false, label: "Super+Q", description: "Quit" }]), false, "description changed")
+        compare(Logic.sameOccupiedList(occ, []), false, "length")
+        compare(Logic.sameOccupiedList(null, []), true, "empty")
     }
 
     function test_buildPanelRunning() {
