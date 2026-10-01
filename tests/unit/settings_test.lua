@@ -36,10 +36,27 @@ check("apps.chromium.alwaysTabbar", cfg["chromium"].always_tabbar, true)
 check("apps.zed.chrome", cfg["zed"].chrome, true)
 check("apps.zed.alwaysTabbar", cfg["zed"].always_tabbar, true)
 
+-- The per-app "Super+W sends Ctrl+W" flag, off by default.
+local wraw = '{"options":{},"apps":{"Chromium":{"ctrlW":true},"Zed":{}}}'
+local wcfg = settings.parse_apps(settings.apps_section(wraw))
+check("apps.chromium.ctrlW", wcfg["chromium"].ctrl_w, true)
+check("apps.zed.ctrlW", wcfg["zed"].ctrl_w, false)
+
+-- The set the Super+W handler asks: lowercased classes with ctrlW on.
+local wset = settings.ctrl_w_set({
+  chromium = { chrome = true, ctrl_w = true },
+  zed = { chrome = true, ctrl_w = false },
+  foot = { chrome = false },
+})
+check("ctrlw.chromium", wset["chromium"], true)
+check("ctrlw.zed", wset["zed"], nil)
+check("ctrlw.foot", wset["foot"], nil)
+
 -- A legacy array of classes means chrome off.
 local legacy = settings.parse_apps(settings.apps_section('{"options":{},"apps":["Foot","Kitty"]}'))
 check("legacy.foot.chrome", legacy["foot"].chrome, false)
 check("legacy.kitty.chrome", legacy["kitty"].chrome, false)
+check("legacy.foot.ctrlW", legacy["foot"].ctrl_w, false)
 
 -- merge folds the two old files into one settings string.
 local merged = settings.merge('{"nativeScroll":true}', '{"chromium":{"chrome":false}}')

@@ -30,6 +30,7 @@ It is **additive**. The installer only creates files in its own namespace and on
   * No gaps: no space between windows, with a hairline border kept
   * Per-app titlebar and grouping
   * Always show the tab bar, including the `+` for a single window
+  * Per-app: send `Ctrl`+`W` on `Super`+`W`, so the tab closes and the window stays
 
 ---
 
@@ -46,7 +47,7 @@ It is **additive**. The installer only creates files in its own namespace and on
 | `Alt` + `Tab` | Next tab in the focused group |
 | `Alt` + `Shift` + `Tab` | Previous tab in the focused group |
 | `Ctrl` + `1`…`9` | Jump to tab *N*. Off until enabled in the panel, so the keys reach the app |
-| `Super` + `W` | Close the active window or tab |
+| `Super` + `W` | Close the active window or tab. Per-app, send `Ctrl`+`W` so the tab closes and the window stays |
 | `Super` + `Q` | Quit the app (every tab in the group) |
 
 ### Snapping

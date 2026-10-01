@@ -467,6 +467,8 @@ end
 local find_peer
 local join_same_app
 local apps_off = {}
+-- Classes whose Super+W goes to the app as Ctrl+W (the panel's per-app switch).
+local ctrl_w_apps = {}
 
 local function window_by_addr(addr)
   if addr == nil then
@@ -839,10 +841,18 @@ hl.unbind("SUPER + CTRL + SHIFT + code:21")
 -- patched hyprbars keeps the group focused on the previous tab and raises it
 -- from its single window.close listener, which Cmd+W, the tabbar close button
 -- and apps closing their own window all share.
+--
+-- Apps the panel flagged send Ctrl+W instead, so Cmd+W closes the tab rather
+-- than the whole window (a browser, a terminal). The key goes to the focused
+-- window as a real Ctrl+W; the close path above stays out of the way.
 hl.unbind("SUPER + W")
 o.bind("SUPER + W", "Close window", function()
   local w = hl.get_active_window()
   if w == nil then
+    return
+  end
+  if ctrl_w_apps[window_class(w)] then
+    hl.dispatch(hl.dsp.send_shortcut({ mods = "CTRL", key = "W", window = w }))
     return
   end
   hl.dispatch(hl.dsp.window.close({ window = w }))
@@ -1070,6 +1080,11 @@ local function sync_apps_off()
 end
 sync_apps_off()
 
+local function sync_ctrl_w()
+  ctrl_w_apps = settings.ctrl_w_set(apps_cfg)
+end
+sync_ctrl_w()
+
 local nobar_applied = {}
 local always_applied = {}
 
@@ -1092,6 +1107,7 @@ end
 local function apply_apps()
   apps_cfg = load_apps()
   sync_apps_off()
+  sync_ctrl_w()
   local wanted_nobar, wanted_always = settings.desired_rules(apps_cfg)
   local add_nobar, drop_nobar = settings.rule_diff(wanted_nobar, nobar_applied)
   local add_always, drop_always = settings.rule_diff(wanted_always, always_applied)

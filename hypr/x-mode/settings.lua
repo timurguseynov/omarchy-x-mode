@@ -10,21 +10,35 @@ function M.apps_section(raw)
   return raw:match('"apps"%s*:%s*(%b{})') or raw:match('"apps"%s*:%s*(%b[])') or ""
 end
 
--- { "class": { "chrome": true, "alwaysTabbar": false } }. Missing chrome means
--- on; a legacy array of classes means chrome off.
+-- { "class": { "chrome": true, "alwaysTabbar": false, "ctrlW": false } }.
+-- Missing chrome means on; missing ctrlW means off (Super+W closes the window).
+-- A legacy array of classes means chrome off.
 function M.parse_apps(raw)
   local cfg = {}
   for cls, body in raw:gmatch('"([^"]+)"%s*:%s*(%b{})') do
     local chrome = not body:find('"chrome"%s*:%s*false')
     local always = body:find('"alwaysTabbar"%s*:%s*true') ~= nil
-    cfg[string.lower(cls)] = { chrome = chrome, always_tabbar = always }
+    local ctrl_w = body:find('"ctrlW"%s*:%s*true') ~= nil
+    cfg[string.lower(cls)] = { chrome = chrome, always_tabbar = always, ctrl_w = ctrl_w }
   end
   if next(cfg) == nil then
     for cls in raw:gmatch('"([^"]+)"') do
-      cfg[string.lower(cls)] = { chrome = false, always_tabbar = false }
+      cfg[string.lower(cls)] = { chrome = false, always_tabbar = false, ctrl_w = false }
     end
   end
   return cfg
+end
+
+-- The classes whose Super+W the desktop hands to the app as Ctrl+W (close the
+-- tab, not the window) instead of closing. Lowercased keys, like parse_apps.
+function M.ctrl_w_set(cfg)
+  local set = {}
+  for cls, e in pairs(cfg or {}) do
+    if e.ctrl_w then
+      set[cls] = true
+    end
+  end
+  return set
 end
 
 -- { native_scroll, ctrl_tab_switch, no_gaps }, each defaulting to false.

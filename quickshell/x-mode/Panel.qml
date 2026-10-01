@@ -73,10 +73,10 @@ Panel {
     return Logic.panelCfgFor(appsCfg, cls)
   }
 
-  function setCfg(cls, chrome, alwaysTabbar) {
-    // Persist only non-default chrome (off) or alwaysTabbar; chrome-on alone
-    // is the implicit default and can be dropped from the app list.
-    var next = Logic.mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar)
+  function setCfg(cls, chrome, alwaysTabbar, ctrlW) {
+    // Persist only non-default chrome (off), alwaysTabbar or ctrlW; chrome-on
+    // alone is the implicit default and can be dropped from the app list.
+    var next = Logic.mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar, ctrlW)
     if (!next)
       return
     appsCfg = next
@@ -89,8 +89,8 @@ Panel {
     var apps = {}
     for (var k in appsCfg) {
       var e = appsCfg[k]
-      if (e && (e.chrome === false || e.alwaysTabbar))
-        apps[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar }
+      if (e && (e.chrome === false || e.alwaysTabbar || e.ctrlW))
+        apps[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW }
     }
     var json = JSON.stringify({
       options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps },
@@ -497,7 +497,7 @@ Panel {
           checked: root.cfgFor(root.openCls).chrome
           onToggled: {
             var c = root.cfgFor(root.openCls)
-            root.setCfg(root.openCls, !c.chrome, c.alwaysTabbar)
+            root.setCfg(root.openCls, !c.chrome, c.alwaysTabbar, c.ctrlW)
           }
         }
 
@@ -507,7 +507,21 @@ Panel {
           description: "Tab strip with + even for a single window"
           checked: root.cfgFor(root.openCls).alwaysTabbar
           rowEnabled: root.cfgFor(root.openCls).chrome
-          onToggled: root.setCfg(root.openCls, true, !root.cfgFor(root.openCls).alwaysTabbar)
+          onToggled: {
+            var c = root.cfgFor(root.openCls)
+            root.setCfg(root.openCls, true, !c.alwaysTabbar, c.ctrlW)
+          }
+        }
+
+        SwitchRow {
+          width: parent.width
+          label: "Super+W closes the tab"
+          description: "Send Ctrl+W to the app instead of closing the window"
+          checked: root.cfgFor(root.openCls).ctrlW
+          onToggled: {
+            var c = root.cfgFor(root.openCls)
+            root.setCfg(root.openCls, c.chrome, c.alwaysTabbar, !c.ctrlW)
+          }
         }
       }
 

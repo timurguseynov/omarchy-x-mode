@@ -178,6 +178,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/super_q_closes_app_test.sh` | Super+Q closes every tab of the app and nothing else |
 | `integration/super_q_single_window_test.sh` | Super+Q on an ungrouped window closes just it |
 | `integration/super_w_closes_window_test.sh` | Super+W closes the window and keeps the focus in the group |
+| `integration/super_w_ctrl_w_test.sh` | a class flagged in the panel hands Super+W to the app as Ctrl+W |
 | `integration/super_w_single_window_test.sh` | and closes an ungrouped window on its own |
 | `integration/switcher_cycles_apps_test.sh` | Super+Tab cycles apps and writes the switcher's command file |
 | `integration/switcher_mru_order_test.sh` | the switcher's next app is the one used before this one |
@@ -520,7 +521,7 @@ Same idea for the shell plugin: the pure JS it shares lives in
 
 | file | covers |
 |---|---|
-| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, pin moves a running app), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg`, `buildPanelRunning` |
+| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, ctrlW, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, pin moves a running app), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg`, `buildPanelRunning` |
 
 What is *not* unit-testable this way: the components themselves. `import
 Quickshell` fails under `qmltestrunner` (`plugin "quickshell-coreplugin" not

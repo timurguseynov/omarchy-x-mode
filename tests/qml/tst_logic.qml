@@ -27,22 +27,26 @@ TestCase {
     }
 
     function test_parseApps_object() {
-        var s = Logic.parseApps('{"Chromium":{"chrome":false,"alwaysTabbar":true},"Zed":{}}')
+        var s = Logic.parseApps('{"Chromium":{"chrome":false,"alwaysTabbar":true,"ctrlW":true},"Zed":{}}')
         compare(s["chromium"].chrome, false)
         compare(s["chromium"].alwaysTabbar, true)
+        compare(s["chromium"].ctrlW, true)
         compare(s["zed"].chrome, true)
         compare(s["zed"].alwaysTabbar, false)
+        compare(s["zed"].ctrlW, false)
     }
 
     function test_parseApps_accepts_object() {
         var s = Logic.parseApps({ "Foot": { chrome: false } })
         compare(s["foot"].chrome, false)
+        compare(s["foot"].ctrlW, false)
     }
 
     function test_parseApps_legacy_array() {
         var s = Logic.parseApps('["Foot","Kitty"]')
         compare(s["foot"].chrome, false)
         compare(s["kitty"].chrome, false)
+        compare(s["kitty"].ctrlW, false)
     }
 
     function test_parseApps_invalid() {
@@ -203,12 +207,16 @@ TestCase {
         var dflt = Logic.panelCfgFor({}, "Zed")
         compare(dflt.chrome, true)
         compare(dflt.alwaysTabbar, false)
+        compare(dflt.ctrlW, false)
         var off = Logic.panelCfgFor({ "zed": { chrome: false } }, "ZED")
         compare(off.chrome, false)
-        compare(Logic.mergePanelCfg({ "a": { chrome: false } }, "b", true, false).b, undefined, "default is dropped")
-        var kept = Logic.mergePanelCfg({}, "b", false, false)
+        compare(Logic.panelCfgFor({ "zed": { ctrlW: true } }, "zed").ctrlW, true)
+        compare(Logic.mergePanelCfg({ "a": { chrome: false } }, "b", true, false, false).b, undefined, "default is dropped")
+        var kept = Logic.mergePanelCfg({}, "b", false, false, false)
         compare(kept.b.chrome, false)
-        compare(Logic.mergePanelCfg({}, "", true, false), null, "empty class")
+        var ctrl = Logic.mergePanelCfg({}, "chrome", true, false, true)
+        compare(ctrl.chrome.ctrlW, true, "ctrlW alone keeps the entry")
+        compare(Logic.mergePanelCfg({}, "", true, false, false), null, "empty class")
     }
 
     function test_buildPanelRunning() {
