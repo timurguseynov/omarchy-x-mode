@@ -19,23 +19,23 @@ function shellQuote(s) {
     return "'" + String(s).replace(/'/g, "'\\''") + "'"
 }
 
-// The panel's apps map: { "class": { chrome, alwaysTabbar, ctrlW } }. Accepts
-// the parsed object (from settings.json) or a raw JSON string (the old
-// apps.json). A legacy array of classes means chrome off.
+// The panel's apps map: { "class": { chrome, alwaysTabbar, ctrlW, ctrlAsSuper,
+// ctrlTab } }. Accepts the parsed object (from settings.json) or a raw JSON
+// string (the old apps.json). A legacy array of classes means chrome off.
 function parseApps(raw) {
     var set = {}
     try {
         var d = typeof raw === "string" ? JSON.parse(raw) : raw
         if (Array.isArray(d)) {
             for (var i = 0; i < d.length; i++)
-                set[String(d[i]).toLowerCase()] = { chrome: false, alwaysTabbar: false, ctrlW: false }
+                set[String(d[i]).toLowerCase()] = { chrome: false, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlTab: false }
         } else if (d && typeof d === "object") {
             for (var k in d) {
                 var e = d[k]
                 if (e && typeof e === "object")
-                    set[String(k).toLowerCase()] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW }
+                    set[String(k).toLowerCase()] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlTab: !!e.ctrlTab }
                 else
-                    set[String(k).toLowerCase()] = { chrome: false, alwaysTabbar: false, ctrlW: false }
+                    set[String(k).toLowerCase()] = { chrome: false, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlTab: false }
             }
         }
     } catch (err) {}
@@ -296,23 +296,24 @@ function findPanelApp(running, openCls) {
     return { cls: key, title: "" }
 }
 
-// Per-app chrome config with defaults (titlebar on, tabbar auto, ctrlW off).
+// Per-app chrome config with defaults (titlebar on, tabbar auto, flags off).
 function panelCfgFor(appsCfg, cls) {
     var key = String(cls || "").toLowerCase()
     var e = (appsCfg || {})[key]
     if (!e)
-        return { chrome: true, alwaysTabbar: false, ctrlW: false }
+        return { chrome: true, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlTab: false }
     return {
         chrome: e.chrome !== false,
         alwaysTabbar: !!e.alwaysTabbar,
-        ctrlW: !!e.ctrlW
+        ctrlW: !!e.ctrlW,
+        ctrlAsSuper: !!e.ctrlAsSuper,
+        ctrlTab: !!e.ctrlTab
     }
 }
 
-// Per-app config update: a copy with the entry set, or dropped when it is the
-// implicit default (chrome on, tabbar auto, ctrlW off). Null for an empty
-// class.
-function mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar, ctrlW) {
+// Per-app config update: a copy with the entry set, or dropped when every field
+// is back at its default (chrome on, nothing else). Null for an empty class.
+function mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar, ctrlW, ctrlAsSuper, ctrlTab) {
     var key = String(cls || "").toLowerCase()
     if (key === "")
         return null
@@ -320,11 +321,22 @@ function mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar, ctrlW) {
     var cfg = appsCfg || {}
     for (var k in cfg)
         next[k] = cfg[k]
-    if (chrome && !alwaysTabbar && !ctrlW)
+    if (chrome && !alwaysTabbar && !ctrlW && !ctrlAsSuper && !ctrlTab)
         delete next[key]
     else
-        next[key] = { chrome: chrome, alwaysTabbar: !!alwaysTabbar, ctrlW: !!ctrlW }
+        next[key] = { chrome: chrome, alwaysTabbar: !!alwaysTabbar, ctrlW: !!ctrlW, ctrlAsSuper: !!ctrlAsSuper, ctrlTab: !!ctrlTab }
     return next
+}
+
+// One field changed, the rest read from the current entry. The panel's rows use
+// this instead of carrying every field through a mergePanelCfg call.
+function setPanelFlag(appsCfg, cls, flag, value) {
+    var key = String(cls || "").toLowerCase()
+    if (key === "")
+        return null
+    var cfg = panelCfgFor(appsCfg, key)
+    cfg[flag] = !!value
+    return mergePanelCfg(appsCfg, key, cfg.chrome, cfg.alwaysTabbar, cfg.ctrlW, cfg.ctrlAsSuper, cfg.ctrlTab)
 }
 
 // Settings-panel running list: one row per app class with the best-focus

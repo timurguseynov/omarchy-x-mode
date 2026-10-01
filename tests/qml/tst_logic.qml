@@ -27,19 +27,25 @@ TestCase {
     }
 
     function test_parseApps_object() {
-        var s = Logic.parseApps('{"Chromium":{"chrome":false,"alwaysTabbar":true,"ctrlW":true},"Zed":{}}')
+        var s = Logic.parseApps('{"Chromium":{"chrome":false,"alwaysTabbar":true,"ctrlW":true,"ctrlAsSuper":true,"ctrlTab":true},"Zed":{}}')
         compare(s["chromium"].chrome, false)
         compare(s["chromium"].alwaysTabbar, true)
         compare(s["chromium"].ctrlW, true)
+        compare(s["chromium"].ctrlAsSuper, true)
+        compare(s["chromium"].ctrlTab, true)
         compare(s["zed"].chrome, true)
         compare(s["zed"].alwaysTabbar, false)
         compare(s["zed"].ctrlW, false)
+        compare(s["zed"].ctrlAsSuper, false)
+        compare(s["zed"].ctrlTab, false)
     }
 
     function test_parseApps_accepts_object() {
         var s = Logic.parseApps({ "Foot": { chrome: false } })
         compare(s["foot"].chrome, false)
         compare(s["foot"].ctrlW, false)
+        compare(s["foot"].ctrlAsSuper, false)
+        compare(s["foot"].ctrlTab, false)
     }
 
     function test_parseApps_legacy_array() {
@@ -47,6 +53,7 @@ TestCase {
         compare(s["foot"].chrome, false)
         compare(s["kitty"].chrome, false)
         compare(s["kitty"].ctrlW, false)
+        compare(s["kitty"].ctrlTab, false)
     }
 
     function test_parseApps_invalid() {
@@ -208,15 +215,34 @@ TestCase {
         compare(dflt.chrome, true)
         compare(dflt.alwaysTabbar, false)
         compare(dflt.ctrlW, false)
+        compare(dflt.ctrlAsSuper, false)
+        compare(dflt.ctrlTab, false)
         var off = Logic.panelCfgFor({ "zed": { chrome: false } }, "ZED")
         compare(off.chrome, false)
         compare(Logic.panelCfgFor({ "zed": { ctrlW: true } }, "zed").ctrlW, true)
-        compare(Logic.mergePanelCfg({ "a": { chrome: false } }, "b", true, false, false).b, undefined, "default is dropped")
-        var kept = Logic.mergePanelCfg({}, "b", false, false, false)
+        compare(Logic.mergePanelCfg({ "a": { chrome: false } }, "b", true, false, false, false, false).b, undefined, "default is dropped")
+        var kept = Logic.mergePanelCfg({}, "b", false, false, false, false, false)
         compare(kept.b.chrome, false)
-        var ctrl = Logic.mergePanelCfg({}, "chrome", true, false, true)
+        var ctrl = Logic.mergePanelCfg({}, "chrome", true, false, true, false, false)
         compare(ctrl.chrome.ctrlW, true, "ctrlW alone keeps the entry")
-        compare(Logic.mergePanelCfg({}, "", true, false, false), null, "empty class")
+        var supermap = Logic.mergePanelCfg({}, "chrome", true, false, false, true, false)
+        compare(supermap.chrome.ctrlAsSuper, true, "ctrlAsSuper alone keeps the entry")
+        compare(Logic.mergePanelCfg({}, "", true, false, false, false, false), null, "empty class")
+    }
+
+    function test_setPanelFlag() {
+        var chrome = Logic.setPanelFlag({}, "Chromium", "ctrlAsSuper", true)
+        compare(chrome.chromium.ctrlAsSuper, true)
+        compare(chrome.chromium.chrome, true)
+        var two = Logic.setPanelFlag(chrome, "chromium", "ctrlTab", true)
+        compare(two.chromium.ctrlAsSuper, true, "the other flag is kept")
+        compare(two.chromium.ctrlTab, true)
+        var back = Logic.setPanelFlag(two, "chromium", "ctrlAsSuper", false)
+        compare(back.chromium.ctrlAsSuper, false, "cleared")
+        compare(back.chromium.ctrlTab, true, "the entry stays while a flag is on")
+        var none = Logic.setPanelFlag(back, "chromium", "ctrlTab", false)
+        compare(none.chromium, undefined, "the entry is dropped at the default")
+        compare(Logic.setPanelFlag({}, "", "ctrlTab", true), null, "empty class")
     }
 
     function test_buildPanelRunning() {

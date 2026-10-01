@@ -73,10 +73,10 @@ Panel {
     return Logic.panelCfgFor(appsCfg, cls)
   }
 
-  function setCfg(cls, chrome, alwaysTabbar, ctrlW) {
-    // Persist only non-default chrome (off), alwaysTabbar or ctrlW; chrome-on
-    // alone is the implicit default and can be dropped from the app list.
-    var next = Logic.mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar, ctrlW)
+  function setFlag(flag, value) {
+    // One per-app flag changed; the entry is dropped again when every flag is
+    // back at its default.
+    var next = Logic.setPanelFlag(appsCfg, openCls, flag, value)
     if (!next)
       return
     appsCfg = next
@@ -89,8 +89,8 @@ Panel {
     var apps = {}
     for (var k in appsCfg) {
       var e = appsCfg[k]
-      if (e && (e.chrome === false || e.alwaysTabbar || e.ctrlW))
-        apps[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW }
+      if (e && (e.chrome === false || e.alwaysTabbar || e.ctrlW || e.ctrlAsSuper || e.ctrlTab))
+        apps[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlTab: !!e.ctrlTab }
     }
     var json = JSON.stringify({
       options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps },
@@ -495,10 +495,7 @@ Panel {
           label: "Titlebar and grouping"
           description: "Mac titlebar, tabs, same-app groups"
           checked: root.cfgFor(root.openCls).chrome
-          onToggled: {
-            var c = root.cfgFor(root.openCls)
-            root.setCfg(root.openCls, !c.chrome, c.alwaysTabbar, c.ctrlW)
-          }
+          onToggled: root.setFlag("chrome", !root.cfgFor(root.openCls).chrome)
         }
 
         SwitchRow {
@@ -507,10 +504,7 @@ Panel {
           description: "Tab strip with + even for a single window"
           checked: root.cfgFor(root.openCls).alwaysTabbar
           rowEnabled: root.cfgFor(root.openCls).chrome
-          onToggled: {
-            var c = root.cfgFor(root.openCls)
-            root.setCfg(root.openCls, true, !c.alwaysTabbar, c.ctrlW)
-          }
+          onToggled: root.setFlag("alwaysTabbar", !root.cfgFor(root.openCls).alwaysTabbar)
         }
 
         SwitchRow {
@@ -518,10 +512,23 @@ Panel {
           label: "Super+W closes the tab"
           description: "Send Ctrl+W to the app instead of closing the window"
           checked: root.cfgFor(root.openCls).ctrlW
-          onToggled: {
-            var c = root.cfgFor(root.openCls)
-            root.setCfg(root.openCls, c.chrome, c.alwaysTabbar, !c.ctrlW)
-          }
+          onToggled: root.setFlag("ctrlW", !root.cfgFor(root.openCls).ctrlW)
+        }
+
+        SwitchRow {
+          width: parent.width
+          label: "Super works as Ctrl"
+          description: "Unbound Super+key reaches the app as Ctrl+key"
+          checked: root.cfgFor(root.openCls).ctrlAsSuper
+          onToggled: root.setFlag("ctrlAsSuper", !root.cfgFor(root.openCls).ctrlAsSuper)
+        }
+
+        SwitchRow {
+          width: parent.width
+          label: "Super+Tab switches tabs"
+          description: "Ctrl+Tab instead of the desktop's app switcher"
+          checked: root.cfgFor(root.openCls).ctrlTab
+          onToggled: root.setFlag("ctrlTab", !root.cfgFor(root.openCls).ctrlTab)
         }
       }
 

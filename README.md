@@ -31,6 +31,8 @@ It is **additive**. The installer only creates files in its own namespace and on
   * Per-app titlebar and grouping
   * Always show the tab bar, including the `+` for a single window
   * Per-app: send `Ctrl`+`W` on `Super`+`W`, so the tab closes and the window stays
+  * Per-app: `Super` works as `Ctrl`, so unbound `Super`+key reaches the app as `Ctrl`+key. The keys the desktop already uses stay put
+  * Per-app: `Super`+`Tab` switches the app's tabs (`Ctrl`+`Tab`) instead of opening the app switcher
 
 ---
 

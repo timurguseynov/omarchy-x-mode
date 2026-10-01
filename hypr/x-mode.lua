@@ -22,6 +22,7 @@ local settings = dofile(X_MODE_DIR .. "x-mode/settings.lua")
 local theme = dofile(X_MODE_DIR .. "x-mode/theme.lua")
 local mru = dofile(X_MODE_DIR .. "x-mode/mru.lua")
 local group = dofile(X_MODE_DIR .. "x-mode/group.lua")
+local supermap = dofile(X_MODE_DIR .. "x-mode/supermap.lua")
 
 
 -- ---------------------------------------------------------------------------
@@ -469,6 +470,15 @@ local join_same_app
 local apps_off = {}
 -- Classes whose Super+W goes to the app as Ctrl+W (the panel's per-app switch).
 local ctrl_w_apps = {}
+-- Classes with the panel's "Super works as Ctrl" flag: unbound Super+key
+-- combinations reach them as Ctrl+key.
+local ctrl_as_super = {}
+-- Classes with the "Super+Tab switches tabs" flag: Super+Tab goes to the app as
+-- Ctrl+Tab instead of opening the desktop's app switcher.
+local ctrl_tab_apps = {}
+-- Defined with the other option appliers (it reads the bind table out of band),
+-- forward-declared so the app refresh can call it.
+local apply_super_ctrl
 
 local function window_by_addr(addr)
   if addr == nil then
@@ -876,14 +886,29 @@ o.bind("SUPER + Q", "Close app", function()
 end)
 
 -- Cmd+Tab cycles through windows (like an app switcher) instead of Omarchy's
--- next/previous workspace; Cmd+Shift+Tab goes the other way.
+-- next/previous workspace; Cmd+Shift+Tab goes the other way. Apps the panel
+-- flagged for "Super+Tab switches tabs" get Ctrl+Tab / Ctrl+Shift+Tab instead.
 hl.unbind("SUPER + TAB")
 hl.unbind("SUPER + SHIFT + TAB")
+
+local function switcher_or_ctrl_tab(step)
+  local w = hl.get_active_window()
+  if w ~= nil and ctrl_tab_apps[window_class(w)] then
+    hl.dispatch(hl.dsp.send_shortcut({
+      mods = step < 0 and "CTRL SHIFT" or "CTRL",
+      key = "TAB",
+      window = w,
+    }))
+    return
+  end
+  switcher_step(step)
+end
+
 o.bind("SUPER + TAB", "Focus on next window", function()
-  switcher_step(1)
+  switcher_or_ctrl_tab(1)
 end)
 o.bind("SUPER + SHIFT + TAB", "Focus on previous window", function()
-  switcher_step(-1)
+  switcher_or_ctrl_tab(-1)
 end)
 
 -- Alt+Tab switches between the tabs of the focused group (Omarchy binds it to
@@ -1006,9 +1031,12 @@ end
 -- The panel's settings, options and per-app chrome in one file:
 -- ~/.local/state/omarchy-x-mode/settings.json
 -- { "options": { "nativeScroll": ..., ... },
---   "apps": { "class": { "chrome": true, "alwaysTabbar": false } } }
+--   "apps": { "class": { "chrome": true, "alwaysTabbar": false,
+--                      "ctrlW": false, "ctrlAsSuper": false, "ctrlTab": false } } }
 -- chrome=false → no titlebar/tabbar/grouping. alwaysTabbar → tab strip even
--- when the window is not grouped. Missing entries mean chrome on.
+-- when the window is not grouped. ctrlW → Super+W closes the app's tab (Ctrl+W);
+-- ctrlAsSuper → unbound Super+key reaches the app as Ctrl+key; ctrlTab →
+-- Super+Tab switches the app's tabs. Missing entries mean chrome on, flags off.
 --
 -- The bar panel is the only writer. The runtime on/off flag stays a separate
 -- plain file (`enabled`): the plugin reads that one with stdio, before any Lua
@@ -1080,10 +1108,12 @@ local function sync_apps_off()
 end
 sync_apps_off()
 
-local function sync_ctrl_w()
+local function sync_app_flags()
   ctrl_w_apps = settings.ctrl_w_set(apps_cfg)
+  ctrl_as_super = settings.flag_set(apps_cfg, "ctrl_as_super")
+  ctrl_tab_apps = settings.flag_set(apps_cfg, "ctrl_tab")
 end
-sync_ctrl_w()
+sync_app_flags()
 
 local nobar_applied = {}
 local always_applied = {}
@@ -1107,7 +1137,7 @@ end
 local function apply_apps()
   apps_cfg = load_apps()
   sync_apps_off()
-  sync_ctrl_w()
+  sync_app_flags()
   local wanted_nobar, wanted_always = settings.desired_rules(apps_cfg)
   local add_nobar, drop_nobar = settings.rule_diff(wanted_nobar, nobar_applied)
   local add_always, drop_always = settings.rule_diff(wanted_always, always_applied)
@@ -1169,6 +1199,7 @@ end, { timeout = 250, type = "oneshot" })
 x_mode = x_mode or {}
 function x_mode.refresh_apps_off()
   apply_apps()
+  apply_super_ctrl()
   ungroup_chrome_off()
   ungroup_never()
   regroup_chrome_on()
@@ -1370,6 +1401,86 @@ local function apply_ctrl_tab_switch()
     ctrl_tab_binds = {}
   end
 end
+
+-- "Super works as Ctrl": for an app with the flag, every Super+key the
+-- desktop does not already bind is re-sent to the app as Ctrl+key. Hyprland
+-- dispatches every matching bind, so the bind table has to be read rather than
+-- guessed, and it is not in the Lua API: hyprctl writes it out and a timer picks
+-- it up. Reading it inline would block the parse on the compositor's own IPC.
+local super_ctrl_binds = {}
+-- Bumped on every replan so a read that lands late cannot bind a stale table
+-- over a newer one.
+local super_ctrl_gen = 0
+
+local function drop_super_ctrl()
+  for _, kb in ipairs(super_ctrl_binds) do
+    pcall(function()
+      kb:unbind()
+    end)
+  end
+  super_ctrl_binds = {}
+end
+
+-- Hand the key to the app as Ctrl+key and consume it; any other app gets the
+-- key exactly as before.
+local function super_ctrl_key(key, shift)
+  local w = hl.get_active_window()
+  if w == nil or not ctrl_as_super[window_class(w)] then
+    return { pass_event = true }
+  end
+  hl.dispatch(hl.dsp.send_shortcut({
+    mods = shift and "CTRL SHIFT" or "CTRL",
+    key = key,
+    window = w,
+  }))
+end
+
+local function bind_super_ctrl(raw, gen)
+  if gen ~= super_ctrl_gen then
+    return
+  end
+  for _, b in ipairs(supermap.plan(raw)) do
+    local keys = b.shift and ("SUPER + SHIFT + " .. b.key) or ("SUPER + " .. b.key)
+    local ok, kb = pcall(hl.bind, keys, function()
+      return super_ctrl_key(b.key, b.shift)
+    end, { description = supermap.PREFIX .. (b.shift and " SHIFT" or "") .. " " .. b.key })
+    if ok and kb then
+      super_ctrl_binds[#super_ctrl_binds + 1] = kb
+    end
+  end
+end
+
+-- Poll for the file: the exec that writes it has not landed when the timer is
+-- set, and a missing file must not read as "nothing is bound".
+local function super_ctrl_read(path, tries, gen)
+  hl.timer(function()
+    if gen ~= super_ctrl_gen then
+      return
+    end
+    local raw = slurp(path)
+    if raw ~= nil then
+      bind_super_ctrl(raw, gen)
+      return
+    end
+    if tries > 0 then
+      super_ctrl_read(path, tries - 1, gen)
+    end
+  end, { timeout = 200, type = "oneshot" })
+end
+
+apply_super_ctrl = function()
+  drop_super_ctrl()
+  super_ctrl_gen = super_ctrl_gen + 1
+  if next(ctrl_as_super) == nil then
+    return
+  end
+  local path = X_MODE_STATE .. "/binds.json"
+  os.remove(path)
+  hl.exec_cmd("sh -c 'hyprctl -j binds > \"" .. path .. "\" 2>/dev/null'")
+  super_ctrl_read(path, 10, super_ctrl_gen)
+end
+
+apply_super_ctrl()
 
 function x_mode.refresh_options()
   load_options()
