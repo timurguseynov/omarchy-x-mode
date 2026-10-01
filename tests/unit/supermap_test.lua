@@ -33,22 +33,96 @@ check("keys.letter", has_key(supermap.KEYS, "T"), true)
 check("keys.nav", has_key(supermap.KEYS, "LEFT"), true)
 check("keys.punct", has_key(supermap.KEYS, "comma"), true)
 
--- A bind table shaped like `hyprctl -j binds`:
---   SUPER + T        occupied (Omarchy)
---   SUPER + SHIFT + N occupied
+-- A bind table shaped like `hyprctl binds` prints them:
+--   SUPER + T           occupied (Omarchy)
+--   SUPER + SHIFT + N   occupied
 --   SUPER + ALT + LEFT  a different modmask, so LEFT stays free
---   SUPER + H        only inside a submap, so free at the top level
---   SUPER + L        one of ours (the description marks it), so free as well
---   SUPER + code:20  a raw keycode bind, no key name to match against
+--   SUPER + H           only inside a submap, so free at the top level
+--   SUPER + L           one of ours (the description marks it), so free as well
+--   SUPER + code:20     the minus key, written by keycode
+--   SUPER + code:10     and its Shift form: Omarchy's workspace binds are
+--                       written this way, so SUPER+1 is taken even though no
+--                       bind above names the key "1"
 local raw = [[
-[
-  {"modmask": 64, "submap": "", "key": "T", "keycode": 0, "catch_all": false, "description": "", "dispatcher": "exec", "arg": "x"},
-  {"modmask": 65, "submap": "", "key": "N", "keycode": 0, "catch_all": false, "description": "", "dispatcher": "exec", "arg": "x"},
-  {"modmask": 72, "submap": "", "key": "LEFT", "keycode": 0, "catch_all": false, "description": "", "dispatcher": "exec", "arg": "x"},
-  {"modmask": 64, "submap": "resize", "key": "H", "keycode": 0, "catch_all": false, "description": "", "dispatcher": "submap", "arg": "reset"},
-  {"modmask": 64, "submap": "", "key": "L", "keycode": 0, "catch_all": false, "description": "x-mode-super-ctrl L", "dispatcher": "__lua", "arg": "1"},
-  {"modmask": 64, "submap": "", "key": "code:20", "keycode": 20, "catch_all": false, "description": "", "dispatcher": "exec", "arg": "x"}
-]
+bind
+	modmask: 64
+	submap: 
+	key: T
+	keycode: 0
+	catchall: false
+	description: 
+	dispatcher: exec
+	arg: x
+
+bind
+	modmask: 65
+	submap: 
+	key: N
+	keycode: 0
+	catchall: false
+	description: 
+	dispatcher: exec
+	arg: x
+
+bind
+	modmask: 72
+	submap: 
+	key: LEFT
+	keycode: 0
+	catchall: false
+	description: 
+	dispatcher: exec
+	arg: x
+
+bind
+	modmask: 64
+	submap: resize
+	key: H
+	keycode: 0
+	catchall: false
+	description: 
+	dispatcher: submap
+	arg: reset
+
+bind
+	modmask: 64
+	submap: 
+	key: L
+	keycode: 0
+	catchall: false
+	description: x-mode-super-ctrl L
+	dispatcher: __lua
+	arg: 1
+
+bind
+	modmask: 64
+	submap: 
+	key: SUPER + code:20
+	keycode: 0
+	catchall: false
+	description: 
+	dispatcher: __lua
+	arg: 2
+
+bind
+	modmask: 64
+	submap: 
+	key: SUPER + code:10
+	keycode: 0
+	catchall: false
+	description: 
+	dispatcher: __lua
+	arg: 3
+
+bind
+	modmask: 65
+	submap: 
+	key: SUPER + code:10
+	keycode: 0
+	catchall: false
+	description: 
+	dispatcher: __lua
+	arg: 4
 ]]
 
 local set = index(supermap.plan(raw))
@@ -59,9 +133,12 @@ check("plan.n.plain.free", set["N/plain"], true)
 check("plan.nav.other-mods", set["LEFT/plain"], true)
 check("plan.submap.ignored", set["H/plain"], true)
 check("plan.own.ignored", set["L/plain"], true)
+check("plan.code.minus", set["minus/plain"], nil)
+check("plan.code.digit", set["1/plain"], nil)
+check("plan.code.digit.shift", set["1/shift"], nil)
 
 -- No binds at all: every key is free.
-local empty_plan = index(supermap.plan("[]"))
+local empty_plan = index(supermap.plan("bind\n\tmodmask: 4\n\tkey: X\n\n"))
 check("plan.empty.t", empty_plan["T/plain"], true)
 check("plan.empty.t.shift", empty_plan["T/shift"], true)
 check("plan.empty.punct", empty_plan["comma/plain"], true)
@@ -71,7 +148,7 @@ check("plan.empty.punct", empty_plan["comma/plain"], true)
 check("plan.punct.no-shift", empty_plan["comma/shift"], nil)
 
 -- Junk input plans nothing rather than raising.
-check("plan.junk", #supermap.plan("not json"), 0)
+check("plan.junk", #supermap.plan("not a bind table"), 0)
 
 if failures > 0 then
   os.exit(1)

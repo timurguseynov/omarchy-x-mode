@@ -1396,6 +1396,8 @@ end
 -- dispatches every matching bind, so the bind table has to be read rather than
 -- guessed, and it is not in the Lua API: hyprctl writes it out and a timer picks
 -- it up. Reading it inline would block the parse on the compositor's own IPC.
+-- The text form is read, not -j: a keycode bind (Omarchy's workspaces) has no
+-- name there for the JSON to print.
 local super_ctrl_binds = {}
 -- Bumped on every replan so a read that lands late cannot bind a stale table
 -- over a newer one.
@@ -1463,9 +1465,9 @@ apply_super_ctrl = function()
   if next(ctrl_as_super) == nil then
     return
   end
-  local path = X_MODE_STATE .. "/binds.json"
+  local path = X_MODE_STATE .. "/binds.txt"
   os.remove(path)
-  hl.exec_cmd("sh -c 'hyprctl -j binds > \"" .. path .. "\" 2>/dev/null'")
+  hl.exec_cmd("sh -c 'hyprctl binds > \"" .. path .. "\" 2>/dev/null'")
   super_ctrl_read(path, 10, super_ctrl_gen)
 end
 

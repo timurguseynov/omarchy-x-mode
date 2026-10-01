@@ -508,7 +508,7 @@ here any more: it is `Snap::` in the plugin, and the nest is its test layer.
 | file | module | covers |
 |---|---|---|
 | `settings_test.lua` | `hypr/x-mode/settings.lua` | options/apps parsing, the apps section vs the whole file, the legacy array, the per-app flags and their sets, the merge of the two old files, the rule diff |
-| `supermap_test.lua` | `hypr/x-mode/supermap.lua` | the keysym list, the free-key plan from a `hyprctl binds` table (occupied, submap and own binds left out, Shift variants for letters only) |
+| `supermap_test.lua` | `hypr/x-mode/supermap.lua` | the keysym list, the free-key plan from a `hyprctl binds` table (occupied, submap and own binds left out, keycode binds mapped back to their key, Shift variants for letters only) |
 | `theme_test.lua` | `hypr/x-mode/theme.lua` | the TOML subset (inline comments, quotes), hex/rgb conversion, the bar color defaults |
 | `mru_test.lua` | `hypr/x-mode/mru.lua` | touch ordering, step wrapping, sort by MRU then focus |
 

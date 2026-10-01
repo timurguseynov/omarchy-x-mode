@@ -41,6 +41,11 @@ assert_eq "$(generated_all)" 0 "no binds until an app asks for Super as Ctrl"
 # A key some other bind already owns must be left alone. B is free in the nest
 # and in Omarchy, so plant it: the plan reads the live bind table.
 nest_ctl eval 'hl.bind("SUPER + B", hl.dsp.no_op())' >/dev/null
+# Omarchy binds the workspaces by keycode (SUPER + code:10 is workspace 1), so a
+# key with no name of its own still has to count as taken: one press must not
+# both switch workspace and send Ctrl+1.
+nest_ctl eval 'hl.bind("SUPER + code:10", hl.dsp.no_op())' >/dev/null
+nest_ctl eval 'hl.bind("SUPER + SHIFT + code:10", hl.dsp.no_op())' >/dev/null
 
 printf '%s\n' '{"options":{},"apps":{"kitty":{"ctrlAsSuper":true}}}' > "$SETTINGS"
 refresh_apps
@@ -50,6 +55,7 @@ assert_eq "$(generated_for L)" 1 "a free key is mapped"
 assert_eq "$(generated_for W)" 0 "the pack's own Super+W is left alone"
 assert_eq "$(generated_for TAB)" 0 "the pack's own Super+Tab is left alone"
 assert_eq "$(generated_for B)" 0 "a key another bind already owns is left alone"
+assert_eq "$(generated_for 1)" 0 "a key owned only by a keycode bind is left alone"
 
 printf '%s\n' '{"options":{},"apps":{}}' > "$SETTINGS"
 refresh_apps
