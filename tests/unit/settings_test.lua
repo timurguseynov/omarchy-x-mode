@@ -36,17 +36,15 @@ check("apps.chromium.alwaysTabbar", cfg["chromium"].always_tabbar, true)
 check("apps.zed.chrome", cfg["zed"].chrome, true)
 check("apps.zed.alwaysTabbar", cfg["zed"].always_tabbar, true)
 
--- The per-app "Super+W sends Ctrl+W" flag, off by default.
-local wraw = '{"options":{},"apps":{"Chromium":{"ctrlW":true,"ctrlAsSuper":true,"ctrlTab":true},"Zed":{}}}'
+-- The per-app flags, off by default.
+local wraw = '{"options":{},"apps":{"Chromium":{"ctrlW":true,"ctrlAsSuper":true},"Zed":{}}}'
 local wcfg = settings.parse_apps(settings.apps_section(wraw))
 check("apps.chromium.ctrlW", wcfg["chromium"].ctrl_w, true)
 check("apps.chromium.ctrlAsSuper", wcfg["chromium"].ctrl_as_super, true)
-check("apps.chromium.ctrlTab", wcfg["chromium"].ctrl_tab, true)
 check("apps.zed.ctrlW", wcfg["zed"].ctrl_w, false)
 check("apps.zed.ctrlAsSuper", wcfg["zed"].ctrl_as_super, false)
-check("apps.zed.ctrlTab", wcfg["zed"].ctrl_tab, false)
 
--- The sets the handlers ask: lowercased classes with ctrlW on.
+-- The sets the handlers ask: lowercased classes with the flag on.
 local wset = settings.ctrl_w_set({
   chromium = { chrome = true, ctrl_w = true },
   zed = { chrome = true, ctrl_w = false },
@@ -60,10 +58,7 @@ check("ctrlw.foot", wset["foot"], nil)
 local asuper = settings.flag_set(wcfg, "ctrl_as_super")
 check("flagset.ctrlAsSuper", asuper["chromium"], true)
 check("flagset.ctrlAsSuper.zed", asuper["zed"], nil)
-local tab = settings.flag_set(wcfg, "ctrl_tab")
-check("flagset.ctrlTab", tab["chromium"], true)
-check("flagset.ctrlTab.zed", tab["zed"], nil)
-check("flagset.nil", next(settings.flag_set(nil, "ctrl_tab")) == nil, true)
+check("flagset.nil", next(settings.flag_set(nil, "ctrl_w")) == nil, true)
 
 -- A legacy array of classes means chrome off.
 local legacy = settings.parse_apps(settings.apps_section('{"options":{},"apps":["Foot","Kitty"]}'))
@@ -71,7 +66,6 @@ check("legacy.foot.chrome", legacy["foot"].chrome, false)
 check("legacy.kitty.chrome", legacy["kitty"].chrome, false)
 check("legacy.foot.ctrlW", legacy["foot"].ctrl_w, false)
 check("legacy.foot.ctrlAsSuper", legacy["foot"].ctrl_as_super, false)
-check("legacy.foot.ctrlTab", legacy["foot"].ctrl_tab, false)
 
 -- merge folds the two old files into one settings string.
 local merged = settings.merge('{"nativeScroll":true}', '{"chromium":{"chrome":false}}')

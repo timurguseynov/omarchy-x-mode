@@ -473,9 +473,6 @@ local ctrl_w_apps = {}
 -- Classes with the panel's "Super works as Ctrl" flag: unbound Super+key
 -- combinations reach them as Ctrl+key.
 local ctrl_as_super = {}
--- Classes with the "Super+Tab switches tabs" flag: Super+Tab goes to the app as
--- Ctrl+Tab instead of opening the desktop's app switcher.
-local ctrl_tab_apps = {}
 -- Defined with the other option appliers (it reads the bind table out of band),
 -- forward-declared so the app refresh can call it.
 local apply_super_ctrl
@@ -886,29 +883,16 @@ o.bind("SUPER + Q", "Close app", function()
 end)
 
 -- Cmd+Tab cycles through windows (like an app switcher) instead of Omarchy's
--- next/previous workspace; Cmd+Shift+Tab goes the other way. Apps the panel
--- flagged for "Super+Tab switches tabs" get Ctrl+Tab / Ctrl+Shift+Tab instead.
+-- next/previous workspace; Cmd+Shift+Tab goes the other way. This is the
+-- desktop's own key, so "Super works as Ctrl" never takes it: a flagged app
+-- gets the switcher as well.
 hl.unbind("SUPER + TAB")
 hl.unbind("SUPER + SHIFT + TAB")
-
-local function switcher_or_ctrl_tab(step)
-  local w = hl.get_active_window()
-  if w ~= nil and ctrl_tab_apps[window_class(w)] then
-    hl.dispatch(hl.dsp.send_shortcut({
-      mods = step < 0 and "CTRL SHIFT" or "CTRL",
-      key = "TAB",
-      window = w,
-    }))
-    return
-  end
-  switcher_step(step)
-end
-
 o.bind("SUPER + TAB", "Focus on next window", function()
-  switcher_or_ctrl_tab(1)
+  switcher_step(1)
 end)
 o.bind("SUPER + SHIFT + TAB", "Focus on previous window", function()
-  switcher_or_ctrl_tab(-1)
+  switcher_step(-1)
 end)
 
 -- Alt+Tab switches between the tabs of the focused group (Omarchy binds it to
@@ -1032,11 +1016,11 @@ end
 -- ~/.local/state/omarchy-x-mode/settings.json
 -- { "options": { "nativeScroll": ..., ... },
 --   "apps": { "class": { "chrome": true, "alwaysTabbar": false,
---                      "ctrlW": false, "ctrlAsSuper": false, "ctrlTab": false } } }
+--                      "ctrlW": false, "ctrlAsSuper": false } } }
 -- chrome=false → no titlebar/tabbar/grouping. alwaysTabbar → tab strip even
 -- when the window is not grouped. ctrlW → Super+W closes the app's tab (Ctrl+W);
--- ctrlAsSuper → unbound Super+key reaches the app as Ctrl+key; ctrlTab →
--- Super+Tab switches the app's tabs. Missing entries mean chrome on, flags off.
+-- ctrlAsSuper → unbound Super+key reaches the app as Ctrl+key. Missing entries
+-- mean chrome on, flags off.
 --
 -- The bar panel is the only writer. The runtime on/off flag stays a separate
 -- plain file (`enabled`): the plugin reads that one with stdio, before any Lua
@@ -1111,7 +1095,6 @@ sync_apps_off()
 local function sync_app_flags()
   ctrl_w_apps = settings.ctrl_w_set(apps_cfg)
   ctrl_as_super = settings.flag_set(apps_cfg, "ctrl_as_super")
-  ctrl_tab_apps = settings.flag_set(apps_cfg, "ctrl_tab")
 end
 sync_app_flags()
 

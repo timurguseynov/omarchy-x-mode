@@ -89,8 +89,8 @@ Panel {
     var apps = {}
     for (var k in appsCfg) {
       var e = appsCfg[k]
-      if (e && (e.chrome === false || e.alwaysTabbar || e.ctrlW || e.ctrlAsSuper || e.ctrlTab))
-        apps[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlTab: !!e.ctrlTab }
+      if (e && (e.chrome === false || e.alwaysTabbar || e.ctrlW || e.ctrlAsSuper))
+        apps[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper }
     }
     var json = JSON.stringify({
       options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps },
@@ -521,14 +521,6 @@ Panel {
           description: "Unbound Super+key reaches the app as Ctrl+key"
           checked: root.cfgFor(root.openCls).ctrlAsSuper
           onToggled: root.setFlag("ctrlAsSuper", !root.cfgFor(root.openCls).ctrlAsSuper)
-        }
-
-        SwitchRow {
-          width: parent.width
-          label: "Super+Tab switches tabs"
-          description: "Ctrl+Tab instead of the desktop's app switcher"
-          checked: root.cfgFor(root.openCls).ctrlTab
-          onToggled: root.setFlag("ctrlTab", !root.cfgFor(root.openCls).ctrlTab)
         }
       }
 

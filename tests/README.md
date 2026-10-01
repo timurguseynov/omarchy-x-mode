@@ -111,7 +111,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/client_fullscreen_not_pushed_test.sh` | a window the app made fullscreen is not re-clamped below the bar |
 | `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
 | `integration/ctrl_tab_switch_binds_test.sh` | Ctrl+1..9 binds are opt-in |
-| `integration/ctrl_tab_app_test.sh` | Super+Tab switches the app's tabs for a flagged app, the switcher for the rest |
+| `integration/switcher_keeps_super_tab_test.sh` | Super+Tab is the switcher for an app with Super works as Ctrl too |
 | `integration/dock_appears_test.sh` | the dock is a 40px card, centred, reserving nothing |
 | `integration/dock_click_focuses_app_test.sh` | clicking an icon focuses and raises that app |
 | `integration/dock_click_same_app_no_tab_switch_test.sh` | clicking the focused app's icon does not switch tabs |
@@ -524,7 +524,7 @@ Same idea for the shell plugin: the pure JS it shares lives in
 
 | file | covers |
 |---|---|
-| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, ctrlW, ctrlAsSuper, ctrlTab, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, pin moves a running app), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg`, `setPanelFlag`, `buildPanelRunning` |
+| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, ctrlW, ctrlAsSuper, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, pin moves a running app), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg`, `setPanelFlag`, `buildPanelRunning` |
 
 What is *not* unit-testable this way: the components themselves. `import
 Quickshell` fails under `qmltestrunner` (`plugin "quickshell-coreplugin" not
