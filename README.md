@@ -89,7 +89,7 @@ git clone https://github.com/timurguseynov/omarchy-x-mode.git ~/omarchy-x-mode
 ~/omarchy-x-mode/install.sh
 ```
 
-The installer builds the patched hyprbars, copies the shell plugin and `x-mode.lua`, reloads Hyprland, floats windows that are already open, and restarts the shell. If the shell was not running, finish with `omarchy-restart-shell`.
+The installer builds the patched hyprbars, copies the shell plugin and the `x-mode` config directory into `~/.config/hypr/`, reloads Hyprland, floats windows that are already open, and restarts the shell. If the shell was not running, finish with `omarchy-restart-shell`.
 
 ```bash
 ~/omarchy-x-mode/install.sh status   # what is installed
@@ -106,7 +106,7 @@ and the snapping, the keys included, so there is nothing to install without it.
 ~/omarchy-x-mode/uninstall.sh
 ```
 
-This removes the plugin, the sentinel block, and the files the installer created. It also ungroups windows and puts them back to the floating-or-tiled state they had before install. Your own Hyprland and Omarchy config is left alone.
+This removes the plugin, the sentinel block, and the files the installer created. It also ungroups windows and puts them back to the floating-or-tiled state they had before install. Your own Hyprland and Omarchy config is left alone, and so are the panel's settings in `~/.config/hypr/x-mode.json`: reinstall and they are back.
 
 To turn the desktop off without uninstalling, use the switch in the top-bar panel.
 

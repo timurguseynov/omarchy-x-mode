@@ -40,8 +40,12 @@ nest_paths() {
   DOCK_CFG="$NEST_STATE/dock"
   DOCK_LOG="$NEST_STATE/dock.log"
   NEST_DIRTY="$NEST_STATE/config-dirty"
+  # The panel's settings live in the user's config dir (the pack's own directory
+  # and the state dir are both removed on uninstall), so the nest writes them
+  # into its throwaway HOME.
+  NEST_SETTINGS="$NEST_STATE/home/.config/hypr/x-mode.json"
 }
-NEST_LUA="$REPO_DIR/hypr/x-mode.lua"
+NEST_LUA="$REPO_DIR/hypr/x-mode/x-mode.lua"
 PLUGIN_SO="$REPO_DIR/hyprbars/hyprbars.so"
 POINTER_DIR="$TESTS_DIR/pointer"
 KEYBOARD_DIR="$TESTS_DIR/keyboard"
@@ -285,7 +289,7 @@ nest_start() {
   # Start from a clean state dir: a run that fails midway can leave settings.json
   # behind, and the next run would inherit it.
   rm -rf "$NEST_STATE/state" "$NEST_STATE/home"
-  mkdir -p "$NEST_STATE/state" "$NEST_STATE/home"
+  mkdir -p "$NEST_STATE/state" "$NEST_STATE/home" "$(dirname "$NEST_SETTINGS")"
 
   # setsid makes this pid the process-group leader, so nest_stop can kill the
   # nest without the pattern match that would also kill every other slot.
@@ -582,7 +586,7 @@ nest_clean() {
   done
   # Settings are written by the panel, and by the tests that drive it. Reset them
   # so a test that fails midway cannot change how the next one lays out windows.
-  printf '%s\n' '{"options":{},"apps":{}}' > "$NEST_STATE/state/settings.json"
+  printf '%s\n' '{"options":{},"apps":{}}' > "$NEST_SETTINGS"
   # x-mode's on/off file and the one-shot arrange marker: a scenario that turns
   # X Mode off (or arranges) must not leave the next one off.
   rm -f "$NEST_STATE/state/enabled" "$NEST_STATE/state/arrange"

@@ -3,7 +3,7 @@
 # option and reloads. Control's modifier mask is 4.
 . "$(dirname "$0")/../../lib.sh"
 
-SETTINGS="$NEST_STATE/state/settings.json"
+SETTINGS="$NEST_SETTINGS"
 
 assert_eq "$(bind_count_desc 'Switch to tab 1' 4)" 0 "Ctrl+1 is unbound by default"
 assert_eq "$(bind_count_desc 'Switch to tab 9' 4)" 0 "Ctrl+9 is unbound by default"

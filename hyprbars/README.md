@@ -18,7 +18,7 @@ Manual build:
 ## Config
 
 All options live under `plugin:hyprbars`. X Mode sets them from
-`hypr/x-mode.lua` (theme colors, height, one left-side close button) — you
+`hypr/x-mode/x-mode.lua` (theme colors, height, one left-side close button) — you
 usually don’t need to touch these. The titlebar close button quits every tab
 in the group; a tab’s own ✕ closes that tab.
 

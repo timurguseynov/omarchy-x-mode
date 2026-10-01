@@ -4,7 +4,7 @@
 # window, and snapping it still must not create a group.
 . "$(dirname "$0")/../../lib.sh"
 
-SETTINGS="$NEST_STATE/state/settings.json"
+SETTINGS="$NEST_SETTINGS"
 
 printf '%s\n' '{"options":{},"apps":{"foot":{"chrome":true,"alwaysTabbar":true}}}' > "$SETTINGS"
 refresh_apps

@@ -4,7 +4,7 @@
 # across that reload.
 . "$(dirname "$0")/../../lib.sh"
 
-SETTINGS="$NEST_STATE/state/settings.json"
+SETTINGS="$NEST_SETTINGS"
 
 open_window foot
 open_window kitty

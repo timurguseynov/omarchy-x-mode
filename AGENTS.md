@@ -29,13 +29,13 @@ there.
 
 Pack code, in this repo:
 
-- `hypr/x-mode.lua` — the desktop layer: Hyprland config, binds/events, and the
-  snap / grouping engine.
-- `hypr/x-mode/` — the pure modules it loads, split out so they can be tested
-  without a compositor: `settings.lua` (option/app parsing, rule diff),
-  `theme.lua` (colors.toml), `mru.lua` (switcher order). Geometry is *not* here:
-  the plugin owns it (`hyprbars/snap.cpp` — zones, the snap cycle, the work
-  frame, the chrome), and `x-mode.lua` asks for it.
+- `hypr/x-mode/` — the pack's Hyprland config: `x-mode.lua` is the desktop
+  layer (Hyprland config, binds/events, and the snap / grouping engine), and the
+  pure modules it loads are split out next to it so they can be tested without a
+  compositor: `settings.lua` (option/app parsing, rule diff), `theme.lua`
+  (colors.toml), `mru.lua` (switcher order), `supermap.lua` (the Super-as-Ctrl
+  plan). Geometry is *not* here: the plugin owns it (`hyprbars/snap.cpp` — zones,
+  the snap cycle, the work frame, the chrome), and `x-mode.lua` asks for it.
 - `tests/` — the test suite. `tests/run.sh` runs lint (`qmllint`), `unit/` (plain
   lua, no compositor), `qml/` (`logic.js` under `qmltestrunner`) and `nest/` (a
   nested Hyprland running the real config and a freshly built plugin, with
@@ -80,9 +80,11 @@ Pack code, in this repo:
   to `x-mode.lua`, a module, the plugin or an install file.
 - Editing and installing are separate steps: make the change in this repo, run
   `tests/run.sh`, and only then install. Never hand-edit or copy over the
-  installed files (`~/.config/hypr/x-mode.lua`, `~/.config/hypr/x-mode/`,
-  `~/.local/share/hyprbars/`): `install.sh` is the only writer, so its manifest
-  stays right and a test build never lands on the live session half-done.
+  installed files (`~/.config/hypr/x-mode/`, `~/.local/share/hyprbars/`):
+  `install.sh` is the only writer, so its manifest stays right and a test build
+  never lands on the live session half-done. The panel's settings
+  (`~/.config/hypr/x-mode.json`) are the user's and sit next to that directory,
+  not in it.
 - Keep pure parsing (no `hl`) in the `hypr/x-mode/` modules so it stays unit
   testable; event/state code stays in `x-mode.lua` and is covered by the nest.
   Geometry is the plugin's (`Snap::`), so there is one implementation: the pack

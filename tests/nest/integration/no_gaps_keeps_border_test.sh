@@ -8,7 +8,7 @@
 # window actually moved toward the edge.
 . "$(dirname "$0")/../../lib.sh"
 
-SETTINGS="$NEST_STATE/state/settings.json"
+SETTINGS="$NEST_SETTINGS"
 
 open_window foot
 snap foot left

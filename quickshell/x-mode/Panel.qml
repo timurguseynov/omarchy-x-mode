@@ -20,7 +20,7 @@ Panel {
   property bool xModeOn: true
   readonly property var barIdentity: hostWidget || root
 
-  readonly property string settingsPath: (Quickshell.env("HOME") || "") + "/.local/state/omarchy-x-mode/settings.json"
+  readonly property string settingsPath: (Quickshell.env("HOME") || "") + "/.config/hypr/x-mode.json"
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
@@ -98,7 +98,7 @@ Panel {
     })
     Quickshell.execDetached([
       "sh", "-c",
-      "mkdir -p \"$HOME/.local/state/omarchy-x-mode\" && printf '%s\\n' " + Logic.shellQuote(json) + " > \"$HOME/.local/state/omarchy-x-mode/settings.json\" && " + followUp
+      "mkdir -p \"$HOME/.config/hypr\" && printf '%s\\n' " + Logic.shellQuote(json) + " > \"$HOME/.config/hypr/x-mode.json\" && " + followUp
     ])
   }
 

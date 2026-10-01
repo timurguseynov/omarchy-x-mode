@@ -2,27 +2,27 @@
 --
 -- Loaded from a sentinel block at the end of ~/.config/hypr/hyprland.lua:
 --   -- >>> omarchy-x-mode >>>
---   dofile((os.getenv("HOME") or "") .. "/.config/hypr/x-mode.lua")
+--   dofile((os.getenv("HOME") or "") .. "/.config/hypr/x-mode/x-mode.lua")
 --   -- <<< omarchy-x-mode <<<
 --
 -- This file holds the pack: the floating desktop, the Mac titlebar/tabbar
 -- (patched hyprbars), and the Rectangle-style snap + same-app grouping engine.
 -- Geometry is not here: the plugin owns it (hyprbars/snap.cpp -- zones, the snap
--- cycle, the work frame, the chrome), and this config asks it. Pure parsing is
--- still next to it in x-mode/ so it can be tested on its own (tests/unit).
--- Personal look'n'feel (input, monitors, decoration, native snap, ...) lives in
--- a separate file the pack does not own -- see omarchy-x-vm/taste.lua -- so
--- uninstalling the pack never removes it.
+-- cycle, the work frame, the chrome), and this config asks it. Pure parsing
+-- lives next to it in the same directory so it can be tested on its own
+-- (tests/unit). Personal look'n'feel (input, monitors, decoration, native snap,
+-- ...) lives in a separate file the pack does not own -- see
+-- omarchy-x-vm/taste.lua -- so uninstalling the pack never removes it.
 
--- Resolve this chunk's directory so the sibling module is found both installed
--- (~/.config/hypr/x-mode.lua) and straight from the repo (the tests load this
--- file out of hypr/).
+-- Resolve this file's directory so the sibling modules are found both installed
+-- (~/.config/hypr/x-mode/) and straight from the repo (the tests load this file
+-- out of hypr/x-mode/).
 local X_MODE_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "./"
-local settings = dofile(X_MODE_DIR .. "x-mode/settings.lua")
-local theme = dofile(X_MODE_DIR .. "x-mode/theme.lua")
-local mru = dofile(X_MODE_DIR .. "x-mode/mru.lua")
-local group = dofile(X_MODE_DIR .. "x-mode/group.lua")
-local supermap = dofile(X_MODE_DIR .. "x-mode/supermap.lua")
+local settings = dofile(X_MODE_DIR .. "settings.lua")
+local theme = dofile(X_MODE_DIR .. "theme.lua")
+local mru = dofile(X_MODE_DIR .. "mru.lua")
+local group = dofile(X_MODE_DIR .. "group.lua")
+local supermap = dofile(X_MODE_DIR .. "supermap.lua")
 
 
 -- ---------------------------------------------------------------------------
@@ -1013,7 +1013,10 @@ local function ws_id(w)
 end
 
 -- The panel's settings, options and per-app chrome in one file:
--- ~/.local/state/omarchy-x-mode/settings.json
+-- ~/.config/hypr/x-mode.json -- user config, next to the pack's own directory,
+-- so it survives an uninstall and comes back on the next install. Kept out of
+-- ~/.config/hypr/x-mode/ (the pack owns that directory and uninstall removes
+-- it) and out of the state dir (also removed).
 -- { "options": { "nativeScroll": ..., ... },
 --   "apps": { "class": { "chrome": true, "alwaysTabbar": false,
 --                      "ctrlW": false, "ctrlAsSuper": false } } }
@@ -1025,8 +1028,10 @@ end
 -- The bar panel is the only writer. The runtime on/off flag stays a separate
 -- plain file (`enabled`): the plugin reads that one with stdio, before any Lua
 -- runs, and a broken settings file must not decide whether x-mode loads.
-local SETTINGS_PATH = X_MODE_STATE .. "/settings.json"
--- Folded into settings.json; read once to migrate, never written again.
+local SETTINGS_PATH = (os.getenv("HOME") or "") .. "/.config/hypr/x-mode.json"
+-- Older installs kept the settings in the state dir; read one those once and
+-- write the new file. options.json/apps.json predate even that.
+local LEGACY_SETTINGS_PATH = X_MODE_STATE .. "/settings.json"
 local LEGACY_OPTIONS_PATH = X_MODE_STATE .. "/options.json"
 local LEGACY_APPS_PATH = X_MODE_STATE .. "/apps.json"
 
@@ -1043,10 +1048,11 @@ local function slurp(path)
   return raw
 end
 
--- The whole settings file, migrating the two old files into it on first run.
--- A present-but-empty file is returned as it is, not rebuilt: the panel writes
--- by truncating first, so rebuilding here would turn a write that is still in
--- flight into lost settings.
+-- The whole settings file. Older installs kept it in the state dir, and before
+-- that as options.json/apps.json: fold whichever of those exists into the new
+-- file once. A present-but-empty file is returned as it is, not rebuilt: the
+-- panel writes by truncating first, so rebuilding here would turn a write that
+-- is still in flight into lost settings.
 local function read_settings()
   local file = io.open(SETTINGS_PATH, "r")
   if file ~= nil then
@@ -1054,7 +1060,7 @@ local function read_settings()
     file:close()
     return raw
   end
-  local raw = settings.merge(slurp(LEGACY_OPTIONS_PATH), slurp(LEGACY_APPS_PATH))
+  local raw = slurp(LEGACY_SETTINGS_PATH) or settings.merge(slurp(LEGACY_OPTIONS_PATH), slurp(LEGACY_APPS_PATH))
   local out = io.open(SETTINGS_PATH, "w")
   if out then
     out:write(raw, "\n")

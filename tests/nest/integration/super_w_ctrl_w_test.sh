@@ -4,7 +4,7 @@
 # closes, so the flag is what decides, not the key.
 . "$(dirname "$0")/../../lib.sh"
 
-SETTINGS="$NEST_STATE/state/settings.json"
+SETTINGS="$NEST_SETTINGS"
 
 open_window kitty
 printf '%s\n' '{"options":{},"apps":{"kitty":{"ctrlW":true}}}' > "$SETTINGS"

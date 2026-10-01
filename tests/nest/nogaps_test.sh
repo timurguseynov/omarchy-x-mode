@@ -3,7 +3,7 @@
 # zero and the windows sitting in a snap zone are re-snapped wider.
 . "$(dirname "$0")/../lib.sh"
 
-SETTINGS="$NEST_STATE/state/settings.json"
+SETTINGS="$NEST_SETTINGS"
 
 open_window foot
 snap foot left

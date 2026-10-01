@@ -6,7 +6,7 @@
 # app without the flag changes nothing.
 . "$(dirname "$0")/../../lib.sh"
 
-SETTINGS="$NEST_STATE/state/settings.json"
+SETTINGS="$NEST_SETTINGS"
 
 # Modmask 64 is Super alone, 65 is Super+Shift (eKeyboardModifiers). Matching on
 # the whole description: a substring match would count LEFT for L, BACKSPACE for

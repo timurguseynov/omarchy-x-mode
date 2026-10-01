@@ -8,7 +8,7 @@
 # and a hard-coded position would fall off the screen on one of them.
 . "$(dirname "$0")/../../lib.sh"
 
-SETTINGS="$NEST_STATE/state/settings.json"
+SETTINGS="$NEST_SETTINGS"
 
 extent="$(pointer_extent)"
 mw="${extent%x*}"

@@ -14,7 +14,7 @@
       "x-mode"
     ],
     "hyprModules": [
-      "x-mode.lua"
+      "x-mode"
     ],
     "hyprbars": {
       "patched": true,
