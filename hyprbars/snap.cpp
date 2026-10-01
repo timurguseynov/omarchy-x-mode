@@ -524,12 +524,26 @@ static bool anyFullscreen(PHLWINDOW w) {
 }
 
 void Snap::clampToWorkArea(PHLWINDOW w, bool force) {
-    if (!xModeEnabled() || !w || !w->m_isFloating || !w->m_isMapped || w->isHidden() || anyFullscreen(w))
+    if (!xModeEnabled() || !w || !w->m_isFloating || !w->m_isMapped || anyFullscreen(w))
+        return;
+    // The ordinary pass leaves a hidden window alone (a group tab, a swallow).
+    // The forced pass is the unplug restore: Hyprland's floating algorithm can
+    // mark an off-screen window hidden, and skipping it would leave it there.
+    if (!force && w->isHidden())
         return;
     // A drag clamps itself and is allowed to hang off an edge; refitting it here
     // would pull it back on every mouse move.
     if (g_pDragSession && g_pDragSession->owns(w))
         return;
+
+    // A group shares one layout target. Hyprland translates that target once
+    // per member, and fitting each member would page the same box again. The
+    // current tab carries the chrome; its pass covers the group.
+    if (force && w->m_group) {
+        const auto cur = w->m_group->current();
+        if (cur && cur != w)
+            return;
+    }
 
     // setPositionGlobal below calls back into the bar's updateWindow, which is
     // what calls this. The box is already written by then, so the inner pass has
@@ -677,20 +691,36 @@ void Snap::clampToWorkArea(PHLWINDOW w, bool force) {
     // into updateWindow, and the bar calls this from there. Windows do not animate
     // (x-mode disables windowsMove), so warping the current value is invisible.
     // setPositionGlobal would also configure the client; a move must not, and a
-    // shrink reports the size once.
+    // shrink reports the size once. The forced pass is the exception: a page
+    // shift leaves size alone, so the client (X11 especially) keeps the old
+    // coordinates until sendWindowSize. updateToplevel re-enters the surface on
+    // the monitor the window sits on now. Neither raises: a click does that.
     box.round();
     TARGET->setPositionGlobal(box, Layout::TARGET_UPDATE_NO_CLIENT_CONFIGURE);
-    w->positionAnimation()->setValueAndWarp(box.pos());
-    w->sizeAnimation()->setValueAndWarp(box.size());
-    if (w->m_group) {
-        for (const auto& m : w->m_group->windows()) {
-            if (const auto member = m.lock()) {
-                member->positionAnimation()->setValueAndWarp(box.pos());
-                member->sizeAnimation()->setValueAndWarp(box.size());
-            }
+
+    const auto sync = [&](PHLWINDOW win) {
+        if (!win)
+            return;
+        win->positionAnimation()->setValueAndWarp(box.pos());
+        win->sizeAnimation()->setValueAndWarp(box.size());
+        if (force) {
+            if (win->isHidden())
+                win->setHidden(false);
+            win->sendWindowSize(true);
+            win->updateToplevel();
         }
-    }
-    if (resized)
+    };
+    if (w->m_group) {
+        for (const auto& m : w->m_group->windows())
+            sync(m.lock());
+    } else
+        sync(w);
+    // Hit-test uses GEOMETRIC_CURRENT plus the decoration cache. Warp the
+    // target so the titlebar sits on the paged box this frame; a click can
+    // then raise without us raising here.
+    if (force)
+        TARGET->warpPositionSize();
+    if (!force && resized)
         w->sendWindowSize(true);
 }
 

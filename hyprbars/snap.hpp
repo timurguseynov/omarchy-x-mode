@@ -103,8 +103,13 @@ namespace Snap {
     // lands a whole number of screens off this one (a left half and a right
     // half on the monitor that was to the left) comes back to that same
     // offset. A window on the right of a wider screen, still overlapping this
-    // one, keeps its right edge. Lua runs this for every window on
-    // monitor.removed (hyprbars.fit).
+    // one, keeps its right edge. The forced pass also warps the animation
+    // (goal and current, plus the layout target so the titlebar cache matches),
+    // configures the client (a page shift does not resize), re-enters the
+    // surface on this monitor, and unhides a window the floating algorithm
+    // hid for sitting off-screen. It does not raise. A group is fitted once,
+    // from the current tab. Lua runs this for every window on monitor.removed
+    // and monitor.added (hyprbars.fit / fit_all).
     void               clampToWorkArea(PHLWINDOW w, bool force = false);
 
 }

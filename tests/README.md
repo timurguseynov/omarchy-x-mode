@@ -327,6 +327,14 @@ holds that down, and `oversized_snap_cycle_test.sh` that the Super+Alt+arrow cyc
 still steps on from there (its candidates are grown the same way, or the wider
 window matches none of them and the next press only re-snaps the same half).
 
+Unplugging a monitor (or powering the only one off, which Hyprland treats as a
+destroy and then a virtual FALLBACK `monitor.added`) leaves floats whole screens
+away. `hyprbars.fit` force-pages them back onto the same half, configures the
+client, and does not raise: `monitor_added_restores_click_test.sh` is a click on
+the restored titlebar, `monitor_added_group_once_test.sh` that a two-tab group is
+fitted once and both tabs share that slot. The ordinary `monitor.removed` page
+restore is `monitor_removed_restores_page_test.sh`.
+
 Upstream has the fitting code but does not call it here:
 `CDefaultFloatingAlgorithm::fitBoxInWorkArea()` clamps into `space->workArea(true)`
 and accounts for the window's chrome through `getWindowExtentsUnified`, but it is

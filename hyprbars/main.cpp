@@ -334,10 +334,11 @@ static int luaCycle(lua_State* L) {
 
 // Fit a window back inside its monitor's usable frame even when its box
 // already fits by size. Lua runs this for every window when a monitor is
-// unplugged (monitor.removed): Hyprland moves a floating window by the removed
-// monitor's offset only, so it can keep coordinates past an edge of the
-// monitor that is left, where the ordinary clamp -- which leaves a box that
-// fits alone -- never pulls it back.
+// unplugged or added (monitor.removed / monitor.added): Hyprland moves a
+// floating window by the monitor offset only, so it can keep coordinates past
+// an edge of the monitor that is left, where the ordinary clamp -- which
+// leaves a box that fits alone -- never pulls it back. The forced pass pages
+// the box, configures the client, and does not raise.
 static int luaFit(lua_State* L) {
     PHLWINDOW w = nullptr;
     if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
@@ -345,6 +346,15 @@ static int luaFit(lua_State* L) {
     if (!w)
         w = Desktop::focusState()->window();
     if (w)
+        Snap::clampToWorkArea(w, true);
+    return 0;
+}
+
+// Every mapped float, once per group. Lua uses this on monitor.added/removed
+// so a Lua window object that fails to convert cannot skip a client.
+static int luaFitAll(lua_State* L) {
+    (void)L;
+    for (const auto& w : Desktop::windowState()->windows())
         Snap::clampToWorkArea(w, true);
     return 0;
 }
@@ -635,6 +645,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "chrome_height", ::luaChromeHeight);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "cycle", ::luaCycle);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "fit", ::luaFit);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "fit_all", ::luaFitAll);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "dragging", ::luaDragging);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_window", ::luaDragWindow);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_owns", ::luaDragOwns);

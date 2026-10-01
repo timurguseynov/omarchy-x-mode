@@ -1913,13 +1913,25 @@ end)
 -- moves each floating window there by the monitor offset only. A window that
 -- was snapped on the monitor to the left keeps that snap shifted by whole
 -- screen widths, and one on the right of a wider screen keeps coordinates
--- past the right edge of the narrower one. Fit every window into the monitor
--- it is on now. The plugin puts a window that is a whole screen away back on
--- the same half, and leaves one that is already inside where it is, so
--- windows that were on the remaining monitor do not move.
-hl.on("monitor.removed", function(_)
+-- past the right edge of the narrower one.
+--
+-- Powering the only monitor off has no backup: monitor.removed runs before
+-- the windows have moved. The throw is on monitor.added (the virtual FALLBACK
+-- output, then the real one returning) and on a later arrange that translates
+-- floats again. Fit now, and once more after that arrange. The plugin pages a
+-- window that is a whole screen away back onto the same half, configures the
+-- client, and does not raise, so a click brings it to the front. Windows
+-- already inside stay put.
+local function refit_floats()
   local p = bars()
-  if p == nil or p.fit == nil then
+  if p == nil then
+    return
+  end
+  if p.fit_all ~= nil then
+    pcall(p.fit_all)
+    return
+  end
+  if p.fit == nil then
     return
   end
   for _, w in ipairs(as_list(hl.get_windows())) do
@@ -1927,6 +1939,23 @@ hl.on("monitor.removed", function(_)
       p.fit(w)
     end)
   end
+end
+
+local function schedule_refit()
+  refit_floats()
+  -- Arrange (CMonitor::moveTo) is scheduled after monitor.added/removed, so
+  -- the first pass can run against the old origin. Fit again once that lands.
+  hl.timer(refit_floats, { timeout = 200, type = "oneshot" })
+end
+
+hl.on("monitor.removed", function(_)
+  schedule_refit()
+end)
+hl.on("monitor.added", function(_)
+  schedule_refit()
+end)
+hl.on("monitor.layout_changed", function()
+  schedule_refit()
 end)
 
 -- hyprbars.drag(active, window): save restore-geometry at press; grouping
