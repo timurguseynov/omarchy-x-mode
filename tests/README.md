@@ -197,6 +197,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/titlebar_drawn_test.sh` | the titlebar band is actually painted |
 | `integration/resize_after_open_clears_bar_test.sh` | a window resized after opening still clears the bar (known gap, reported) |
 | `integration/titlebar_rmb_no_drag_test.sh` | a right-button drag does nothing, a left-button drag moves |
+| `integration/workspaces_on_fkeys_test.sh` | the workspace keys move to Super+F1..F10 and the freed digits are mapped for the app |
 
 `focus_test.sh` relies on `hyprctl clients -j` being in z-order (topmost last),
 which is what `lib.sh`'s helpers read.

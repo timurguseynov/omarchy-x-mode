@@ -59,12 +59,14 @@ function M.ctrl_w_set(cfg)
   return M.flag_set(cfg, "ctrl_w")
 end
 
--- { native_scroll, ctrl_tab_switch, no_gaps }, each defaulting to false.
+-- { native_scroll, ctrl_tab_switch, no_gaps, workspaces_fkeys }, each
+-- defaulting to false.
 function M.parse_options(raw)
   return {
     native_scroll = raw:find('"nativeScroll"%s*:%s*true') ~= nil,
     ctrl_tab_switch = raw:find('"ctrlTabSwitch"%s*:%s*true') ~= nil,
     no_gaps = raw:find('"noGaps"%s*:%s*true') ~= nil,
+    workspaces_fkeys = raw:find('"workspacesOnFkeys"%s*:%s*true') ~= nil,
   }
 end
 

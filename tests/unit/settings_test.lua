@@ -24,6 +24,10 @@ check("opt.noGaps", o.no_gaps, true)
 local d = settings.parse_options('{"options":{},"apps":{}}')
 check("opt.defaults", d.native_scroll, false)
 check("opt.defaults2", d.no_gaps, false)
+check("opt.defaults3", d.workspaces_fkeys, false)
+
+local f = settings.parse_options('{"options":{"workspacesOnFkeys":true},"apps":{}}')
+check("opt.workspacesOnFkeys", f.workspaces_fkeys, true)
 
 -- The apps scan must be pointed at the apps section, not the whole file, or
 -- "options" comes back as an app class (the merged-settings bug).

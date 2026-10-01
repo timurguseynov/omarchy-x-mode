@@ -43,6 +43,19 @@ local CODE = {
   [111] = "UP", [116] = "DOWN", [113] = "LEFT", [114] = "RIGHT",
 }
 
+-- name -> Hyprland keycode (the inverse of CODE). `send_shortcut` resolves a
+-- key *name* by looking the keysym up in the active layout, so on a Cyrillic
+-- layout Ctrl+T does not resolve at all; the keycode it is, then, and the app
+-- gets the physical key it means.
+local CODE_BY_KEY = {}
+for code, name in pairs(CODE) do
+  CODE_BY_KEY[name:lower()] = code
+end
+
+function M.key_code(name)
+  return CODE_BY_KEY[tostring(name or ""):lower()]
+end
+
 -- The description every generated bind carries, so a replan does not read back
 -- its own binds as occupied.
 M.PREFIX = "x-mode-super-ctrl"

@@ -27,6 +27,7 @@ It is **additive**. The installer only creates files in its own namespace and on
   * X Mode on or off. Off ungroups every window and puts it back to the floating or tiled state it had before X Mode was installed
   * Natural (reversed) scrolling, for both mouse and touchpad
   * `Ctrl`+`1`…`9` switches tabs. Off by default, so the keys reach the app
+  * Workspaces on `Super`+`F1`…`F10`: off, `Super`+`1`…`0` switch workspaces as Omarchy ships them; on, the F keys do and the digits are left for the app
   * No gaps: no space between windows, with a hairline border kept
   * Per-app titlebar and grouping
   * Always show the tab bar, including the `+` for a single window

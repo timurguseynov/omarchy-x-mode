@@ -32,6 +32,13 @@ end
 check("keys.letter", has_key(supermap.KEYS, "T"), true)
 check("keys.nav", has_key(supermap.KEYS, "LEFT"), true)
 check("keys.punct", has_key(supermap.KEYS, "comma"), true)
+-- The keycode `send_shortcut` sends for a name, so a Cyrillic layout (where the
+-- name does not resolve) still gets the physical key.
+check("code.W", supermap.key_code("W"), 25)
+check("code.digit", supermap.key_code("1"), 10)
+check("code.tab", supermap.key_code("TAB"), 23)
+check("code.unknown", supermap.key_code("nope"), nil)
+check("code.nil", supermap.key_code(nil), nil)
 
 -- A bind table shaped like `hyprctl binds` prints them:
 --   SUPER + T           occupied (Omarchy)

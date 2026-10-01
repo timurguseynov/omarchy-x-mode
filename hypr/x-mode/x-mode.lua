@@ -477,6 +477,23 @@ local ctrl_as_super = {}
 -- forward-declared so the app refresh can call it.
 local apply_super_ctrl
 
+-- Send Ctrl+<key> to a window. The key goes as a keycode, not as a name:
+-- `send_shortcut` resolves a name by looking the keysym up in the *active*
+-- layout, so on a Cyrillic layout Ctrl+T would not resolve at all. A keycode is
+-- what "Cmd+T means the physical T key" wants anyway.
+local function send_ctrl(key, shift, w)
+  local code = supermap.key_code(key)
+  if code == nil then
+    return false
+  end
+  hl.dispatch(hl.dsp.send_shortcut({
+    mods = shift and "CTRL SHIFT" or "CTRL",
+    key = "code:" .. tostring(code),
+    window = w,
+  }))
+  return true
+end
+
 local function window_by_addr(addr)
   if addr == nil then
     return nil
@@ -859,7 +876,7 @@ o.bind("SUPER + W", "Close window", function()
     return
   end
   if ctrl_w_apps[window_class(w)] then
-    hl.dispatch(hl.dsp.send_shortcut({ mods = "CTRL", key = "W", window = w }))
+    send_ctrl("W", false, w)
     return
   end
   hl.dispatch(hl.dsp.window.close({ window = w }))
@@ -1194,22 +1211,27 @@ function x_mode.refresh_apps_off()
   regroup_chrome_on()
 end
 
--- Desktop options (native scroll, Ctrl+1..9 tab switching, no gaps), read
--- from settings.json. Ctrl+1..9 switches group tabs when the focused app has
--- chrome/titlebar on; otherwise the key is passed through to the app. Off by
--- default, so those shortcuts reach the app. Cmd+1..9 stay as Omarchy
--- workspace binds either way. No gaps zeroes the outer and inner gaps and
--- keeps a hairline border.
+-- Desktop options (native scroll, Ctrl+1..9 tab switching, no gaps, workspaces
+-- on F1..F10), read from settings.json. Ctrl+1..9 switches group tabs when the
+-- focused app has chrome/titlebar on; otherwise the key is passed through to the
+-- app. Off by default, so those shortcuts reach the app. No gaps zeroes the
+-- outer and inner gaps and keeps a hairline border. Workspaces on F1..F10 is
+-- what frees Super+1..0 (see apply_workspace_keys); off is Omarchy's layout,
+-- Cmd+1..0 on the workspaces.
 local native_scroll = false
 local ctrl_tab_switch = false
 local ctrl_tab_binds = {}
 local no_gaps = false
+-- Workspace switching on Super+F1..F10 instead of Super+1..0.
+local workspaces_fkeys = false
+local workspace_key_binds = {}
 
 local function load_options()
   local o = settings.parse_options(read_settings())
   native_scroll = o.native_scroll
   ctrl_tab_switch = o.ctrl_tab_switch
   no_gaps = o.no_gaps
+  workspaces_fkeys = o.workspaces_fkeys
 end
 
 -- gaps_* only schedule a layout refresh, and `hyprctl eval` returns before
@@ -1419,11 +1441,7 @@ local function super_ctrl_key(key, shift)
   if w == nil or not ctrl_as_super[window_class(w)] then
     return { pass_event = true }
   end
-  hl.dispatch(hl.dsp.send_shortcut({
-    mods = shift and "CTRL SHIFT" or "CTRL",
-    key = key,
-    window = w,
-  }))
+  send_ctrl(key, shift, w)
 end
 
 local function bind_super_ctrl(raw, gen)
@@ -1473,17 +1491,65 @@ end
 
 apply_super_ctrl()
 
+-- Workspace switching on F1..F10 instead of Super+1..0. Off is Omarchy's layout:
+-- the pack does nothing. On, the digit binds (Omarchy writes them as
+-- `SUPER + code:10..19`) are released so "Super works as Ctrl" can take the
+-- digits -- Ctrl+1..0 switches the app's tabs -- and the F keys switch the
+-- desktop's workspaces. Turning it back off goes through a reload, which
+-- re-creates the Omarchy binds, so only the pack's own binds have to go.
+local function drop_workspace_keys()
+  for _, kb in ipairs(workspace_key_binds) do
+    pcall(function()
+      kb:unbind()
+    end)
+  end
+  workspace_key_binds = {}
+end
+
+local function add_workspace_key(keys, description, dispatcher)
+  local ok, kb = pcall(hl.bind, keys, dispatcher, { description = description })
+  if ok and kb then
+    workspace_key_binds[#workspace_key_binds + 1] = kb
+  end
+end
+
+local function apply_workspace_keys()
+  drop_workspace_keys()
+  if not workspaces_fkeys then
+    return
+  end
+  for i = 1, 10 do
+    local code = tostring(i + 9)
+    hl.unbind("SUPER + code:" .. code)
+    hl.unbind("SUPER + SHIFT + code:" .. code)
+    hl.unbind("SUPER + SHIFT + ALT + code:" .. code)
+    local fkey = "F" .. tostring(i)
+    local ws = tostring(i)
+    add_workspace_key("SUPER + " .. fkey, "Switch to workspace " .. ws, function()
+      hl.dispatch(hl.dsp.focus({ workspace = ws }))
+    end)
+    add_workspace_key("SUPER + SHIFT + " .. fkey, "Move window to workspace " .. ws, function()
+      hl.dispatch(hl.dsp.window.move({ workspace = ws }))
+    end)
+    add_workspace_key("SUPER + SHIFT + ALT + " .. fkey, "Move window silently to workspace " .. ws, function()
+      hl.dispatch(hl.dsp.window.move({ workspace = ws, follow = false }))
+    end)
+  end
+end
+
 function x_mode.refresh_options()
   load_options()
   apply_native_scroll()
   apply_ctrl_tab_switch()
   apply_no_gaps()
+  apply_workspace_keys()
 end
 
 load_options()
 apply_native_scroll()
 apply_ctrl_tab_switch()
 apply_no_gaps()
+apply_workspace_keys()
 
 local function skip_group(w)
   if w == nil or w.pinned or w.hidden then

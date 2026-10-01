@@ -46,6 +46,7 @@ Panel {
   property bool nativeScroll: false
   property bool ctrlTabSwitch: false
   property bool noGaps: false
+  property bool workspacesOnFkeys: false
   property var appsCfg: ({})
   property var running: []
   property string query: ""
@@ -93,7 +94,7 @@ Panel {
         apps[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper }
     }
     var json = JSON.stringify({
-      options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps },
+      options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps, workspacesOnFkeys: root.workspacesOnFkeys },
       apps: apps
     })
     Quickshell.execDetached([
@@ -102,10 +103,11 @@ Panel {
     ])
   }
 
-  function setOptions(nativeScroll, ctrlTabSwitch, noGaps) {
+  function setOptions(nativeScroll, ctrlTabSwitch, noGaps, workspacesOnFkeys) {
     root.nativeScroll = !!nativeScroll
     root.ctrlTabSwitch = !!ctrlTabSwitch
     root.noGaps = !!noGaps
+    root.workspacesOnFkeys = !!workspacesOnFkeys
     // The reload re-runs the config, which reapplies every option from
     // settings.json, and emits configreloaded. The dock only re-reads its screen
     // margin on that event, so without the reload it stays at the old gap. It is
@@ -142,11 +144,13 @@ Panel {
         root.nativeScroll = !!o.nativeScroll
         root.ctrlTabSwitch = !!o.ctrlTabSwitch
         root.noGaps = !!o.noGaps
+        root.workspacesOnFkeys = !!o.workspacesOnFkeys
         root.appsCfg = Logic.parseApps((d && d.apps) || {})
       } catch (e) {
         root.nativeScroll = false
         root.ctrlTabSwitch = false
         root.noGaps = false
+        root.workspacesOnFkeys = false
         root.appsCfg = {}
       }
       root.refreshClients()
@@ -155,6 +159,7 @@ Panel {
       root.nativeScroll = false
       root.ctrlTabSwitch = false
       root.noGaps = false
+      root.workspacesOnFkeys = false
       root.appsCfg = {}
     }
   }
@@ -406,7 +411,7 @@ Panel {
         description: "Natural (reversed) touchpad scrolling"
         checked: root.nativeScroll
         rowEnabled: root.xModeOn
-        onToggled: root.setOptions(!root.nativeScroll, root.ctrlTabSwitch, root.noGaps)
+        onToggled: root.setOptions(!root.nativeScroll, root.ctrlTabSwitch, root.noGaps, root.workspacesOnFkeys)
       }
 
       SwitchRow {
@@ -417,7 +422,18 @@ Panel {
         description: "Jump to a titlebar tab; off, the shortcut goes to the app"
         checked: root.ctrlTabSwitch
         rowEnabled: root.xModeOn
-        onToggled: root.setOptions(root.nativeScroll, !root.ctrlTabSwitch, root.noGaps)
+        onToggled: root.setOptions(root.nativeScroll, !root.ctrlTabSwitch, root.noGaps, root.workspacesOnFkeys)
+      }
+
+      SwitchRow {
+        id: workspaceKeysRow
+        width: parent.width
+        visible: root.openCls === ""
+        label: "Workspaces on F1..F10"
+        description: "Switch workspaces with Super+F1..F10, leaving Super+1..0 for the app"
+        checked: root.workspacesOnFkeys
+        rowEnabled: root.xModeOn
+        onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, root.noGaps, !root.workspacesOnFkeys)
       }
 
       SwitchRow {
@@ -428,7 +444,7 @@ Panel {
         description: "Remove the space between windows and their borders"
         checked: root.noGaps
         rowEnabled: root.xModeOn
-        onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, !root.noGaps)
+        onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, !root.noGaps, root.workspacesOnFkeys)
       }
 
       PanelSeparator {
