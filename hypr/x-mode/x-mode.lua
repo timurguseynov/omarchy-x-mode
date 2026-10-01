@@ -1909,6 +1909,26 @@ hl.on("window.close", function(w)
   hidden_for_join[key] = nil
 end)
 
+-- Hyprland gives a removed monitor's workspaces to the one that is left and
+-- moves each floating window there by the monitor offset only. A window that
+-- was snapped on the monitor to the left keeps that snap shifted by whole
+-- screen widths, and one on the right of a wider screen keeps coordinates
+-- past the right edge of the narrower one. Fit every window into the monitor
+-- it is on now. The plugin puts a window that is a whole screen away back on
+-- the same half, and leaves one that is already inside where it is, so
+-- windows that were on the remaining monitor do not move.
+hl.on("monitor.removed", function(_)
+  local p = bars()
+  if p == nil or p.fit == nil then
+    return
+  end
+  for _, w in ipairs(as_list(hl.get_windows())) do
+    pcall(function()
+      p.fit(w)
+    end)
+  end
+end)
+
 -- hyprbars.drag(active, window): save restore-geometry at press; grouping
 -- waits while the drag is in progress, then joins after the snap.
 --

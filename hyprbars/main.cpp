@@ -332,6 +332,23 @@ static int luaCycle(lua_State* L) {
     return 1;
 }
 
+// Fit a window back inside its monitor's usable frame even when its box
+// already fits by size. Lua runs this for every window when a monitor is
+// unplugged (monitor.removed): Hyprland moves a floating window by the removed
+// monitor's offset only, so it can keep coordinates past an edge of the
+// monitor that is left, where the ordinary clamp -- which leaves a box that
+// fits alone -- never pulls it back.
+static int luaFit(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.fit");
+    if (!w)
+        w = Desktop::focusState()->window();
+    if (w)
+        Snap::clampToWorkArea(w, true);
+    return 0;
+}
+
 static int luaDragging(lua_State* L) {
     lua_pushboolean(L, g_pDragSession && g_pDragSession->inProgress());
     return 1;
@@ -617,6 +634,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "usable", ::luaUsable);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "chrome_height", ::luaChromeHeight);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "cycle", ::luaCycle);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "fit", ::luaFit);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "dragging", ::luaDragging);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_window", ::luaDragWindow);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "drag_owns", ::luaDragOwns);

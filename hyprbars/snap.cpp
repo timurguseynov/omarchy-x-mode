@@ -523,7 +523,7 @@ static bool anyFullscreen(PHLWINDOW w) {
     return modes.internal != Fullscreen::FSMODE_NONE || modes.client != Fullscreen::FSMODE_NONE;
 }
 
-void Snap::clampToWorkArea(PHLWINDOW w) {
+void Snap::clampToWorkArea(PHLWINDOW w, bool force) {
     if (!xModeEnabled() || !w || !w->m_isFloating || !w->m_isMapped || w->isHidden() || anyFullscreen(w))
         return;
     // A drag clamps itself and is allowed to hang off an edge; refitting it here
@@ -629,6 +629,42 @@ void Snap::clampToWorkArea(PHLWINDOW w) {
             else if (box.x + box.w > maxRight)
                 box.x = maxRight - box.w;
         }
+    }
+
+    // The forced pass from monitor removal. A window can sit past any edge,
+    // and its box still fits by size, so the block above skipped it.
+    //
+    // One that is completely off the left (or the top) is a whole number of
+    // screens away: Hyprland translates a float by the monitor origin only,
+    // and moving the surviving monitor applies that delta again, so a left
+    // half and a right half keep their offset inside a screen but land on
+    // the wrong one. Step back by whole monitor sizes first. Pinning both to
+    // the near edge would stack them. A window that still overlaps this
+    // monitor is not on another screen — the right side of a wider one hangs
+    // off this edge — and the clamp below pulls that overhang in. Size is
+    // left alone (a window too wide for the narrower monitor was already
+    // shrunk above). A window wider than the frame keeps its right edge:
+    // pulling it in would walk a left snap off the left edge.
+    if (force) {
+        if (mon.w > 1 && box.x + box.w <= mon.x) {
+            const double pages = std::floor((box.x - mon.x) / mon.w);
+            box.x -= pages * mon.w;
+        }
+        if (mon.h > 1 && box.y + box.h <= mon.y) {
+            const double pages = std::floor((box.y - mon.y) / mon.h);
+            box.y -= pages * mon.h;
+        }
+
+        const double maxBottom = frame.y + frame.h - edge;
+        if (box.h <= maxBottom - minTop && box.y + box.h > maxBottom)
+            box.y = maxBottom - box.h;
+
+        const double minLeft  = frame.x + edge;
+        const double maxRight = frame.x + frame.w - edge;
+        if (box.x < minLeft)
+            box.x = minLeft;
+        else if (box.w <= maxRight - minLeft && box.x + box.w > maxRight)
+            box.x = maxRight - box.w;
     }
 
     const CBox got     = TARGET->position();

@@ -95,6 +95,16 @@ namespace Snap {
     // The decoration positioner's reserved top is the wrong number here: it adds
     // the border decoration on top of the bar, and it still reports a titlebar
     // until that decoration has hidden itself.
-    void               clampToWorkArea(PHLWINDOW w);
+    //
+    // `force` fits a box that already fits the frame, which the normal call
+    // deliberately leaves where it is. That is what a window needs after its
+    // monitor is unplugged: Hyprland hands the workspace to the remaining
+    // monitor and moves the window by the monitor offset only. A window that
+    // lands a whole number of screens off this one (a left half and a right
+    // half on the monitor that was to the left) comes back to that same
+    // offset. A window on the right of a wider screen, still overlapping this
+    // one, keeps its right edge. Lua runs this for every window on
+    // monitor.removed (hyprbars.fit).
+    void               clampToWorkArea(PHLWINDOW w, bool force = false);
 
 }
