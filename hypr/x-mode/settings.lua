@@ -11,7 +11,7 @@ function M.apps_section(raw)
 end
 
 -- { "class": { "chrome": true, "alwaysTabbar": false, "ctrlW": false,
---   "ctrlAsSuper": false } }.
+--   "ctrlAsSuper": false, "ctrlCShift": false } }.
 -- Missing chrome means on; the rest missing means off.
 -- A legacy array of classes means chrome off.
 function M.parse_apps(raw)
@@ -21,11 +21,13 @@ function M.parse_apps(raw)
     local always = body:find('"alwaysTabbar"%s*:%s*true') ~= nil
     local ctrl_w = body:find('"ctrlW"%s*:%s*true') ~= nil
     local ctrl_super = body:find('"ctrlAsSuper"%s*:%s*true') ~= nil
+    local ctrl_c = body:find('"ctrlCShift"%s*:%s*true') ~= nil
     cfg[string.lower(cls)] = {
       chrome = chrome,
       always_tabbar = always,
       ctrl_w = ctrl_w,
       ctrl_as_super = ctrl_super,
+      ctrl_c_shift = ctrl_c,
     }
   end
   if next(cfg) == nil then
@@ -35,6 +37,7 @@ function M.parse_apps(raw)
         always_tabbar = false,
         ctrl_w = false,
         ctrl_as_super = false,
+        ctrl_c_shift = false,
       }
     end
   end

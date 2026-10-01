@@ -7,8 +7,12 @@ Four layers:
   Quickshell/qs.* modules are not on the lint import path, so their "not found"
   warnings are expected; only real errors fail.
 - **`unit/`** — pure Lua, no compositor: the parsing modules in `hypr/x-mode/`
-  (settings, theme, MRU). Geometry has no unit layer on purpose: it is the
-  plugin's (`Snap::`), and the nest covers it.
+  (settings, theme, MRU, the Super-as-Ctrl plan) plus one test that loads the
+  whole config against a stub `hl` to check it survives Omarchy's keybindings
+  scan. Geometry has no unit layer on purpose: it is the plugin's (`Snap::`),
+  and the nest covers it. The runner gives every test a throwaway `HOME` and
+  `$X_MODE_STATE`, so a test that loads the config cannot reach the session's
+  files.
 - **`qml/`** — pure JS, no compositor: the shell plugin's shared logic in
   `quickshell/x-mode/logic.js`, run with `qmltestrunner` offscreen.
 - **`nest/`** — scenarios in a nested Hyprland: a window inside the real session
@@ -108,6 +112,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/chrome_off_drag_reaches_bar_test.sh` | without chrome the box reaches the bar |
 | `integration/chrome_off_no_group_test.sh` | a chrome-off window is never grouped |
 | `integration/ctrl_as_super_test.sh` | Super works as Ctrl: the free Super+keys are bound, occupied ones and the flag being off are not |
+| `integration/ctrl_c_shift_test.sh` | Ctrl+C goes in shifted for the flagged app and stays plain for the rest |
 | `integration/client_fullscreen_not_pushed_test.sh` | a window the app made fullscreen is not re-clamped below the bar |
 | `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
 | `integration/ctrl_tab_switch_binds_test.sh` | Ctrl+1..9 binds are opt-in |
@@ -510,6 +515,7 @@ here any more: it is `Snap::` in the plugin, and the nest is its test layer.
 |---|---|---|
 | `settings_test.lua` | `hypr/x-mode/settings.lua` | options/apps parsing, the apps section vs the whole file, the legacy array, the per-app flags and their sets, the merge of the two old files, the rule diff |
 | `supermap_test.lua` | `hypr/x-mode/supermap.lua` | the keysym list, the free-key plan from a `hyprctl binds` table (occupied, submap and own binds left out, keycode binds mapped back to their key, Shift variants for letters only) |
+| `scan_stub_test.lua` | `hypr/x-mode/x-mode.lua` | the whole config loads under Omarchy's keybindings-scan stub `hl` (every field a callable proxy) without spinning on a query result |
 | `theme_test.lua` | `hypr/x-mode/theme.lua` | the TOML subset (inline comments, quotes), hex/rgb conversion, the bar color defaults |
 | `mru_test.lua` | `hypr/x-mode/mru.lua` | touch ordering, step wrapping, sort by MRU then focus |
 
@@ -525,7 +531,7 @@ Same idea for the shell plugin: the pure JS it shares lives in
 
 | file | covers |
 |---|---|
-| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, ctrlW, ctrlAsSuper, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, pin moves a running app), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg`, `setPanelFlag`, `buildPanelRunning` |
+| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, ctrlW, ctrlAsSuper, ctrlCShift, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, pin moves a running app), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg`, `setPanelFlag`, `buildPanelRunning` |
 
 What is *not* unit-testable this way: the components themselves. `import
 Quickshell` fails under `qmltestrunner` (`plugin "quickshell-coreplugin" not

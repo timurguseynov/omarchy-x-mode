@@ -33,6 +33,7 @@ It is **additive**. The installer only creates files in its own namespace and on
   * Always show the tab bar, including the `+` for a single window
   * Per-app: send `Ctrl`+`W` on `Super`+`W`, so the tab closes and the window stays
   * Per-app: `Super` works as `Ctrl`, so unbound `Super`+key reaches the app as `Ctrl`+key. The keys the desktop already uses stay put, `Super`+`Tab` included
+  * Per-app: `Ctrl`+`C` as `Ctrl`+`Shift`+`C`, for an app with a terminal inside: the key goes in shifted so the app's own binding can make it the interrupt, while `Super`+`C` still copies
 
 ---
 

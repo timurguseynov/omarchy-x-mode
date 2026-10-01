@@ -24,6 +24,19 @@ local mru = dofile(X_MODE_DIR .. "mru.lua")
 local group = dofile(X_MODE_DIR .. "group.lua")
 local supermap = dofile(X_MODE_DIR .. "supermap.lua")
 
+-- A list out of a query result. Omarchy's keybindings scan
+-- (`omarchy-menu-keybindings`) dofiles hyprland.lua with a stub `hl` whose every
+-- field is a callable proxy that answers any index, so a query returns that
+-- proxy instead of a list and `ipairs` walks it forever -- that is what left
+-- three `lua` processes pinned at 100%. The proxy has no __len, so `#` reads 0
+-- and the list comes back empty; in Hyprland the result is a plain array.
+local function as_list(v)
+  if type(v) ~= "table" or #v == 0 then
+    return {}
+  end
+  return v
+end
+
 
 -- ---------------------------------------------------------------------------
 -- Runtime on/off. The bar widget writes ~/.local/state/omarchy-x-mode/enabled
@@ -48,7 +61,7 @@ end
 local function restore_desktop()
   -- Same idea as install.sh uninstall: ungroup everything, restore windows
   -- that were floating before the pack, tile the rest.
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if w.group ~= nil then
       pcall(function()
         hl.dispatch(hl.dsp.window.move({ out_of_group = true, window = w }))
@@ -74,7 +87,7 @@ local function restore_desktop()
         end
       end
     end
-    for _, w in ipairs(hl.get_windows() or {}) do
+    for _, w in ipairs(as_list(hl.get_windows())) do
       local snap = prior[tostring(w.address or "")]
       local want_float = snap and snap.floating or false
       if want_float then
@@ -348,10 +361,10 @@ apply_gap_geometry()
 -- that maps before its first arrange reports no width; that one is skipped.
 local function dock_card_now()
   local ok, layers = pcall(hl.get_layers, { namespace = "x-mode-dock" })
-  if not ok or type(layers) ~= "table" then
+  if not ok then
     return nil
   end
-  for _, layer in ipairs(layers) do
+  for _, layer in ipairs(as_list(layers)) do
     local w = tonumber(layer.w)
     if w ~= nil and w > 0 then
       return math.floor(w)
@@ -473,25 +486,34 @@ local ctrl_w_apps = {}
 -- Classes with the panel's "Super works as Ctrl" flag: unbound Super+key
 -- combinations reach them as Ctrl+key.
 local ctrl_as_super = {}
+-- Classes with the panel's "Ctrl+C as Ctrl+Shift+C" flag: an app that hosts a
+-- terminal needs Ctrl+C left to the shell, so the pack hands it Ctrl+Shift+C
+-- instead and lets the app's own binding decide what that means.
+local ctrl_c_shift_apps = {}
+local ctrl_c_binds = {}
 -- Defined with the other option appliers (it reads the bind table out of band),
 -- forward-declared so the app refresh can call it.
 local apply_super_ctrl
 
--- Send Ctrl+<key> to a window. The key goes as a keycode, not as a name:
+-- Send a chord to a window. The key goes as a keycode, not as a name:
 -- `send_shortcut` resolves a name by looking the keysym up in the *active*
 -- layout, so on a Cyrillic layout Ctrl+T would not resolve at all. A keycode is
 -- what "Cmd+T means the physical T key" wants anyway.
-local function send_ctrl(key, shift, w)
+local function send_chord(mods, key, w)
   local code = supermap.key_code(key)
   if code == nil then
     return false
   end
   hl.dispatch(hl.dsp.send_shortcut({
-    mods = shift and "CTRL SHIFT" or "CTRL",
+    mods = mods,
     key = "code:" .. tostring(code),
     window = w,
   }))
   return true
+end
+
+local function send_ctrl(key, shift, w)
+  return send_chord(shift and "CTRL SHIFT" or "CTRL", key, w)
 end
 
 local function window_by_addr(addr)
@@ -691,7 +713,7 @@ end
 -- app first. The same app stays fullscreen: the key did not select anything
 -- else.
 local function leave_fullscreen_for(cls)
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if w.fullscreen and w.fullscreen ~= 0 and tostring(w.class or "") ~= cls then
       hl.dispatch(hl.dsp.window.fullscreen({ action = "unset", window = w }))
     end
@@ -702,7 +724,7 @@ local function switcher_focus(cls)
   leave_fullscreen_for(cls)
   local best = nil
   local best_focus = nil
-  for _, w in ipairs(hl.get_windows()) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if tostring(w.class or "") == cls then
       local f = tonumber(w.focus_history_id) or 999999
       if best == nil or f < best_focus then
@@ -728,7 +750,7 @@ local function switcher_step(step)
     -- (smallest focus_history_id): a class can have several windows, and taking
     -- the first one in hl.get_windows() order would sort it by the wrong window.
     local by_class = {}
-    for _, w in ipairs(hl.get_windows()) do
+    for _, w in ipairs(as_list(hl.get_windows())) do
       local cls = tostring(w.class or "")
       if cls ~= "" then
         local f = tonumber(w.focus_history_id) or 999999
@@ -1036,11 +1058,13 @@ end
 -- it) and out of the state dir (also removed).
 -- { "options": { "nativeScroll": ..., ... },
 --   "apps": { "class": { "chrome": true, "alwaysTabbar": false,
---                      "ctrlW": false, "ctrlAsSuper": false } } }
+--                      "ctrlW": false, "ctrlAsSuper": false, "ctrlCShift": false } } }
 -- chrome=false → no titlebar/tabbar/grouping. alwaysTabbar → tab strip even
 -- when the window is not grouped. ctrlW → Super+W closes the app's tab (Ctrl+W);
--- ctrlAsSuper → unbound Super+key reaches the app as Ctrl+key. Missing entries
--- mean chrome on, flags off.
+-- ctrlAsSuper → unbound Super+key reaches the app as Ctrl+key; ctrlCShift →
+-- Ctrl+C reaches it as Ctrl+Shift+C, so the app's own binding can make it the
+-- interrupt while Super+C stays the copy. Missing entries mean chrome on, flags
+-- off.
 --
 -- The bar panel is the only writer. The runtime on/off flag stays a separate
 -- plain file (`enabled`): the plugin reads that one with stdio, before any Lua
@@ -1118,8 +1142,34 @@ sync_apps_off()
 local function sync_app_flags()
   ctrl_w_apps = settings.ctrl_w_set(apps_cfg)
   ctrl_as_super = settings.flag_set(apps_cfg, "ctrl_as_super")
+  ctrl_c_shift_apps = settings.flag_set(apps_cfg, "ctrl_c_shift")
 end
 sync_app_flags()
+
+-- Ctrl+C for an app that hosts a terminal. Ctrl+C is the shell's interrupt and
+-- the app cannot tell it apart from the copy chord a desktop sends (Super+C
+-- arrives through Omarchy's universal clipboard as Ctrl+C). For an app with this
+-- flag the physical Ctrl+C goes in shifted instead, so the app's own
+-- Ctrl+Shift+C binding decides what it means -- in Zed that is the interrupt --
+-- while Super+C keeps arriving as Ctrl+C and copies.
+--
+-- Only the physical key is caught: a chord the desktop sends goes straight to
+-- the client and never through the bind table, so this cannot loop.
+local function apply_ctrl_c_shift()
+  if #ctrl_c_binds > 0 or next(ctrl_c_shift_apps) == nil then
+    return
+  end
+  local ok, kb = pcall(hl.bind, "CTRL + C", function()
+    local w = hl.get_active_window()
+    if w == nil or not ctrl_c_shift_apps[window_class(w)] then
+      return { pass_event = true }
+    end
+    send_chord("CTRL SHIFT", "C", w)
+  end, { description = "Shift Ctrl+C for the app" })
+  if ok and kb then
+    ctrl_c_binds[#ctrl_c_binds + 1] = kb
+  end
+end
 
 local nobar_applied = {}
 local always_applied = {}
@@ -1144,6 +1194,7 @@ local function apply_apps()
   apps_cfg = load_apps()
   sync_apps_off()
   sync_app_flags()
+  apply_ctrl_c_shift()
   local wanted_nobar, wanted_always = settings.desired_rules(apps_cfg)
   local add_nobar, drop_nobar = settings.rule_diff(wanted_nobar, nobar_applied)
   local add_always, drop_always = settings.rule_diff(wanted_always, always_applied)
@@ -1164,7 +1215,7 @@ local function apply_apps()
 end
 
 local function ungroup_where(pred)
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if pred(window_class(w)) and w.group ~= nil then
       pcall(function()
         hl.dispatch(hl.dsp.window.move({ out_of_group = true, window = w }))
@@ -1189,7 +1240,7 @@ local function ungroup_never()
 end
 
 local function regroup_chrome_on()
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if chrome_on(window_class(w)) then
       join_same_app(w)
     end
@@ -1264,7 +1315,7 @@ local function zoned_hits(target)
   end
 
   local rest = {}
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if w.floating and not w.pinned and not w.hidden then
       local ok, kind = pcall(p.zone, w)
       if ok and type(kind) == "string" and kind ~= "" then
@@ -1349,7 +1400,7 @@ local function resnap_zoned()
       return
     end
   end
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if w.floating and not w.pinned and not w.hidden then
       local ok, kind = pcall(p.zone, w)
       if ok and type(kind) == "string" and kind ~= "" then
@@ -1674,7 +1725,7 @@ find_peer = function(w)
   end
   local class = window_class(w)
   local wid = ws_id(w)
-  local windows = hl.get_windows()
+  local windows = as_list(hl.get_windows())
   if type(windows) ~= "table" then
     return nil
   end
@@ -1915,7 +1966,7 @@ refresh_dock_card()
 -- spread across separate groups. Pick a grouped window as the leader when there
 -- is one, so the group keeps its position.
 local function consolidate()
-  local windows = hl.get_windows()
+  local windows = as_list(hl.get_windows())
   if type(windows) ~= "table" then
     return
   end
@@ -1977,7 +2028,7 @@ local function take_arrange_marker()
 end
 
 function x_mode.arrange_halves()
-  local windows = hl.get_windows()
+  local windows = as_list(hl.get_windows())
   if type(windows) ~= "table" then
     return
   end
@@ -2041,7 +2092,7 @@ end
 -- group.
 local function arrange_candidates()
   local out = {}
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     w = refresh_window(w) or w
     if w.mapped and not w.hidden and not is_fullscreen(w) and w.monitor ~= nil then
       out[#out + 1] = w
@@ -2054,7 +2105,7 @@ end
 -- arrange pending it is deferred to inside the fade, so the float happens on
 -- invisible windows instead of moving them on screen before the fade.
 local function float_tiled()
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if w.mapped and not w.floating and not is_fullscreen(w) then
       hl.dispatch(hl.dsp.window.float({ action = "enable", window = w }))
     end
@@ -2105,7 +2156,7 @@ hl.timer(function()
   else
     consolidate()
   end
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     release_hypr_maximize(refresh_window(w) or w)
   end
 end, { timeout = 600, type = "oneshot" })

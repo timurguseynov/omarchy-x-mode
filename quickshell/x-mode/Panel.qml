@@ -47,6 +47,11 @@ Panel {
   property bool ctrlTabSwitch: false
   property bool noGaps: false
   property bool workspacesOnFkeys: false
+  // The card is capped so it never spills past the popup. The app list gets a
+  // taller cap than the per-app card: with the fixed content above it, the 480
+  // left room for barely two rows before the list had to scroll.
+  readonly property int cardCap: openCls === "" ? Style.space(720) : Style.space(480)
+  readonly property int listCap: Style.space(480)
   property var appsCfg: ({})
   property var running: []
   property string query: ""
@@ -90,8 +95,8 @@ Panel {
     var apps = {}
     for (var k in appsCfg) {
       var e = appsCfg[k]
-      if (e && (e.chrome === false || e.alwaysTabbar || e.ctrlW || e.ctrlAsSuper))
-        apps[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper }
+      if (e && (e.chrome === false || e.alwaysTabbar || e.ctrlW || e.ctrlAsSuper || e.ctrlCShift))
+        apps[k] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlCShift: !!e.ctrlCShift }
     }
     var json = JSON.stringify({
       options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps, workspacesOnFkeys: root.workspacesOnFkeys },
@@ -127,6 +132,9 @@ Panel {
   onOpenedChanged: {
     if (opened) {
       openCls = ""
+      // A filter left from the last time the panel was open would hide apps
+      // the next time it is, so every open starts from the whole list.
+      query = ""
       refreshClients()
     }
   }
@@ -327,7 +335,7 @@ Panel {
     centerOnBar: false
     focusTarget: searchField
     contentWidth: panel.fittedContentWidth(Style.space(360))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(480))
+    contentHeight: panel.fittedContentHeight(column.implicitHeight, root.cardCap)
 
     Column {
       id: column
@@ -538,6 +546,14 @@ Panel {
           checked: root.cfgFor(root.openCls).ctrlAsSuper
           onToggled: root.setFlag("ctrlAsSuper", !root.cfgFor(root.openCls).ctrlAsSuper)
         }
+
+        SwitchRow {
+          width: parent.width
+          label: "Ctrl+C as Ctrl+Shift+C"
+          description: "For an app with a terminal: Ctrl+C goes in shifted, Super+C still copies"
+          checked: root.cfgFor(root.openCls).ctrlCShift
+          onToggled: root.setFlag("ctrlCShift", !root.cfgFor(root.openCls).ctrlCShift)
+        }
       }
 
       Flickable {
@@ -548,12 +564,12 @@ Panel {
         // card, so a long list scrolls in place instead of spilling past the
         // popup. `listFixedHeight` excludes this list, so this is not circular.
         height: {
-          var cap = Style.space(480)
+          var cap = root.cardCap
           var avail = panel.availableCardHeight > 0 ? panel.availableCardHeight : cap
           var cardContent = Math.max(0, Math.min(cap, avail) - panel.verticalContentInset)
           var room = cardContent - root.listFixedHeight - column.spacing
           var wanted = Math.max(Style.space(80), appColumn.implicitHeight)
-          return Math.max(Style.space(80), Math.min(Style.space(280), wanted, room))
+          return Math.max(Style.space(80), Math.min(root.listCap, wanted, room))
         }
         contentHeight: appColumn.implicitHeight
         clip: true
