@@ -61,7 +61,6 @@ Panel {
   }
 
   property bool nativeScroll: false
-  property bool ctrlTabSwitch: false
   property bool noGaps: false
   property bool workspacesOnFkeys: false
   // The card is capped so it never spills past the popup. The app list gets a
@@ -72,8 +71,10 @@ Panel {
   readonly property int cardCap: Style.space(720)
   property var appsCfg: ({})
   // The keyboard replacements forced on for every app (settings options.keys).
-  // A flag here is read as set for any class, and the card shows the row locked.
+  // A flag here is the fallback a card's row can pin against, and the colors.toml
+  // accents are what a pinned row is painted with.
   property var globalKeys: ({})
+  property var accents: ({})
   // Ctrl+Cmd+Q is the Mac lock key, and Omarchy's Calculator sits there. On unless
   // the file says otherwise; off hands the key back to the Calculator.
   property bool lockKey: true
@@ -121,8 +122,18 @@ Panel {
     writeSettings("hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null")
   }
 
-  function setOccupiedKey(id, value) {
-    var next = Logic.setOccupiedKey(appsCfg, openCls, id, value)
+  function setOccupiedKey(id, state) {
+    var next = Logic.setOccupiedKey(appsCfg, openCls, id, state)
+    if (!next)
+      return
+    appsCfg = next
+    writeSettings("hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null")
+  }
+
+  // One keyboard replacement set to a state for this app: inherit, Always on, or
+  // Always off. A pin is what lets the app disagree with the desktop.
+  function setKeyFlag(flag, state) {
+    var next = Logic.setKeyFlag(appsCfg, openCls, flag, state)
     if (!next)
       return
     appsCfg = next
@@ -157,17 +168,29 @@ Panel {
     var apps = {}
     for (var k in appsCfg) {
       var e = appsCfg[k]
-      if (e && (e.chrome === false || e.alwaysTabbar || e.ctrlW || e.ctrlAsSuper || e.ctrlCShift || e.ctrlClick || e.digitTabs || (e.ctrlAsSuperKeys && e.ctrlAsSuperKeys.length))) {
-        var row = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlCShift: !!e.ctrlCShift, ctrlClick: !!e.ctrlClick }
-        if (e.digitTabs)
-          row.digitTabs = true
-        if (e.ctrlAsSuperKeys && e.ctrlAsSuperKeys.length)
-          row.ctrlAsSuperKeys = e.ctrlAsSuperKeys
-        apps[k] = row
+      var row = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar }
+      var pinned = false
+      for (var j = 0; j < Logic.KEY_FLAG_NAMES.length; j++) {
+        var name = Logic.KEY_FLAG_NAMES[j]
+        if (e[name] !== undefined) {
+          row[name] = e[name] === true
+          pinned = true
+        }
       }
+      var keys = e.ctrlAsSuperKeys || []
+      var keysOff = e.ctrlAsSuperKeysOff || []
+      if (keys.length)
+        row.ctrlAsSuperKeys = keys
+      if (keysOff.length)
+        row.ctrlAsSuperKeysOff = keysOff
+      // Only what was set: an unset flag has to stay unset, or it would read as a
+      // pin once the desktop has an answer of its own.
+      if (e.chrome !== false && !e.alwaysTabbar && !pinned && keys.length === 0 && keysOff.length === 0)
+        continue
+      apps[k] = row
     }
     var json = JSON.stringify({
-      options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps, workspacesOnFkeys: root.workspacesOnFkeys, lockScreenKey: root.lockKey, keys: root.globalKeys },
+      options: { nativeScroll: root.nativeScroll, noGaps: root.noGaps, workspacesOnFkeys: root.workspacesOnFkeys, lockScreenKey: root.lockKey, keys: root.globalKeys },
       apps: apps
     })
     Quickshell.execDetached([
@@ -176,9 +199,8 @@ Panel {
     ])
   }
 
-  function setOptions(nativeScroll, ctrlTabSwitch, noGaps, workspacesOnFkeys) {
+  function setOptions(nativeScroll, noGaps, workspacesOnFkeys) {
     root.nativeScroll = !!nativeScroll
-    root.ctrlTabSwitch = !!ctrlTabSwitch
     root.noGaps = !!noGaps
     root.workspacesOnFkeys = !!workspacesOnFkeys
     // The reload re-runs the config, which reapplies every option from
@@ -209,6 +231,18 @@ Panel {
   }
 
   FileView {
+    id: themeFile
+    // The theme's colors.toml, for the green and red the pinned rows use: Omarchy's
+    // QML palette has no green, and these are the theme's own colours either way.
+    path: Color.currentThemePath + "/colors.toml"
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.accents = Logic.parseThemeAccents(text())
+    onFileChanged: reload()
+    onLoadFailed: root.accents = ({})
+  }
+
+  FileView {
     id: settingsFile
     path: root.settingsPath
     watchChanges: true
@@ -219,7 +253,6 @@ Panel {
         var d = JSON.parse(text())
         var o = (d && d.options) || {}
         root.nativeScroll = !!o.nativeScroll
-        root.ctrlTabSwitch = !!o.ctrlTabSwitch
         root.noGaps = !!o.noGaps
         root.workspacesOnFkeys = !!o.workspacesOnFkeys
         root.globalKeys = (o.keys && typeof o.keys === "object") ? o.keys : ({})
@@ -227,7 +260,6 @@ Panel {
         root.appsCfg = Logic.parseApps((d && d.apps) || {})
       } catch (e) {
         root.nativeScroll = false
-        root.ctrlTabSwitch = false
         root.noGaps = false
         root.workspacesOnFkeys = false
         root.globalKeys = ({})
@@ -238,7 +270,6 @@ Panel {
     }
     onLoadFailed: {
       root.nativeScroll = false
-      root.ctrlTabSwitch = false
       root.noGaps = false
       root.workspacesOnFkeys = false
       root.globalKeys = ({})
@@ -291,12 +322,25 @@ Panel {
     property string description: ""
     property bool checked: false
     property bool rowEnabled: true
+    // A left edge in a state's colour: green for Always on, red for Always off,
+    // nothing while the row follows the desktop. The pack's rows are otherwise flat,
+    // so the edge is the whole marker.
+    property color tint: "transparent"
     signal toggled()
 
     implicitHeight: srowContent.implicitHeight + Style.spacing.rowPaddingX
     foreground: root.contentForeground
     hasCursor: srowMouse.containsMouse && srow.rowEnabled
     opacity: srow.rowEnabled ? 1 : 0.5
+
+    Rectangle {
+      visible: srow.tint !== "transparent"
+      width: Style.space(2)
+      height: parent.height
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      color: srow.tint
+    }
 
     MouseArea {
       id: srowMouse
@@ -437,6 +481,8 @@ Panel {
     property var forced: ({})
     property bool workspacesOnFkeys: false
     property var occupiedKeys: []
+    // The theme's own green and red, read by the panel from colors.toml.
+    property var accents: ({})
     signal flagToggled(string flag, bool value)
     signal keyToggled(string id, bool value)
 
@@ -456,23 +502,13 @@ Panel {
       visible: !krows.isApp
 
       SwitchRow {
-        id: krowsTabKeysRow
-        width: parent.width
-        label: "Ctrl+1..0 switches tabs"
-        description: "Jump to a titlebar tab; off, the shortcut goes to the app"
-        checked: root.ctrlTabSwitch
-        rowEnabled: root.xModeOn
-        onToggled: root.setOptions(root.nativeScroll, !root.ctrlTabSwitch, root.noGaps, root.workspacesOnFkeys)
-      }
-
-      SwitchRow {
         id: krowsWorkspaceKeysRow
         width: parent.width
         label: "Workspaces on F1..F10"
         description: "Super+F1..F10 switch workspaces; the freed digits follow Key replacements"
         checked: root.workspacesOnFkeys
         rowEnabled: root.xModeOn
-        onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, root.noGaps, !root.workspacesOnFkeys)
+        onToggled: root.setOptions(root.nativeScroll, root.noGaps, !root.workspacesOnFkeys)
       }
 
       SwitchRow {
@@ -494,24 +530,37 @@ Panel {
     readonly property var flagRows: [
       { flag: "ctrlAsSuper", label: "Super works as Ctrl", description: "Keys Omarchy does not already use" },
       { flag: "digitTabs", label: "⌘+1..0 for the pack's tabs", description: krows.workspacesOnFkeys ? "Reserved: no tab of that number means the key does nothing" : "Needs Workspaces on F1..F10, which frees the digits" },
+      { flag: "ctrlTabSwitch", label: "Ctrl+1..0 switches tabs", description: "Jump to a titlebar tab; off, the shortcut goes to the app" },
       { flag: "ctrlW", label: "⌘+W as Ctrl+W", description: "Close window" },
       { flag: "ctrlClick", label: "⌘+click as Ctrl+click", description: "Links, multi-select" },
       { flag: "ctrlCShift", label: "Ctrl+C as Ctrl+Shift+C", description: "Interrupt in a terminal; Super+C still copies" }
     ]
 
+    // Green, red, or nothing: the theme's own colours for the two pinned states, out
+    // of colors.toml (Omarchy's QML palette has no green), falling back to its accent
+    // and urgent.
+    readonly property color onTint: krows.accents.green || Color.accent
+    readonly property color offTint: krows.accents.red || Color.urgent
+
+    function stateColor(state) {
+      return state === "on" ? krows.onTint : state === "off" ? krows.offTint : "transparent"
+    }
+
     Repeater {
       model: krows.flagRows
       SwitchRow {
         required property var modelData
+        // In a card the row is three-state; on the "for every app" screen it is the
+        // desktop's own answer, so a plain switch with no "Always" to say.
+        readonly property var st: krows.isApp
+          ? Logic.keyFlagState(krows.cfg, krows.forced, modelData.flag)
+          : Logic.keyFlagState(krows.cfg, ({}), modelData.flag)
         width: krows.width
         label: modelData.label
-        description: {
-          var st = Logic.keyFlagState(krows.cfg, krows.forced, modelData.flag)
-          return (krows.isApp && st.locked) ? "Set for every app" : modelData.description
-        }
-        checked: Logic.keyFlagState(krows.cfg, krows.forced, modelData.flag).checked
-        rowEnabled: !(krows.isApp && Logic.keyFlagState(krows.cfg, krows.forced, modelData.flag).locked)
-        onToggled: krows.flagToggled(modelData.flag, !Logic.keyFlagState(krows.cfg, krows.forced, modelData.flag).checked)
+        description: krows.isApp ? Logic.keyFlagDescription(st.state, st.global) : modelData.description
+        checked: st.checked
+        tint: krows.isApp ? krows.stateColor(st.state) : "transparent"
+        onToggled: krows.flagToggled(modelData.flag, krows.isApp ? Logic.nextKeyFlagState(st.state) : (st.checked ? "off" : "on"))
       }
     }
 
@@ -525,15 +574,15 @@ Panel {
       model: krows.occupiedKeys
       SwitchRow {
         required property var modelData
+        readonly property var st: krows.isApp
+          ? Logic.keyStealState(krows.cfg, krows.forced, modelData.id)
+          : ({ state: Logic.hasGlobalSteal(krows.forced, modelData.id) ? "on" : "off", checked: Logic.hasGlobalSteal(krows.forced, modelData.id), global: false, pinned: false })
         width: krows.width
         label: Logic.stealToggleLabel(modelData.label || modelData.id)
-        description: {
-          var st = Logic.keyStealState(krows.cfg, krows.forced, modelData.id)
-          return (krows.isApp && st.locked) ? "Set for every app" : String(modelData.description || "")
-        }
-        checked: Logic.keyStealState(krows.cfg, krows.forced, modelData.id).checked
-        rowEnabled: !(krows.isApp && Logic.keyStealState(krows.cfg, krows.forced, modelData.id).locked)
-        onToggled: krows.keyToggled(modelData.id, !Logic.keyStealState(krows.cfg, krows.forced, modelData.id).checked)
+        description: krows.isApp ? Logic.keyFlagDescription(st.state, st.global) : String(modelData.description || "")
+        checked: st.checked
+        tint: krows.isApp ? krows.stateColor(st.state) : "transparent"
+        onToggled: krows.keyToggled(modelData.id, krows.isApp ? Logic.nextKeyFlagState(st.state) : (st.checked ? "off" : "on"))
       }
     }
   }
@@ -699,7 +748,7 @@ Panel {
         description: "Natural (reversed) touchpad scrolling"
         checked: root.nativeScroll
         rowEnabled: root.xModeOn
-        onToggled: root.setOptions(!root.nativeScroll, root.ctrlTabSwitch, root.noGaps, root.workspacesOnFkeys)
+        onToggled: root.setOptions(!root.nativeScroll, root.noGaps, root.workspacesOnFkeys)
       }
 
       SwitchRow {
@@ -710,7 +759,7 @@ Panel {
         description: "Remove the space between windows and their borders"
         checked: root.noGaps
         rowEnabled: root.xModeOn
-        onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, !root.noGaps, root.workspacesOnFkeys)
+        onToggled: root.setOptions(root.nativeScroll, !root.noGaps, root.workspacesOnFkeys)
       }
 
       // The keys screen is several rows long, so the main panel gets an entry
@@ -861,20 +910,21 @@ Panel {
           id: keysColumn
           cls: root.openCls
           cfg: root.openCls === "" ? Logic.globalScopeCfg(root.globalKeys) : root.cfgFor(root.openCls)
-          forced: root.openCls === "" ? ({}) : root.globalKeys
+          forced: root.openCls === "" ? root.globalKeys : root.globalKeys
+          accents: root.accents
           workspacesOnFkeys: root.workspacesOnFkeys
           occupiedKeys: root.occupiedKeys
-          onFlagToggled: (flag, value) => {
+          onFlagToggled: (flag, state) => {
             if (root.openCls === "")
-              root.setGlobalFlag(flag, value)
+              root.setGlobalFlag(flag, state === "on")
             else
-              root.setFlag(flag, value)
+              root.setKeyFlag(flag, state)
           }
-          onKeyToggled: (id, value) => {
+          onKeyToggled: (id, state) => {
             if (root.openCls === "")
-              root.setGlobalSteal(id, value)
+              root.setGlobalSteal(id, state === "on")
             else
-              root.setOccupiedKey(id, value)
+              root.setOccupiedKey(id, state)
           }
         }
       }

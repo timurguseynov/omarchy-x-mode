@@ -34,7 +34,18 @@ function copyOccupiedKeys(keys) {
 }
 
 function emptyAppCfg() {
-    return { chrome: false, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlCShift: false, ctrlClick: false, digitTabs: false, ctrlAsSuperKeys: [] }
+    return {
+        chrome: false,
+        alwaysTabbar: false,
+        ctrlW: undefined,
+        ctrlAsSuper: undefined,
+        ctrlCShift: undefined,
+        ctrlClick: undefined,
+        digitTabs: undefined,
+        ctrlTabSwitch: undefined,
+        ctrlAsSuperKeys: [],
+        ctrlAsSuperKeysOff: []
+    }
 }
 
 // The panel's apps map: { "class": { chrome, alwaysTabbar, ctrlW, ctrlAsSuper,
@@ -52,13 +63,37 @@ function parseApps(raw) {
             for (var k in d) {
                 var e = d[k]
                 if (e && typeof e === "object")
-                    set[String(k).toLowerCase()] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlCShift: !!e.ctrlCShift, ctrlClick: !!e.ctrlClick, digitTabs: !!e.digitTabs, ctrlAsSuperKeys: copyOccupiedKeys(e.ctrlAsSuperKeys) }
+                    set[String(k).toLowerCase()] = {
+                        chrome: e.chrome !== false,
+                        alwaysTabbar: !!e.alwaysTabbar,
+                        // Three states each: true is Always on, false is Always off,
+                        // and absent follows the desktop. The panel writes only the
+                        // pinned ones, so a file that predates this reads as the
+                        // desktop's answer where it says nothing.
+                        ctrlW: triFlag(e.ctrlW),
+                        ctrlAsSuper: triFlag(e.ctrlAsSuper),
+                        ctrlCShift: triFlag(e.ctrlCShift),
+                        ctrlClick: triFlag(e.ctrlClick),
+                        digitTabs: triFlag(e.digitTabs),
+                        ctrlTabSwitch: triFlag(e.ctrlTabSwitch),
+                        ctrlAsSuperKeys: copyOccupiedKeys(e.ctrlAsSuperKeys),
+                        ctrlAsSuperKeysOff: copyOccupiedKeys(e.ctrlAsSuperKeysOff)
+                    }
                 else
                     set[String(k).toLowerCase()] = emptyAppCfg()
             }
         }
     } catch (err) {}
     return set
+}
+
+// true, false, or undefined for "no setting of its own".
+function triFlag(v) {
+    if (v === true)
+        return true
+    if (v === false)
+        return false
+    return undefined
 }
 
 // Normalise a window class into a desktop-entry-ish name: drop a leading
@@ -320,34 +355,55 @@ function panelCfgFor(appsCfg, cls) {
     var key = String(cls || "").toLowerCase()
     var e = (appsCfg || {})[key]
     if (!e)
-        return { chrome: true, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlCShift: false, ctrlClick: false, digitTabs: false, ctrlAsSuperKeys: [] }
+        return { chrome: true, alwaysTabbar: false, ctrlW: undefined, ctrlAsSuper: undefined, ctrlCShift: undefined, ctrlClick: undefined, digitTabs: undefined, ctrlTabSwitch: undefined, ctrlAsSuperKeys: [], ctrlAsSuperKeysOff: [] }
     return {
         chrome: e.chrome !== false,
         alwaysTabbar: !!e.alwaysTabbar,
-        ctrlW: !!e.ctrlW,
-        ctrlAsSuper: !!e.ctrlAsSuper,
-        ctrlCShift: !!e.ctrlCShift,
-        ctrlClick: !!e.ctrlClick,
-        digitTabs: !!e.digitTabs,
-        ctrlAsSuperKeys: copyOccupiedKeys(e.ctrlAsSuperKeys)
+        ctrlW: triFlag(e.ctrlW),
+        ctrlAsSuper: triFlag(e.ctrlAsSuper),
+        ctrlCShift: triFlag(e.ctrlCShift),
+        ctrlClick: triFlag(e.ctrlClick),
+        digitTabs: triFlag(e.digitTabs),
+        ctrlTabSwitch: triFlag(e.ctrlTabSwitch),
+        ctrlAsSuperKeys: copyOccupiedKeys(e.ctrlAsSuperKeys),
+        ctrlAsSuperKeysOff: copyOccupiedKeys(e.ctrlAsSuperKeysOff)
     }
 }
 
-// Per-app config update: a copy with the entry set, or dropped when every field
-// is back at its default (chrome on, nothing else). Null for an empty class.
-function mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar, ctrlW, ctrlAsSuper, ctrlCShift, ctrlClick, ctrlAsSuperKeys, digitTabs) {
+// Per-app config update: a copy with the entry set, or dropped when every field is
+// back at its default (chrome on, nothing else). Null for an empty class. Takes the
+// config object, so an unset flag stays unset -- writing every flag out as true or
+// false is what would turn "follows the desktop" into a pin.
+function mergePanelCfg(appsCfg, cls, cfg) {
     var key = String(cls || "").toLowerCase()
     if (key === "")
         return null
     var next = {}
-    var cfg = appsCfg || {}
-    for (var k in cfg)
-        next[k] = cfg[k]
-    var keys = copyOccupiedKeys(ctrlAsSuperKeys)
-    if (chrome && !alwaysTabbar && !ctrlW && !ctrlAsSuper && !ctrlCShift && !ctrlClick && !digitTabs && keys.length === 0)
+    var base = appsCfg || {}
+    for (var k in base)
+        next[k] = base[k]
+    var keys = copyOccupiedKeys(cfg.ctrlAsSuperKeys)
+    var keysOff = copyOccupiedKeys(cfg.ctrlAsSuperKeysOff)
+    var pinned = false
+    for (var i = 0; i < KEY_FLAG_NAMES.length; i++) {
+        if (cfg[KEY_FLAG_NAMES[i]] !== undefined)
+            pinned = true
+    }
+    if (cfg.chrome !== false && !cfg.alwaysTabbar && !pinned && keys.length === 0 && keysOff.length === 0) {
         delete next[key]
-    else
-        next[key] = { chrome: chrome, alwaysTabbar: !!alwaysTabbar, ctrlW: !!ctrlW, ctrlAsSuper: !!ctrlAsSuper, ctrlCShift: !!ctrlCShift, ctrlClick: !!ctrlClick, digitTabs: !!digitTabs, ctrlAsSuperKeys: keys }
+        return next
+    }
+    var row = { chrome: cfg.chrome !== false, alwaysTabbar: !!cfg.alwaysTabbar }
+    for (var j = 0; j < KEY_FLAG_NAMES.length; j++) {
+        var name = KEY_FLAG_NAMES[j]
+        if (cfg[name] !== undefined)
+            row[name] = cfg[name] === true
+    }
+    if (keys.length)
+        row.ctrlAsSuperKeys = keys
+    if (keysOff.length)
+        row.ctrlAsSuperKeysOff = keysOff
+    next[key] = row
     return next
 }
 
@@ -359,7 +415,18 @@ function setPanelFlag(appsCfg, cls, flag, value) {
         return null
     var cfg = panelCfgFor(appsCfg, key)
     cfg[flag] = !!value
-    return mergePanelCfg(appsCfg, key, cfg.chrome, cfg.alwaysTabbar, cfg.ctrlW, cfg.ctrlAsSuper, cfg.ctrlCShift, cfg.ctrlClick, cfg.ctrlAsSuperKeys, cfg.digitTabs)
+    return mergePanelCfg(appsCfg, key, cfg)
+}
+
+// One keyboard flag set to a state: "inherit" clears the app's own answer (it goes
+// back to following the desktop), "on" and "off" pin it. Null for a bad name.
+function setKeyFlag(appsCfg, cls, flag, state) {
+    var key = String(cls || "").toLowerCase()
+    if (key === "" || KEY_FLAG_NAMES.indexOf(String(flag)) < 0)
+        return null
+    var cfg = panelCfgFor(appsCfg, key)
+    cfg[flag] = state === "on" ? true : state === "off" ? false : undefined
+    return mergePanelCfg(appsCfg, key, cfg)
 }
 
 // Occupied-key rows in the panel. Same ids/labels means the Repeater can keep
@@ -400,65 +467,145 @@ function hasOccupiedKey(cfg, id) {
     return false
 }
 
-// Steal or give back one occupied Super key for this app. The id is the
-// supermap spelling ("Q", "SHIFT+TAB"). Empty class or id returns null.
-function setOccupiedKey(appsCfg, cls, id, on) {
+function hasOccupiedKeyOff(cfg, id) {
+    var keys = (cfg && cfg.ctrlAsSuperKeysOff) || []
+    for (var i = 0; i < keys.length; i++) {
+        if (keys[i] === id)
+            return true
+    }
+    return false
+}
+
+// One occupied key for this app in one of its three states: inherit (both lists
+// say nothing), on (the steal list), off (the Always off list -- which wins in the
+// engine too, and the panel never writes both). The id is the supermap spelling
+// ("Q", "SHIFT+TAB"); an empty class or id returns null.
+function setOccupiedKey(appsCfg, cls, id, state) {
     id = String(id || "")
     if (id === "")
         return null
     var cfg = panelCfgFor(appsCfg, cls)
-    var keys = []
-    var seen = false
-    for (var i = 0; i < cfg.ctrlAsSuperKeys.length; i++) {
-        if (cfg.ctrlAsSuperKeys[i] === id) {
-            seen = true
-            if (on)
-                keys.push(id)
-        } else {
-            keys.push(cfg.ctrlAsSuperKeys[i])
-        }
+    var next = {}
+    for (var k in cfg)
+        next[k] = cfg[k]
+    next.ctrlAsSuperKeys = withoutId(cfg.ctrlAsSuperKeys, id)
+    next.ctrlAsSuperKeysOff = withoutId(cfg.ctrlAsSuperKeysOff, id)
+    if (state === "on")
+        next.ctrlAsSuperKeys.push(id)
+    if (state === "off")
+        next.ctrlAsSuperKeysOff.push(id)
+    return mergePanelCfg(appsCfg, cls, next)
+}
+
+function withoutId(list, id) {
+    var out = []
+    var keys = list || []
+    for (var i = 0; i < keys.length; i++) {
+        if (keys[i] !== id)
+            out.push(keys[i])
     }
-    if (on && !seen)
-        keys.push(id)
-    return mergePanelCfg(appsCfg, cls, cfg.chrome, cfg.alwaysTabbar, cfg.ctrlW, cfg.ctrlAsSuper, cfg.ctrlCShift, cfg.ctrlClick, keys, cfg.digitTabs)
+    return out
 }
 
 // --- keyboard replacements: one screen, two scopes ---------------------------
 //
 // Every keyboard replacement can be forced on for every app from the main panel
-// (options.keys), and the same rows then serve an app's card. There a forced row
-// reads as checked and locked: the app cannot disagree with the main panel, and
-// there is one source of truth rather than two that drift. Nothing is forced by
-// default, so all of this starts empty.
+// (options.keys), and the same rows then serve an app's card in three states:
+// "inherit" follows the desktop, "on" and "off" pin this app against it. That is
+// what lets a desktop-wide setting keep one app that disagrees -- Ctrl+1..6 handed
+// to an editor while the desktop keeps them for the pack's tabs.
 
-var KEY_FLAG_NAMES = ["ctrlAsSuper", "digitTabs", "ctrlW", "ctrlClick", "ctrlCShift"]
+var KEY_FLAG_NAMES = ["ctrlAsSuper", "digitTabs", "ctrlTabSwitch", "ctrlW", "ctrlClick", "ctrlCShift"]
 
-// What one row shows: locked means "set for every app", so the card may not
-// change it.
+// The row for one flag in an app's card: the state, whether the switch reads as on
+// (the effective answer, so an inherited on looks on), and where that answer comes
+// from.
 function keyFlagState(cfg, forced, flag) {
-    if (forced && forced[flag])
-        return { checked: true, locked: true }
-    return { checked: !!(cfg && cfg[flag]), locked: false }
+    var own = cfg ? cfg[flag] : undefined
+    var global = !!(forced && forced[flag])
+    var pinnedOn = own === true
+    var pinnedOff = own === false
+    return {
+        state: pinnedOn ? "on" : pinnedOff ? "off" : "inherit",
+        checked: pinnedOn || (!pinnedOff && global),
+        global: global,
+        pinned: pinnedOn || pinnedOff
+    }
 }
 
-// The same for one occupied key; the global list is an array of ids.
+// The click order: inherit, Always on, Always off, back to inherit. One function,
+// so a row and its test cannot disagree about it.
+function nextKeyFlagState(state) {
+    if (state === "inherit")
+        return "on"
+    if (state === "on")
+        return "off"
+    return "inherit"
+}
+
+// What the row says under its switch.
+function keyFlagDescription(state, global) {
+    if (state === "on")
+        return "Always on"
+    if (state === "off")
+        return "Always off"
+    return global ? "Follows the desktop: on" : "Follows the desktop: off"
+}
+
+// One occupied key the same way: the app's Always off list, then its steal list,
+// then the desktop's.
 function keyStealState(cfg, forced, id) {
+    var off = hasOccupiedKeyOff(cfg, id)
+    var on = hasOccupiedKey(cfg, id)
+    var global = false
     var list = (forced && forced.steal) || []
     for (var i = 0; i < list.length; i++) {
         if (String(list[i]) === String(id))
-            return { checked: true, locked: true }
+            global = true
     }
-    return { checked: hasOccupiedKey(cfg, id), locked: false }
+    return {
+        state: off ? "off" : on ? "on" : "inherit",
+        checked: off ? false : (on || global),
+        global: global,
+        pinned: off || on
+    }
 }
 
-// The global scope as a config object, so the rows render from one shape whichever
-// scope they are showing: the app card passes its own, this passes the forced map.
+// The theme's own green and red for the two pinned states: Omarchy's QML palette
+// has foreground, background, accent, urgent and muted and no green, so the colours
+// come out of the theme file the shell reads. A name that is missing stays missing,
+// and the caller falls back to accent and urgent.
+function parseThemeAccents(toml) {
+    var out = {}
+    var text = String(toml || "")
+    var wanted = ["green", "red"]
+    for (var i = 0; i < wanted.length; i++) {
+        var m = text.match(new RegExp("^\\s*" + wanted[i] + "\\s*=\\s*[\"'](#[0-9a-fA-F]{3,8})[\"']", "m"))
+        if (m)
+            out[wanted[i]] = m[1]
+    }
+    return out
+}
+
+// The global scope as a config object for the one screen that shows it. The flags
+// are the desktop's own on/off answers (there is nothing to inherit from there), and
+// the steal list is the ids it takes.
 function globalScopeCfg(keys) {
     var k = keys || {}
-    var cfg = { chrome: true, alwaysTabbar: false, ctrlAsSuperKeys: copyOccupiedKeys(k.steal) }
+    var cfg = { chrome: true, alwaysTabbar: false, ctrlAsSuperKeys: copyOccupiedKeys(k.steal), ctrlAsSuperKeysOff: [] }
     for (var i = 0; i < KEY_FLAG_NAMES.length; i++)
         cfg[KEY_FLAG_NAMES[i]] = !!k[KEY_FLAG_NAMES[i]]
     return cfg
+}
+
+// Whether the desktop steals one key for every app.
+function hasGlobalSteal(keys, id) {
+    var list = (keys && keys.steal) || []
+    for (var i = 0; i < list.length; i++) {
+        if (String(list[i]) === String(id))
+            return true
+    }
+    return false
 }
 
 // The map with one flag written: false removes it, so the file holds only what is
@@ -530,30 +677,33 @@ function globalKeysSummary(keys) {
     return parts.join(", ") + " for every app"
 }
 
-// The card's entry row: what is on for this app, or that the main panel decides.
+// The card's entry row: how many replacements are in force for this app, and how
+// many of them are pinned rather than following the desktop.
 function appKeysSummary(cfg, forced) {
-    var f = forced || {}
-    var forcedAny = f.steal && f.steal.length > 0
-    for (var i = 0; i < KEY_FLAG_NAMES.length; i++) {
-        if (f[KEY_FLAG_NAMES[i]])
-            forcedAny = true
-    }
-    if (forcedAny)
-        return "Some are set for every app"
     var c = cfg || {}
-    var n = 0
+    var f = forced || {}
+    var on = 0
+    var pinned = 0
     for (var i = 0; i < KEY_FLAG_NAMES.length; i++) {
-        if (c[KEY_FLAG_NAMES[i]])
-            n++
+        var st = keyFlagState(c, f, KEY_FLAG_NAMES[i])
+        if (st.checked)
+            on++
+        if (st.pinned)
+            pinned++
     }
     var keysN = (c.ctrlAsSuperKeys || []).length
-    if (n === 0 && keysN === 0)
-        return "Off: Super keys reach the app as they are"
+    var keysOffN = (c.ctrlAsSuperKeysOff || []).length
     var parts = []
-    if (n)
-        parts.push(n === 1 ? "1 replacement" : n + " replacements")
+    if (on)
+        parts.push(on === 1 ? "1 replacement" : on + " replacements")
     if (keysN)
         parts.push(keysN === 1 ? "1 key" : keysN + " keys")
+    if (pinned || keysOffN)
+        parts.push("pinned here")
+    if (parts.length === 0)
+        return "Off: Super keys reach the app as they are"
+    if (on === 0 && keysN === 0 && (pinned || keysOffN))
+        return "Off here: pinned against the desktop"
     return parts.join(", ")
 }
 

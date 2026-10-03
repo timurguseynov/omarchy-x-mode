@@ -18,7 +18,7 @@ end
 -- options
 local o = settings.parse_options('{"options":{"nativeScroll":true,"ctrlTabSwitch":false,"noGaps":true},"apps":{}}')
 check("opt.native", o.native_scroll, true)
-check("opt.ctrlTabSwitch", o.ctrl_tab_switch, false)
+check("opt.ctrlTabSwitch", o.key_flags.ctrl_tab_switch, nil)
 check("opt.noGaps", o.no_gaps, true)
 
 local d = settings.parse_options('{"options":{},"apps":{}}')
@@ -65,59 +65,89 @@ check("apps.chromium.alwaysTabbar", cfg["chromium"].always_tabbar, true)
 check("apps.zed.chrome", cfg["zed"].chrome, true)
 check("apps.zed.alwaysTabbar", cfg["zed"].always_tabbar, true)
 
--- The per-app flags, off by default.
-local wraw = '{"options":{},"apps":{"Chromium":{"ctrlW":true,"ctrlAsSuper":true,"ctrlCShift":true,"ctrlClick":true,"digitTabs":true},"Zed":{}}}'
+-- The per-app flags in three states: true is Always on, false is Always off, and
+-- absent is neither -- it follows the desktop's.
+local wraw = '{"options":{},"apps":{"Chromium":{"ctrlW":true,"ctrlAsSuper":true,"ctrlCShift":true,"ctrlClick":true,"digitTabs":true,"ctrlTabSwitch":false},"Zed":{}}}'
 local wcfg = settings.parse_apps(settings.apps_section(wraw))
 check("apps.chromium.ctrlW", wcfg["chromium"].ctrl_w, true)
 check("apps.chromium.ctrlAsSuper", wcfg["chromium"].ctrl_as_super, true)
 check("apps.chromium.ctrlCShift", wcfg["chromium"].ctrl_c_shift, true)
 check("apps.chromium.ctrlClick", wcfg["chromium"].ctrl_click, true)
 check("apps.chromium.digitTabs", wcfg["chromium"].digit_tabs, true)
+check("apps.chromium.ctrlTabSwitch.off", wcfg["chromium"].ctrl_tab_switch, false)
 check("apps.chromium.steal.empty", wcfg["chromium"].ctrl_as_super_keys["Q"], nil)
-check("apps.zed.ctrlW", wcfg["zed"].ctrl_w, false)
-check("apps.zed.ctrlAsSuper", wcfg["zed"].ctrl_as_super, false)
-check("apps.zed.ctrlCShift", wcfg["zed"].ctrl_c_shift, false)
-check("apps.zed.ctrlClick", wcfg["zed"].ctrl_click, false)
-check("apps.zed.digitTabs", wcfg["zed"].digit_tabs, false)
+check("apps.zed.ctrlW", wcfg["zed"].ctrl_w, nil)
+check("apps.zed.ctrlAsSuper", wcfg["zed"].ctrl_as_super, nil)
+check("apps.zed.ctrlCShift", wcfg["zed"].ctrl_c_shift, nil)
+check("apps.zed.ctrlClick", wcfg["zed"].ctrl_click, nil)
+check("apps.zed.digitTabs", wcfg["zed"].digit_tabs, nil)
+check("apps.zed.ctrlTabSwitch", wcfg["zed"].ctrl_tab_switch, nil)
 
--- Occupied Super keys stolen for this app, canonicalised to supermap ids.
-local sraw = '{"options":{},"apps":{"Chromium":{"ctrlAsSuperKeys":["q","SHIFT+tab","B"]}}}'
+-- Occupied Super keys stolen for this app, canonicalised to supermap ids, and the
+-- list that says Always off for a key the desktop steals.
+local sraw = '{"options":{},"apps":{"Chromium":{"ctrlAsSuperKeys":["q","SHIFT+tab","B"],"ctrlAsSuperKeysOff":["F"]}}}'
 local scfg = settings.parse_apps(settings.apps_section(sraw))
 check("steal.q", scfg["chromium"].ctrl_as_super_keys["Q"], true)
 check("steal.shift-tab", scfg["chromium"].ctrl_as_super_keys["SHIFT+TAB"], true)
 check("steal.b", scfg["chromium"].ctrl_as_super_keys["B"], true)
 check("steal.junk", scfg["chromium"].ctrl_as_super_keys["mouse:272"], nil)
+check("steal.off.f", scfg["chromium"].ctrl_as_super_keys_off["F"], true)
+check("steal.off.empty", scfg["chromium"].ctrl_as_super_keys_off["Q"], nil)
 
--- The sets the handlers ask: lowercased classes with the flag on.
-local wset = settings.ctrl_w_set({
-  chromium = { chrome = true, ctrl_w = true },
-  zed = { chrome = true, ctrl_w = false },
-  foot = { chrome = false },
-})
-check("ctrlw.chromium", wset["chromium"], true)
-check("ctrlw.zed", wset["zed"], nil)
-check("ctrlw.foot", wset["foot"], nil)
+-- The effective flag for a class: its own setting or, when it has none, the
+-- desktop's. This is what the handlers ask, and what a card's Always off is for.
+local gcfg = settings.parse_apps(settings.apps_section('{"options":{},"apps":{"Zed":{"ctrlAsSuper":false},"Chrome":{}}}'))
+local gkeys = { ctrl_as_super = true, ctrl_w = false }
+check("key.own-off-wins", settings.key_flag(gcfg, "zed", gkeys, "ctrl_as_super"), false)
+check("key.inherits-global", settings.key_flag(gcfg, "chrome", gkeys, "ctrl_as_super"), true)
+check("key.inherits-off", settings.key_flag(gcfg, "chrome", gkeys, "ctrl_w"), false)
+check("key.unknown-class", settings.key_flag(gcfg, "nope", gkeys, "ctrl_as_super"), true)
+check("key.nil-cfg", settings.key_flag(nil, "zed", gkeys, "ctrl_as_super"), true)
+check("key.own-on", settings.key_flag(gcfg, "zed", {}, "ctrl_as_super"), false)
+check("key.missing-key", settings.key_flag(gcfg, "chrome", nil, "ctrl_w"), false)
 
--- flag_set drives the other app flags, and is tolerant of a missing table.
-local asuper = settings.flag_set(wcfg, "ctrl_as_super")
-check("flagset.ctrlAsSuper", asuper["chromium"], true)
-check("flagset.ctrlAsSuper.zed", asuper["zed"], nil)
-check("flagset.nil", next(settings.flag_set(nil, "ctrl_w")) == nil, true)
+-- Whether anything has the flag on at all: the generated binds exist only then, so
+-- a single card's Always on is enough.
+check("any.global", settings.key_flag_any(gcfg, gkeys, "ctrl_as_super"), true)
+check("any.none", settings.key_flag_any(gcfg, gkeys, "digit_tabs"), false)
+local oncfg = settings.parse_apps(settings.apps_section('{"options":{},"apps":{"Zed":{"digitTabs":true}}}'))
+check("any.one-card", settings.key_flag_any(oncfg, {}, "digit_tabs"), true)
+local offcfg = settings.parse_apps(settings.apps_section('{"options":{},"apps":{"Zed":{"digitTabs":false}}}'))
+check("any.off-is-not-on", settings.key_flag_any(offcfg, {}, "digit_tabs"), false)
 
--- The reserve flag is read the same way, and is off unless the card asked.
-local dtabs = settings.flag_set(wcfg, "digit_tabs")
-check("flagset.digitTabs", dtabs["chromium"], true)
-check("flagset.digitTabs.zed", dtabs["zed"], nil)
+-- One occupied key for a class: the app's lists first (Always off wins), then the
+-- desktop's list.
+local stealcfg = settings.parse_apps(settings.apps_section('{"options":{},"apps":{"Zed":{"ctrlAsSuperKeys":["T"],"ctrlAsSuperKeysOff":["Q"]}}}'))
+local gsteal = { Q = true, TAB = true }
+check("stolen.global", settings.key_stolen(stealcfg, "chrome", gsteal, "Q"), true)
+check("stolen.own-off", settings.key_stolen(stealcfg, "zed", gsteal, "Q"), false)
+check("stolen.own-on", settings.key_stolen(stealcfg, "zed", {}, "T"), true)
+check("stolen.inherits", settings.key_stolen(stealcfg, "zed", gsteal, "TAB"), true)
+check("stolen.none", settings.key_stolen(stealcfg, "zed", gsteal, "B"), false)
+check("stolen.nil-cfg", settings.key_stolen(nil, "zed", gsteal, "Q"), true)
+
+-- The reserve flag is read the same way, and is unset unless the card asked.
+check("flagset.digitTabs", settings.key_flag(wcfg, "chromium", {}, "digit_tabs"), true)
+check("flagset.digitTabs.zed", settings.key_flag(wcfg, "zed", {}, "digit_tabs"), false)
+
+-- Ctrl+1..0 switching tabs used to be a desktop option of its own; a config the
+-- older panel wrote keeps working, read from the flat option.
+local oldtab = settings.parse_options('{"options":{"ctrlTabSwitch":true},"apps":{}}')
+check("opt.ctrlTabSwitch.old", oldtab.key_flags.ctrl_tab_switch, true)
+check("opt.ctrlTabSwitch.default", settings.parse_options('{"options":{},"apps":{}}').key_flags.ctrl_tab_switch, nil)
+local newtab = settings.parse_options('{"options":{"keys":{"ctrlTabSwitch":true}},"apps":{}}')
+check("opt.ctrlTabSwitch.new", newtab.key_flags.ctrl_tab_switch, true)
 
 -- A legacy array of classes means chrome off.
 local legacy = settings.parse_apps(settings.apps_section('{"options":{},"apps":["Foot","Kitty"]}'))
 check("legacy.foot.chrome", legacy["foot"].chrome, false)
 check("legacy.kitty.chrome", legacy["kitty"].chrome, false)
-check("legacy.foot.ctrlW", legacy["foot"].ctrl_w, false)
-check("legacy.foot.ctrlAsSuper", legacy["foot"].ctrl_as_super, false)
-check("legacy.foot.ctrlCShift", legacy["foot"].ctrl_c_shift, false)
-check("legacy.foot.ctrlClick", legacy["foot"].ctrl_click, false)
-check("legacy.foot.digitTabs", legacy["foot"].digit_tabs, false)
+check("legacy.foot.ctrlW", legacy["foot"].ctrl_w, nil)
+check("legacy.foot.ctrlAsSuper", legacy["foot"].ctrl_as_super, nil)
+check("legacy.foot.ctrlCShift", legacy["foot"].ctrl_c_shift, nil)
+check("legacy.foot.ctrlClick", legacy["foot"].ctrl_click, nil)
+check("legacy.foot.digitTabs", legacy["foot"].digit_tabs, nil)
+check("legacy.foot.ctrlTabSwitch", legacy["foot"].ctrl_tab_switch, nil)
 
 -- merge folds the two old files into one settings string.
 local merged = settings.merge('{"nativeScroll":true}', '{"chromium":{"chrome":false}}')

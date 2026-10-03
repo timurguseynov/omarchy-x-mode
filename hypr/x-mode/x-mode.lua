@@ -507,49 +507,31 @@ end
 local find_peer
 local join_same_app
 local apps_off = {}
--- Classes whose Super+W goes to the app as Ctrl+W (the panel's per-app switch).
-local ctrl_w_apps = {}
--- Classes with the panel's "Super works as Ctrl" flag: unbound Super+key
--- combinations reach them as Ctrl+key.
-local ctrl_as_super = {}
--- Classes with the panel's "⌘+1…0 reserved for the pack's tabs" flag: the digit
--- is not handed over at all -- it switches the pack's tab, and it is eaten even
--- when there is no such tab. Nothing is on until a card asks for it.
-local digit_tabs = {}
--- Occupied Super keys stolen per class (supermap ids: Q, TAB, SHIFT+TAB, B).
--- Unbind is global; the wrap checks this set for the focused window, like Super+W.
-local steal_keys = {}
--- Classes with the panel's "Ctrl+C as Ctrl+Shift+C" flag: an app that hosts a
--- terminal needs Ctrl+C left to the shell, so the pack hands it Ctrl+Shift+C
--- instead and lets the app's own binding decide what that means.
-local ctrl_c_shift_apps = {}
--- Classes with the panel's "⌘+click as Ctrl+click" flag: Super+mouse button
--- is sent as Ctrl+click. Unflagged apps still get Super+click (pass_event).
-local ctrl_click_apps = {}
 -- Keyboard replacements the main panel forces on for every class, keyed by the
--- same name the parsed apps use (options.keys). A flag here is read as set for
--- any class, and the card shows the row checked and locked instead of editable,
--- so both screens agree on what is in force.
+-- same name the parsed apps use (options.keys). This is the fallback: a class with
+-- its own three-state setting wins over it, so a card can say Always off where the
+-- desktop says on (settings.key_flag is where the two meet).
 local key_flags = {}
--- Occupied Super keys stolen for every class (options.keys.steal), same idea.
+-- Occupied Super keys stolen for every class (options.keys.steal), the same kind of
+-- fallback for the per-key lists.
 local global_steal = {}
 -- Whether the pack takes Ctrl+Cmd+Q for the lock (options.lockScreenKey, on
 -- unless the file says false). Declared here because the lock bind is applied
 -- with the capture keys, above the options block that reads it.
 local lock_key = true
 
--- One keyboard flag for a class: the global override or the app's own switch.
-local function key_flag(set, name, cls)
-  if cls == nil then
-    return false
-  end
-  return key_flags[name] == true or set[cls] == true
+-- One keyboard flag for a class: the app's own three-state setting (true is Always
+-- on, false is Always off) or, when it has none, the desktop's forced one. Nothing
+-- is pre-built into sets here, so a card that says Always off wins over a global on
+-- without a second source of truth.
+local function key_flag(name, cls)
+  return settings.key_flag(apps_cfg, cls, key_flags, name)
 end
 
--- Whether anything claims the flag at all. The generated binds exist only when
--- something does, and a global override is not visible in the per-app set.
-local function key_flag_any(set, name)
-  return key_flags[name] == true or next(set) ~= nil
+-- Whether anything has the flag on at all. The generated binds exist only then, so
+-- one card's Always on is enough to put them in place.
+local function key_flag_any(name)
+  return settings.key_flag_any(apps_cfg, key_flags, name)
 end
 local ctrl_c_binds = {}
 -- Defined with the other option appliers (it reads the bind table out of band),
@@ -578,12 +560,7 @@ local function send_ctrl(key, shift, w)
 end
 
 local function key_stolen(cls, key, shift)
-  local id = supermap.key_id(key, shift)
-  if global_steal[id] == true then
-    return true
-  end
-  local ids = steal_keys[cls]
-  return ids ~= nil and ids[id] == true
+  return settings.key_stolen(apps_cfg, cls, global_steal, supermap.key_id(key, shift))
 end
 
 local function window_by_addr(addr)
@@ -725,7 +702,7 @@ local function super_ctrl_click(button)
     -- The window under the cursor, not the focused one: Cmd+click a link in
     -- a background window should still be Ctrl+click there.
     local w = window_at_cursor()
-    if w == nil or not key_flag(ctrl_click_apps, "ctrl_click", window_class(w)) then
+    if w == nil or not key_flag("ctrl_click", window_class(w)) then
       return { pass_event = true }
     end
     hl.dispatch(hl.dsp.send_shortcut({
@@ -1011,7 +988,7 @@ o.bind("SUPER + W", "Close window", function()
   if w == nil then
     return
   end
-  if key_flag(ctrl_w_apps, "ctrl_w", window_class(w)) then
+  if key_flag("ctrl_w", window_class(w)) then
     send_ctrl("W", false, w)
     return
   end
@@ -1474,20 +1451,9 @@ local function sync_apps_off()
 end
 sync_apps_off()
 
-local function sync_app_flags()
-  ctrl_w_apps = settings.ctrl_w_set(apps_cfg)
-  ctrl_as_super = settings.flag_set(apps_cfg, "ctrl_as_super")
-  digit_tabs = settings.flag_set(apps_cfg, "digit_tabs")
-  ctrl_c_shift_apps = settings.flag_set(apps_cfg, "ctrl_c_shift")
-  ctrl_click_apps = settings.flag_set(apps_cfg, "ctrl_click")
-  steal_keys = {}
-  for cls, e in pairs(apps_cfg) do
-    if e.ctrl_as_super_keys and next(e.ctrl_as_super_keys) then
-      steal_keys[cls] = e.ctrl_as_super_keys
-    end
-  end
-end
-sync_app_flags()
+-- The flags themselves are not collected into sets any more: settings.key_flag
+-- answers for one class and one flag on the spot, from the app's three-state
+-- setting and the desktop's fallback.
 
 -- Ctrl+C for an app that hosts a terminal. Ctrl+C is the shell's interrupt and
 -- the app cannot tell it apart from the copy chord a desktop sends (Super+C
@@ -1499,12 +1465,12 @@ sync_app_flags()
 -- Only the physical key is caught: a chord the desktop sends goes straight to
 -- the client and never through the bind table, so this cannot loop.
 local function apply_ctrl_c_shift()
-  if #ctrl_c_binds > 0 or not key_flag_any(ctrl_c_shift_apps, "ctrl_c_shift") then
+  if #ctrl_c_binds > 0 or not key_flag_any("ctrl_c_shift") then
     return
   end
   local ok, kb = pcall(hl.bind, "CTRL + C", function()
     local w = hl.get_active_window()
-    if w == nil or not key_flag(ctrl_c_shift_apps, "ctrl_c_shift", window_class(w)) then
+    if w == nil or not key_flag("ctrl_c_shift", window_class(w)) then
       return { pass_event = true }
     end
     send_chord("CTRL SHIFT", "C", w)
@@ -1536,7 +1502,6 @@ end
 local function apply_apps()
   apps_cfg = load_apps()
   sync_apps_off()
-  sync_app_flags()
   apply_ctrl_c_shift()
   local wanted_nobar, wanted_always = settings.desired_rules(apps_cfg)
   local add_nobar, drop_nobar = settings.rule_diff(wanted_nobar, nobar_applied)
@@ -1614,7 +1579,6 @@ end
 -- they are reserved, handed over or left alone per app; off is Omarchy's layout,
 -- Cmd+1..0 on the workspaces.
 local native_scroll = false
-local ctrl_tab_switch = false
 local ctrl_tab_binds = {}
 local no_gaps = false
 -- Workspace switching on Super+F1..F10 instead of Super+1..0.
@@ -1624,7 +1588,6 @@ local workspace_key_binds = {}
 local function load_options()
   local o = settings.parse_options(read_settings())
   native_scroll = o.native_scroll
-  ctrl_tab_switch = o.ctrl_tab_switch
   no_gaps = o.no_gaps
   workspaces_fkeys = o.workspaces_fkeys
   lock_key = o.lock_key
@@ -1794,12 +1757,19 @@ end
 -- removes exactly these binds (hl.unbind would also drop any the user set on
 -- the same keys). A removed bind lets the key fall through to the app.
 local function apply_ctrl_tab_switch()
-  if ctrl_tab_switch then
+  if key_flag_any("ctrl_tab_switch") then
     if #ctrl_tab_binds > 0 then
       return
     end
     for i = 1, 10 do
       local ok, kb = pcall(o.bind, "CTRL + code:" .. tostring(i + 9), "Switch to tab " .. i, function()
+        -- The bind is global, the class decides: a card can turn this off for one
+        -- app (Always off) while the desktop has it on, and then the key has to
+        -- reach that app untouched. Same shape as the Super+1..0 digits.
+        local w = hl.get_active_window()
+        if w == nil or not key_flag("ctrl_tab_switch", window_class(w)) then
+          return { pass_event = true }
+        end
         return focus_group_tab(i)
       end)
       if ok and kb then
@@ -1841,7 +1811,7 @@ end
 -- key exactly as before.
 local function super_ctrl_key(key, shift)
   local w = hl.get_active_window()
-  if w == nil or not key_flag(ctrl_as_super, "ctrl_as_super", window_class(w)) then
+  if w == nil or not key_flag("ctrl_as_super", window_class(w)) then
     return { pass_event = true }
   end
   send_ctrl(key, shift, w)
@@ -1924,14 +1894,23 @@ local function drop_steal_wrap(id)
 end
 
 -- Ids that need an Omarchy-key wrap: stolen somewhere, and not a pack bind
--- already wrapped at the source (Q, Tab, W, F).
+-- already wrapped at the source (Q, Tab, W, F). "Somewhere" is the desktop's list
+-- plus every app's own Always on list -- an Always off list only takes a key away
+-- from an app, and a key nothing steals needs no wrap. Iterated on every replan, so
+-- the union is built here rather than kept in a set.
 local function needed_steals()
   local set = {}
-  for _, ids in pairs(steal_keys) do
-    for id in pairs(ids) do
-      if id ~= "Q" and id ~= "TAB" and id ~= "SHIFT+TAB" and id ~= "W" and id ~= "F" then
-        set[id] = true
-      end
+  local function add(id)
+    if id ~= "Q" and id ~= "TAB" and id ~= "SHIFT+TAB" and id ~= "W" and id ~= "F" then
+      set[id] = true
+    end
+  end
+  for id in pairs(global_steal) do
+    add(id)
+  end
+  for _, e in pairs(apps_cfg) do
+    for id in pairs(e.ctrl_as_super_keys or {}) do
+      add(id)
     end
   end
   return set
@@ -2001,7 +1980,7 @@ local function bind_super_ctrl(raw, gen)
   ensure_omarchy_exec()
   write_occupied(raw)
   apply_steal_wraps(raw)
-  if not key_flag_any(ctrl_as_super, "ctrl_as_super") then
+  if not key_flag_any("ctrl_as_super") then
     return
   end
   for _, b in ipairs(supermap.plan(raw)) do
@@ -2087,10 +2066,10 @@ local function digit_key(index)
   return function()
     local w = hl.get_active_window()
     local cls = w ~= nil and window_class(w) or nil
-    if cls ~= nil and key_flag(digit_tabs, "digit_tabs", cls) then
+    if cls ~= nil and key_flag("digit_tabs", cls) then
       return focus_group_tab(index, true)
     end
-    if cls ~= nil and key_flag(ctrl_as_super, "ctrl_as_super", cls) then
+    if cls ~= nil and key_flag("ctrl_as_super", cls) then
       send_ctrl(digit_name(index), false, w)
       return
     end

@@ -95,3 +95,23 @@ Pack code, in this repo:
   crashes the compositor (`SIGILL`). The nest is where a plugin gets loaded.
 - After every successful edit or completed task, commit in the repo that owns
   the change. The message says what changed and why.
+
+## Running the suite from an agent session
+
+Tests here take minutes, and an agent tool call that waits for one is killed
+part-way: that reads as a hang and wastes the run. So **no test run is waited for
+inside a call**. Start it detached, and check on it with a short command:
+
+```sh
+bash tests/async.sh run suite bash tests/run.sh
+bash tests/async.sh run keys  bash tests/nest/run.sh key_pin digit_tabs
+bash tests/async.sh status keys
+```
+
+`async.sh` sets the sanctioned `NEST_JOBS=5 NEST_WORKSPACE=5`, keeps one log per
+label under `$XDG_RUNTIME_DIR`, and `status` prints whether the run is still going,
+its summary lines and its counts. After starting one, say which run is going and
+carry on with something else, or ask the user to say when it is done: the user's
+`== all ok` is as good as waiting. Never put a long `sleep` in a call, and never
+wait for a run inside one -- that is exactly what gets killed, whatever the run's
+size. Only the sanctioned invocation counts as evidence.

@@ -37,6 +37,15 @@ bash tests/qml/run.sh   # pure JS only
 bash tests/harness_test.sh   # the wait helpers only
 ```
 
+In an agent session these are started detached and checked with a short command
+rather than waited for -- see the section in `../AGENTS.md`, and `tests/async.sh`,
+which keeps one log per label:
+
+```sh
+bash tests/async.sh run suite bash tests/run.sh
+bash tests/async.sh status suite
+```
+
 Nest scenarios can be picked by name, whole or in part:
 
 ```sh
@@ -214,6 +223,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/titlebar_drawn_test.sh` | the titlebar band is actually painted |
 | `integration/resize_after_open_clears_bar_test.sh` | a window resized after opening still clears the bar (known gap, reported) |
 | `integration/titlebar_rmb_no_drag_test.sh` | a right-button drag does nothing, a left-button drag moves |
+| `integration/key_pin_test.sh` | a card pins one app against the desktop: the pack's tabs own Cmd+1..0 everywhere while that class is Always off and Super-as-Ctrl Always on for it, so Cmd+3 arrives as exactly the bytes a physical Ctrl+3 does, and a class with no card still switches tabs |
 | `integration/gaps_toggle_retired_test.sh` | the pack retires Omarchy's own gaps toggle on every load — the state file it sources goes, and the reload the pack schedules brings the desktop's gaps back — including when x-mode is switched on from the panel |
 | `integration/global_keys_test.sh` | a keyboard replacement forced on for every app (options.keys) reaches an app with no entry of its own: the generated Super-as-Ctrl binds exist for it, a globally stolen Super+Q arrives as Ctrl+Q, and the app is not closed |
 | `integration/lock_key_test.sh` | Ctrl+Cmd+Q locks the screen (Omarchy's lock command) and takes Omarchy's Calculator key with it; turning the option off gives the Calculator back, turning it on takes it again |
@@ -564,7 +574,7 @@ Same idea for the shell plugin: the pure JS it shares lives in
 
 | file | covers |
 |---|---|
-| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, ctrlW, ctrlAsSuper, ctrlCShift, digitTabs, ctrlAsSuperKeys, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, pin moves a running app), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg`, `setPanelFlag`, `setOccupiedKey`, `keyFlagState`/`keyStealState` (a forced row reads checked and locked), `globalScopeCfg`, `setGlobalFlag`, `setGlobalSteal`, `globalKeysSummary`, `appKeysSummary`, `stealToggleLabel`, `sameOccupiedList`, `buildPanelRunning` |
+| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, the three states, the off list, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, pin moves a running app), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg` (only what was pinned is written), `setPanelFlag`, `setKeyFlag`, `setOccupiedKey`, `keyFlagState`/`keyFlagCycle`/`keyFlagDescription`/`keyStealState` (follows the desktop, Always on, Always off), `globalScopeCfg`, `setGlobalFlag`, `setGlobalSteal`, `hasGlobalSteal`, `globalKeysSummary`, `appKeysSummary`, `parseThemeAccents`, `stealToggleLabel`, `sameOccupiedList`, `buildPanelRunning` |
 
 What is *not* unit-testable this way: the components themselves. `import
 Quickshell` fails under `qmltestrunner` (`plugin "quickshell-coreplugin" not

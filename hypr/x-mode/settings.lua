@@ -19,6 +19,18 @@ end
 --   "digitTabs": false, "ctrlAsSuperKeys": [] } }.
 -- Missing chrome means on; the rest missing means off.
 -- A legacy array of classes means chrome off.
+-- A per-app flag in three states: true, false, or absent (which is not the same
+-- as false -- it means "whatever the desktop says").
+local function tri(body, name)
+  if body:find('"' .. name .. '"%s*:%s*true') then
+    return true
+  end
+  if body:find('"' .. name .. '"%s*:%s*false') then
+    return false
+  end
+  return nil
+end
+
 local function parse_steal_keys(body, field)
   local keys = {}
   local arr = body:match('"' .. (field or "ctrlAsSuperKeys") .. '"%s*:%s*(%b[])')
@@ -39,20 +51,20 @@ function M.parse_apps(raw)
   for cls, body in raw:gmatch('"([^"]+)"%s*:%s*(%b{})') do
     local chrome = not body:find('"chrome"%s*:%s*false')
     local always = body:find('"alwaysTabbar"%s*:%s*true') ~= nil
-    local ctrl_w = body:find('"ctrlW"%s*:%s*true') ~= nil
-    local ctrl_super = body:find('"ctrlAsSuper"%s*:%s*true') ~= nil
-    local ctrl_c = body:find('"ctrlCShift"%s*:%s*true') ~= nil
-    local ctrl_click = body:find('"ctrlClick"%s*:%s*true') ~= nil
-    local digit_tabs = body:find('"digitTabs"%s*:%s*true') ~= nil
     cfg[string.lower(cls)] = {
       chrome = chrome,
       always_tabbar = always,
-      ctrl_w = ctrl_w,
-      ctrl_as_super = ctrl_super,
-      ctrl_c_shift = ctrl_c,
-      ctrl_click = ctrl_click,
-      digit_tabs = digit_tabs,
+      -- Three-state, per flag: an explicit true or false is an override that wins
+      -- over the desktop's, and absent follows the desktop. One value, so an app
+      -- that wants the opposite of the desktop does not need a second field.
+      ctrl_w = tri(body, "ctrlW"),
+      ctrl_as_super = tri(body, "ctrlAsSuper"),
+      ctrl_c_shift = tri(body, "ctrlCShift"),
+      ctrl_click = tri(body, "ctrlClick"),
+      digit_tabs = tri(body, "digitTabs"),
+      ctrl_tab_switch = tri(body, "ctrlTabSwitch"),
       ctrl_as_super_keys = parse_steal_keys(body),
+      ctrl_as_super_keys_off = parse_steal_keys(body, "ctrlAsSuperKeysOff"),
     }
   end
   if next(cfg) == nil then
@@ -60,40 +72,81 @@ function M.parse_apps(raw)
       cfg[string.lower(cls)] = {
         chrome = false,
         always_tabbar = false,
-        ctrl_w = false,
-        ctrl_as_super = false,
-        ctrl_c_shift = false,
-        ctrl_click = false,
-        digit_tabs = false,
+        ctrl_w = nil,
+        ctrl_as_super = nil,
+        ctrl_c_shift = nil,
+        ctrl_click = nil,
+        digit_tabs = nil,
+        ctrl_tab_switch = nil,
         ctrl_as_super_keys = {},
+        ctrl_as_super_keys_off = {},
       }
     end
   end
   return cfg
 end
 
--- The classes an app flag is on for, as a set keyed the same way parse_apps
--- keys them. One function per flag keeps the callers read-only lookups.
-function M.flag_set(cfg, flag)
-  local set = {}
-  for cls, e in pairs(cfg or {}) do
-    if e[flag] then
-      set[cls] = true
+-- The keyboard flags a class can override: the name parse_apps keys them under,
+-- and the name the settings file and the panel use. One list, so the engine, the
+-- panel's JavaScript and the tests cannot drift apart.
+M.KEY_FLAGS = {
+  { "ctrl_as_super", "ctrlAsSuper" },
+  { "digit_tabs", "digitTabs" },
+  { "ctrl_tab_switch", "ctrlTabSwitch" },
+  { "ctrl_w", "ctrlW" },
+  { "ctrl_click", "ctrlClick" },
+  { "ctrl_c_shift", "ctrlCShift" },
+}
+
+-- The flag for a class: its own setting first -- true is Always on, false is
+-- Always off -- and the desktop's forced one behind it.
+function M.key_flag(cfg, cls, global, flag)
+  local e = (cfg or {})[cls]
+  if e ~= nil then
+    -- Read the value before comparing: `e[flag] or nil` would turn the explicit
+    -- false of Always off into "no setting" again.
+    local v = e[flag]
+    if v ~= nil then
+      return v == true
     end
   end
-  return set
+  return (global or {})[flag] == true
 end
 
--- The classes whose Super+W the desktop hands to the app as Ctrl+W (close the
--- tab, not the window) instead of closing.
-function M.ctrl_w_set(cfg)
-  return M.flag_set(cfg, "ctrl_w")
+-- Whether anything has the flag on. The generated binds exist only then, so an
+-- Always on in a single app's card is enough to put them in place.
+function M.key_flag_any(cfg, global, flag)
+  if (global or {})[flag] == true then
+    return true
+  end
+  for _, e in pairs(cfg or {}) do
+    if e[flag] == true then
+      return true
+    end
+  end
+  return false
 end
 
--- { native_scroll, ctrl_tab_switch, no_gaps, workspaces_fkeys }, each
--- defaulting to false, plus the keyboard replacements the main panel forces on for
--- every app (key_flags) and the occupied keys it steals for every class
--- (global_steal).
+-- One occupied key for a class: its own lists first -- Always off is what the
+-- panel writes when a card turns a key off, and it wins, so a key the desktop
+-- steals stays with one app -- then the desktop's list.
+function M.key_stolen(cfg, cls, global_steal, id)
+  local e = (cfg or {})[cls]
+  if e ~= nil then
+    if e.ctrl_as_super_keys_off ~= nil and e.ctrl_as_super_keys_off[id] == true then
+      return false
+    end
+    if e.ctrl_as_super_keys ~= nil and e.ctrl_as_super_keys[id] == true then
+      return true
+    end
+  end
+  return (global_steal or {})[id] == true
+end
+
+
+-- { native_scroll, no_gaps, workspaces_fkeys, lock_key }, plus the keyboard
+-- replacements the main panel forces on for every app (key_flags, keyed the way the
+-- parsed apps are) and the occupied keys it steals for every class (global_steal).
 -- The JSON name of each replacement and the name the parsed apps use, so a forced
 -- flag is read by the handlers under the same shape as a per-app one.
 local KEY_FLAGS = {
@@ -115,9 +168,14 @@ function M.parse_options(raw)
       flags[pair[2]] = true
     end
   end
+  -- Ctrl+1..0 switching tabs was a desktop option of its own before it became a row
+  -- with the other replacements. A config written by the older panel still has it
+  -- in the flat options, so it is read from there when the new place says nothing.
+  if flags.ctrl_tab_switch == nil and raw:find('"ctrlTabSwitch"%s*:%s*true') then
+    flags.ctrl_tab_switch = true
+  end
   return {
     native_scroll = raw:find('"nativeScroll"%s*:%s*true') ~= nil,
-    ctrl_tab_switch = raw:find('"ctrlTabSwitch"%s*:%s*true') ~= nil,
     no_gaps = raw:find('"noGaps"%s*:%s*true') ~= nil,
     workspaces_fkeys = raw:find('"workspacesOnFkeys"%s*:%s*true') ~= nil,
     -- The one option whose default is on: Omarchy keeps its Calculator on
