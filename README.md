@@ -26,12 +26,13 @@ It is **additive**. The installer only creates files in its own namespace and on
 * **Settings panel.** The top-bar button opens:
   * X Mode on or off. Off ungroups every window and puts it back to the floating or tiled state it had before X Mode was installed
   * Natural (reversed) scrolling, for both mouse and touchpad
-  * `Ctrl`+`1`…`0` switches tabs. Off by default, so the keys reach the app
-  * Workspaces on `Super`+`F1`…`F10`: off, `Super`+`1`…`0` switch workspaces as Omarchy ships them; on, the F keys do, and the ten freed digits follow each app's Key replacements — `Ctrl`+digit for an app with `Super` works as `Ctrl`, the pack's own tab for one you reserved them for, and nothing at all otherwise
   * No gaps: no space between windows, with a hairline border kept
   * Per-app titlebar and grouping
   * Always show the tab bar, including the `+` for a single window
-  * Key replacements, one screen for the whole desktop and one per app: `Super` works as `Ctrl` for the keys the desktop does not use, `⌘`+`1`…`0` reserved for the pack's tabs, `⌘`+`W` as `Ctrl`+`W`, `⌘`+click as `Ctrl`+click, `Ctrl`+`C` as `Ctrl`+`Shift`+`C`, and every occupied key (`Super`+`Q`, `Super`+Tab, …) with the desktop action it replaces. Set a switch here and every app gets it; the app's own row then shows it set and locked, with one source of truth
+  * Key replacements, one screen for the whole desktop and one per app. The "for every app" screen opens with the desktop's rows:
+    * `Ctrl`+`1`…`0` switches tabs. Off by default, so the keys reach the app
+    * Workspaces on `Super`+`F1`…`F10`: off, `Super`+`1`…`0` switch workspaces as Omarchy ships them; on, the F keys do, and the ten freed digits follow each app's Key replacements — `Ctrl`+digit for an app with `Super` works as `Ctrl`, the pack's own tab for one you reserved them for, and nothing at all otherwise
+    * then the per-app rows: `Super` works as `Ctrl` for the keys the desktop does not use, `⌘`+`1`…`0` reserved for the pack's tabs, `⌘`+`W` as `Ctrl`+`W`, `⌘`+click as `Ctrl`+click, `Ctrl`+`C` as `Ctrl`+`Shift`+`C`, and every occupied key (`Super`+`Q`, `Super`+Tab, …) with the desktop action it replaces. Set one for every app and the app's own row shows it set and locked, with one source of truth
   * macOS capture keys: `⌘⇧3` screenshots the screen, `⌘⇧4` a region you drag, `⌃⇧⌘3`/`⌃⇧⌘4` the same to the clipboard, `⌘⇧5` screen recording, `⌘⇧6` reads text out of a region
   * macOS text chords: `⌘←`/`⌘→` start and end of line, `⌘↑`/`⌘↓` the document, `⌥←`/`⌥→` a word, `⌥⌫`/`⌥⌦` delete a word, `⌘⌫`/`⌘⌦` delete to the start and end of the line, `⌘[`/`⌘]` back and forward — each sent as the chord the focused app understands (a terminal gets readline's, everything else its toolkit's)
   * Per-app: `Ctrl`+`C` as `Ctrl`+`Shift`+`C`, for an app with a terminal inside: the key goes in shifted so the app's own binding can make it the interrupt, while `Super`+`C` still copies

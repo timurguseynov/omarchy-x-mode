@@ -28,7 +28,7 @@ Panel {
   // sized to the space actually left in the capped card. Excludes `listFlick`
   // itself -- referencing its height here would be circular.
   readonly property real listFixedHeight: {
-    var items = [hero, sepTop, scrollRow, tabKeysRow, workspaceKeysRow, keysEntryRow, gapsRow, sepMid, backRow, sectionHeader, searchField]
+    var items = [hero, sepTop, scrollRow, keysEntryRow, gapsRow, sepMid, backRow, sectionHeader, searchField]
     var h = 0
     var n = 0
     for (var i = 0; i < items.length; i++) {
@@ -411,6 +411,9 @@ Panel {
 
   // The keyboard replacements themselves, in one element used by both scopes: with
   // `cls` empty it is the "for every app" screen, with a class it is that app's.
+  // The two desktop options that used to sit on the main panel (the digits as
+  // tabs, the workspaces on the F keys) open each screen; they are global, so
+  // only the "for every app" one shows them.
   // A row the main panel forces is shown checked and locked instead of hidden --
   // it is still in force, and hiding it would make the app look like it decides.
   // The force lives in one place, the rows are identical in both screens.
@@ -429,6 +432,41 @@ Panel {
 
     // A card cannot disagree with the main panel, so its forced rows are locked.
     readonly property bool isApp: krows.cls !== ""
+
+    // Desktop options that used to sit on the main panel, global only: they
+    // write the settings file through the panel's setOptions (the pack re-reads
+    // it on the reload), so an app's screen hides them -- one app cannot move
+    // the desktop's workspaces or take the digits for the whole desktop.
+    Column {
+      width: krows.width
+      spacing: krows.spacing
+      visible: !krows.isApp
+
+      SwitchRow {
+        id: krowsTabKeysRow
+        width: parent.width
+        label: "Ctrl+1..0 switches tabs"
+        description: "Jump to a titlebar tab; off, the shortcut goes to the app"
+        checked: root.ctrlTabSwitch
+        rowEnabled: root.xModeOn
+        onToggled: root.setOptions(root.nativeScroll, !root.ctrlTabSwitch, root.noGaps, root.workspacesOnFkeys)
+      }
+
+      SwitchRow {
+        id: krowsWorkspaceKeysRow
+        width: parent.width
+        label: "Workspaces on F1..F10"
+        description: "Super+F1..F10 switch workspaces; the freed digits follow Key replacements"
+        checked: root.workspacesOnFkeys
+        rowEnabled: root.xModeOn
+        onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, root.noGaps, !root.workspacesOnFkeys)
+      }
+
+      PanelSeparator {
+        width: krows.width
+        foreground: root.contentForeground
+      }
+    }
 
     readonly property var flagRows: [
       { flag: "ctrlAsSuper", label: "Super works as Ctrl", description: "Keys Omarchy does not already use" },
@@ -639,28 +677,6 @@ Panel {
         checked: root.nativeScroll
         rowEnabled: root.xModeOn
         onToggled: root.setOptions(!root.nativeScroll, root.ctrlTabSwitch, root.noGaps, root.workspacesOnFkeys)
-      }
-
-      SwitchRow {
-        id: tabKeysRow
-        width: parent.width
-        visible: root.view === "main"
-        label: "Ctrl+1..0 switches tabs"
-        description: "Jump to a titlebar tab; off, the shortcut goes to the app"
-        checked: root.ctrlTabSwitch
-        rowEnabled: root.xModeOn
-        onToggled: root.setOptions(root.nativeScroll, !root.ctrlTabSwitch, root.noGaps, root.workspacesOnFkeys)
-      }
-
-      SwitchRow {
-        id: workspaceKeysRow
-        width: parent.width
-        visible: root.view === "main"
-        label: "Workspaces on F1..F10"
-        description: "Super+F1..F10 switch workspaces; the freed digits follow Key replacements"
-        checked: root.workspacesOnFkeys
-        rowEnabled: root.xModeOn
-        onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, root.noGaps, !root.workspacesOnFkeys)
       }
 
       SwitchRow {
