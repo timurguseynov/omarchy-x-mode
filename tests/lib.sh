@@ -847,6 +847,17 @@ print(sum(1 for b in json.load(sys.stdin)
           if text in (b.get('description') or '').lower() and int(b.get('modmask') or 0) == mods))"
 }
 
+# The whole description, not a substring of it: "Start of line" is inside
+# "Delete to start of line" and "B" is inside "BACKSPACE", so a scenario that
+# counts a label has to say which one it means.
+bind_count_desc_exact() { # TEXT MODMASK
+  nest_ctl binds -j | python3 -c "
+import json, sys
+text, mods = '$1'.lower(), int('$2')
+print(sum(1 for b in json.load(sys.stdin)
+          if (b.get('description') or '').lower() == text and int(b.get('modmask') or 0) == mods))"
+}
+
 # Switch a group to tab INDEX (1-based), the dispatcher the pack's Ctrl+N uses.
 group_tab() { # INDEX CLASS
   nest_ctl dispatch "hl.dsp.group.active({ index = $1, window = 'class:$2' })" >/dev/null

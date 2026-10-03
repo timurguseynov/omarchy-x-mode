@@ -23,6 +23,7 @@ local theme = dofile(X_MODE_DIR .. "theme.lua")
 local mru = dofile(X_MODE_DIR .. "mru.lua")
 local group = dofile(X_MODE_DIR .. "group.lua")
 local supermap = dofile(X_MODE_DIR .. "supermap.lua")
+local textkeys = dofile(X_MODE_DIR .. "textkeys.lua")
 
 -- A list out of a query result. Omarchy's keybindings scan
 -- (`omarchy-menu-keybindings`) dofiles hyprland.lua with a stub `hl` whose every
@@ -1113,6 +1114,84 @@ end)
 o.bind("CTRL + ALT + K", "Snap window bottom-right", function()
   snap("bottom-right")
 end)
+
+-- --- macOS text chords ------------------------------------------------------
+-- On a Mac the text system is the OS's, so Cmd+Left is the start of the line
+-- and Option+Backspace deletes a word in *every* app. On Linux no such layer
+-- exists: each toolkit invented its own chords, and the terminal invented
+-- readline's. textkeys.lua holds what to send where (a terminal and a GUI need
+-- different chords for the same function), and this binds it. The context
+-- comes from Omarchy's "terminal" tag, so a terminal answers for itself.
+--
+-- These keys are the desktop's from here on, which is why Super+Left/Right no
+-- longer reach the app as Ctrl+Left/Right (the Super-as-Ctrl plan reads the
+-- live bind table, sees them taken and leaves them alone) and why Omarchy's
+-- window transparency has to move off Cmd+Backspace.
+local function send_chords(list, w)
+  -- One chord as its own down/up pair rather than `send_shortcut`, which sends
+  -- the press and the release in one call: a *second* chord sent that way right
+  -- after the first arrives twice (Shift+End then two Deletes), the same
+  -- stuck/repeating synthetic key Omarchy's clipboard sends key state by hand
+  -- to avoid (hyprland discussion 14099). Sending it by hand also keeps a
+  -- synthetic Shift from being left held for the next keystroke.
+  local function send(c)
+    local code = supermap.key_code(c.key)
+    if code == nil then
+      return
+    end
+    local key = "code:" .. tostring(code)
+    hl.dispatch(hl.dsp.send_key_state({ mods = c.mods, key = key, state = "down", window = w }))
+    hl.timer(function()
+      hl.dispatch(hl.dsp.send_key_state({ mods = c.mods, key = key, state = "up", window = w }))
+    end, { timeout = 50, type = "oneshot" })
+  end
+
+  local function step(i)
+    local c = list[i]
+    if c == nil then
+      return
+    end
+    send(c)
+    if list[i + 1] ~= nil then
+      -- The next chord waits for this one's release: in the GUI pair the
+      -- selection has to exist before the delete lands.
+      hl.timer(function()
+        step(i + 1)
+      end, { timeout = 80, type = "oneshot" })
+    end
+  end
+  step(1)
+end
+
+local function text_chord(id)
+  return function()
+    local w = hl.get_active_window()
+    if w == nil then
+      return { pass_event = true }
+    end
+    local chords = textkeys.chords(id, textkeys.is_terminal(w.tags))
+    if chords == nil or #chords == 0 then
+      -- Nothing to send in this context (readline has no selection to
+      -- extend), so the key stays the app's rather than being swallowed.
+      return { pass_event = true }
+    end
+    send_chords(chords, w)
+    return { pass_event = false }
+  end
+end
+
+for _, e in ipairs(textkeys.plan()) do
+  -- Drop whatever held the key: Omarchy's default (Cmd+Backspace, Cmd+Home) or
+  -- a Super-as-Ctrl bind left over from the previous config evaluation.
+  hl.unbind(e.keys)
+  pcall(o.bind, e.keys, e.label, text_chord(e.id))
+end
+
+-- Cmd+Backspace is "delete to the start of the line" on macOS, so Omarchy's
+-- window transparency keeps a key on the one Backspace chord the pack does not
+-- take (Cmd+Shift+Backspace is window gaps, Cmd+Ctrl+Backspace square aspect).
+hl.unbind("SUPER + ALT + BACKSPACE")
+o.bind("SUPER + ALT + BACKSPACE", "Toggle window transparency", "omarchy-hyprland-window-transparency-toggle")
 
 local function ws_id(w)
   local ws = w and w.workspace

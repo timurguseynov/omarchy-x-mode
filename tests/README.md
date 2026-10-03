@@ -7,7 +7,8 @@ Four layers:
   Quickshell/qs.* modules are not on the lint import path, so their "not found"
   warnings are expected; only real errors fail.
 - **`unit/`** — pure Lua, no compositor: the parsing modules in `hypr/x-mode/`
-  (settings, theme, MRU, the Super-as-Ctrl plan) plus one test that loads the
+  (settings, theme, MRU, the Super-as-Ctrl plan, the macOS text-chord table)
+  plus one test that loads the
   whole config against a stub `hl` to check it survives Omarchy's keybindings
   scan. Geometry has no unit layer on purpose: it is the plugin's (`Snap::`),
   and the nest covers it. The runner gives every test a throwaway `HOME` and
@@ -144,7 +145,8 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/drag_snap_zones_test.sh` | side strips give halves, the top strip maximizes, corners quarter |
 | `integration/drag_down_then_focus_keeps_box_test.sh` | a dragged window keeps its drop when another window takes focus |
 | `integration/drag_up_clamps_to_bar_test.sh` | dragging up leaves the chrome below the bar |
-| `integration/arrow_keys_unbound_test.sh` | Cmd+arrows are unbound and do not move focus |
+| `integration/text_chords_test.sh` | the macOS text chords: a tagged terminal gets readline's chord and everything else its toolkit's (the bytes the app received are read back) |
+| `integration/arrow_keys_unbound_test.sh` | Cmd+arrows are the pack's text chords, not Omarchy's directional focus, and still do not move focus |
 | `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |
 | `integration/fullscreen_exit_restores_size_test.sh` | leaving fullscreen restores the floating box, not the fullscreen size |
 | `integration/fullscreen_holds_others_under_test.sh` | a fullscreen window keeps the others under it |

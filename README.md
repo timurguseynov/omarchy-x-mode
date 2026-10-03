@@ -33,6 +33,7 @@ It is **additive**. The installer only creates files in its own namespace and on
   * Always show the tab bar, including the `+` for a single window
   * Per-app: `Super` works as `Ctrl` for keys the desktop does not use. Occupied keys (`Super`+`W` as `Ctrl`+`W`, `Super`+`Q` as `Ctrl`+`Q`, `Super`+`F` as `Ctrl`+`F`, …) each have their own toggle; the row says what desktop action that key replaces. `Super`+`1`…`0` are not in that list: they move to `F1`…`F10` from the main panel
   * Per-app: `Super`+click is `Ctrl`+click (links, multi-select)
+  * macOS text chords: `⌘←`/`⌘→` start and end of line, `⌘↑`/`⌘↓` the document, `⌥←`/`⌥→` a word, `⌥⌫`/`⌥⌦` delete a word, `⌘⌫`/`⌘⌦` delete to the start and end of the line, `⌘[`/`⌘]` back and forward — each sent as the chord the focused app understands (a terminal gets readline's, everything else its toolkit's)
   * Per-app: `Ctrl`+`C` as `Ctrl`+`Shift`+`C`, for an app with a terminal inside: the key goes in shifted so the app's own binding can make it the interrupt, while `Super`+`C` still copies
 
 ---
