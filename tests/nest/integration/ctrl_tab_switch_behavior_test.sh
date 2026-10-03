@@ -23,16 +23,16 @@ printf '%s\n' '{"options":{"ctrlTabSwitch":true},"apps":{}}' > "$SETTINGS"
 nest_ctl reload >/dev/null
 # A reload re-parses the config and the option applier creates the binds after
 # it returns, so the press waits for the bind rather than for a second.
-wait_until 5 [ "$(bind_count_desc 'Switch to tab 3' 4)" = 1 ] || fail "the Ctrl+1..9 binds did not land after the reload"
+wait_until 5 "[ \"$(bind_count_desc 'Switch to tab 3' 4)\" = 1 ]" || fail "the Ctrl+1..9 binds did not land after the reload"
 
 open_window foot 4
 nest_ctl dispatch "hl.dsp.focus({ window = 'class:foot' })" >/dev/null
 sleep 0.3
 
 key ctrl+3
-wait_until 3 [ "$(active_tab_index foot)" = 2 ] || fail "Ctrl+3 did not make the third tab current"
+wait_until 3 '[ "$(active_tab_index foot)" = 2 ]' || fail "Ctrl+3 did not make the third tab current"
 assert_eq "$(active_tab_index foot)" 2 "Ctrl+3 makes the third tab current"
 
 key ctrl+1
-wait_until 3 [ "$(active_tab_index foot)" = 0 ] || fail "Ctrl+1 did not go back to the first tab"
+wait_until 3 '[ "$(active_tab_index foot)" = 0 ]' || fail "Ctrl+1 did not go back to the first tab"
 assert_eq "$(active_tab_index foot)" 0 "Ctrl+1 goes back to the first tab"

@@ -21,7 +21,7 @@ nest_ctl eval 'if x_mode and x_mode.refresh_options then x_mode.refresh_options(
 wait_until 5 generated || fail "the global flag did not generate a Super-as-Ctrl bind"
 
 open_command footgcap foot -a footgcap sh -c "stty raw -echo; cat > '$CAP'"
-wait_until 3 [ -e "$CAP" ] || fail "the capture window did not open its file"
+wait_until 3 '[ -e "$CAP" ]' || fail "the capture window did not open its file"
 nest_ctl dispatch "hl.dsp.focus({ window = 'class:footgcap' })" >/dev/null
 sleep 0.3
 

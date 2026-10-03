@@ -643,14 +643,20 @@ refresh_apps() {
   nest_ctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null
 }
 
-# Poll until a command succeeds. The command is the condition the next assert
-# checks, so the wait ends when the compositor has landed instead of after a
-# fixed pause.
-wait_until() { # SECONDS COMMAND...
+# Poll until a condition holds. The condition is text, evaluated on every poll,
+# not a command the caller already expanded: `wait_until 5 [ "$(f)" = 1 ]` runs
+# that substitution once, before the first check, so it waits for nothing and a
+# step that took a moment longer reads as a flake. Quote it to keep it late:
+#   wait_until 5 '[ "$(f)" = 1 ]'
+# A function name is the same thing and the shorter spelling for a condition a
+# scenario asks about twice; its arguments, if any, come along in the text. A
+# value the text compares against has to be captured in a local first -- after the
+# shift below, `$1` inside the text is not the caller's argument any more.
+wait_until() { # SECONDS CONDITION...
   local secs="$1" i
   shift
   for i in $(seq 1 $((secs * 20))); do
-    "$@" && return 0
+    eval "$*" && return 0
     sleep 0.05
   done
   return 1
@@ -973,7 +979,11 @@ dock_order() {
 # and not which, so a pin of an app that is already running leaves it alone and
 # the order is the only thing that moves.
 dock_wait_order() { # "class class ..."
-  wait_until 5 [ "$(dock_order)" = "$1" ]
+  # Captured before the wait: the condition text is eval'd, and after wait_until
+  # shifts its own $1 the positional parameters inside the text are not the
+  # caller's any more.
+  local want="$1"
+  wait_until 5 '[ "$(dock_order)" = "$want" ]'
 }
 
 dock_layer_box() { # NAMESPACE

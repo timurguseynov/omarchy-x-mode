@@ -1,11 +1,17 @@
 # x-mode tests
 
-Four layers:
+Five layers:
 
 
 - **`lint/`** (via `lint.sh`) — `qmllint` over `quickshell/x-mode/*.qml`. The
   Quickshell/qs.* modules are not on the lint import path, so their "not found"
   warnings are expected; only real errors fail.
+- **`harness_test.sh`** — the suite's own helpers, in a plain shell with no nest.
+  `wait_until` has to be *text*: `wait_until 5 [ "$(f)" = 1 ]` expands the
+  substitution once, before the first check, so it waits for nothing and a step
+  that took a moment longer reads as a flake. The test pins that a quoted
+  condition is re-evaluated on every poll, and that one which never holds still
+  gives up on time.
 - **`unit/`** — pure Lua, no compositor: the parsing modules in `hypr/x-mode/`
   (settings, theme, MRU, the Super-as-Ctrl plan, the macOS text-chord table)
   plus one test that loads the
@@ -24,10 +30,11 @@ Four layers:
 ## Run
 
 ```sh
-bash tests/run.sh       # lint, unit, qml, then nest
+bash tests/run.sh       # lint, harness, unit, qml, then nest
 tests/nest/run.sh       # nest only
 bash tests/unit/run.sh  # pure lua only
 bash tests/qml/run.sh   # pure JS only
+bash tests/harness_test.sh   # the wait helpers only
 ```
 
 Nest scenarios can be picked by name, whole or in part:
@@ -247,6 +254,14 @@ that needs arguments, like a zenity dialog), `nest_clean`, `win_geom`, `visible_
 `nest_ctl`, `nest_socket`, `nest_display`, `titlebar_point`, `drag_to`,
 `place_frac`, `nest_screenshot`, `image_diff`, the `pointer_*` and `dock_*`
 families below, and `assert_eq/ne/ge/le/between`.
+
+Waiting is `wait_until 5 'condition'`: the condition is text, evaluated on every
+poll, so quote it, or pass the name of a function the scenario defines (the
+shorter spelling for a condition asked about twice). `wait_until 5 [ "$(f)" = 1 ]`
+is the trap — the caller expands the substitution once, so it waits for nothing —
+and `harness_test.sh` fails if the helper ever goes back to doing that. A value
+the text compares against has to be captured in a `local` before the call: the
+helper shifts its own `$1`, so a bare `$1` inside the text is not yours any more.
 
 Three things about the tabbar, all found the hard way:
 
