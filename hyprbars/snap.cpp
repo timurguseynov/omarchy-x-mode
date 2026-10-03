@@ -65,10 +65,11 @@ const char* Snap::kindToString(eKind k) {
     return "";
 }
 
-// Overridden while naming the zone a window occupied before the gaps
+// Overridden while naming the zone a window occupied before the frame
 // changed. Null means read the live config.
 static int s_gapOverride    = -1;
 static int s_borderOverride = -1;
+static int s_insetOverride  = -1;
 
 int Snap::gapOut() {
     if (s_gapOverride >= 0)
@@ -87,9 +88,17 @@ int Snap::border() {
     return sc<int>(*PBORDER);
 }
 
-void Snap::assumeGaps(int gap, int border) {
+void Snap::assumeFrame(int gap, int border, int inset) {
     s_gapOverride    = gap;
     s_borderOverride = border;
+    s_insetOverride  = inset;
+}
+
+// The dock inset usable() takes off the frame's right edge.
+static double frameInset() {
+    if (s_insetOverride >= 0)
+        return s_insetOverride;
+    return sc<double>(g_pGlobalState->config.xModeDockInset->value());
 }
 
 int Snap::chromeH(PHLWINDOW w) {
@@ -146,7 +155,7 @@ CBox Snap::usable(PHLMONITOR mon) {
     // x-mode.lua publishes the dock card plus half of gaps_out. Rectangle's
     // visibleFrame excludes a right-edge dock before any fraction is taken, so
     // a left half and a right half split this narrower frame and never overlap.
-    const double right  = mon->m_reservedArea.right() + sc<double>(g_pGlobalState->config.xModeDockInset->value());
+    const double right  = mon->m_reservedArea.right() + frameInset();
     const double bottom = mon->m_reservedArea.bottom();
     const CBox   box    = monitorBox(mon);
     return {box.x + left, box.y + top, box.w - left - right, box.h - top - bottom};

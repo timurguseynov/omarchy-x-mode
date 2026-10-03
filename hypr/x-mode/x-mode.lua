@@ -344,6 +344,9 @@ end
 -- it had is used, and this one only before it has ever been seen.
 local DOCK_CARD_FALLBACK = 40
 local dock_card = DOCK_CARD_FALLBACK
+-- The gap, border and dock inset the zones were last built from; set by
+-- apply_gap_geometry below.
+local last_frame = nil
 local function DOCK_PULL()
   return dock_card + math.floor(GAP_OUT() / 2)
 end
@@ -376,6 +379,12 @@ local function apply_gap_geometry()
       },
     },
   })
+  -- The frame the zones are built from, as the plugin was told it. A window put
+  -- on a zone was put there by *these* numbers, and a later change to them (the
+  -- dock card moving) is what asks for it to be put there again -- matched
+  -- against the frame it was placed in, so keeping them is not a cache: it is
+  -- the frame the match has to use.
+  last_frame = { gap = GAP_OUT(), border = BORDER(), inset = DOCK_PULL() }
 end
 
 apply_gap_geometry()
@@ -399,13 +408,23 @@ local function dock_card_now()
   return nil
 end
 
+-- The zone geometry follows the card, and the windows on a zone follow the
+-- geometry: a card that grew by 40px moved the right zone's edge, and a window
+-- placed under the old one has to be placed again -- against the frame it was
+-- placed in. That re-apply is part of the alignment code below (it asks the
+-- plugin, which a layer event can fire before); it is named here so this can
+-- ask for it.
+local frame_changed = function() end
+
 local function refresh_dock_card()
   local w = dock_card_now()
   if w == nil or w == dock_card then
     return
   end
+  local was = last_frame
   dock_card = w
   apply_gap_geometry()
+  frame_changed(was)
 end
 
 -- Load hyprpm-managed plugins, then the patched x-mode hyprbars on login
@@ -491,6 +510,109 @@ local function chrome_h(window)
     return 0
   end
   return h
+end
+
+-- Alignment is applied, never guessed at after a delay. Every pass that asks
+-- the plugin for geometry -- the re-apply a load does, the one a card change
+-- needs, the arrange -- runs through here, and a pass whose plugin is not there
+-- yet is kept, not dropped. That state is normal, not an error: the config
+-- parses before the plugin exists (the pack loads it from exec_on_start), and
+-- the dock's width arrives after it. The poll below runs whatever is left the
+-- moment the plugin can answer, and stops when there is nothing left. Without
+-- the plugin there is no geometry to align to at all, so a pass that is still
+-- waiting after five seconds is dropped: the plugin's own load re-runs this
+-- file, and that parse asks again.
+local function plugin_ready()
+  local p = bars()
+  return p ~= nil and p.snap ~= nil and p.zone ~= nil
+end
+
+local ALIGN_GIVE_UP_TICKS = 50
+local ALIGN_TICK_MS = 100
+local align_pending = {}
+local align_timer = nil
+local align_missing = 0
+
+local function align_later(name, fn)
+  align_pending[name] = fn
+end
+
+local function align_flush()
+  if not plugin_ready() then
+    align_missing = align_missing + 1
+    if align_missing > ALIGN_GIVE_UP_TICKS then
+      align_pending = {}
+      align_missing = 0
+      if align_timer ~= nil then
+        align_timer:set_enabled(false)
+      end
+    end
+    return
+  end
+  align_missing = 0
+  -- A drag owns the box it is moving; re-applying a zone under it would fight
+  -- the gesture. It stays pending until the drag ends (see the drag event).
+  if dragging() then
+    return
+  end
+  local todo = align_pending
+  align_pending = {}
+  for _, fn in pairs(todo) do
+    pcall(fn)
+  end
+  if next(align_pending) == nil and align_timer ~= nil then
+    align_timer:set_enabled(false)
+  end
+end
+
+local function align_arm()
+  if align_timer == nil then
+    align_timer = hl.timer(align_flush, { timeout = ALIGN_TICK_MS, type = "repeat" })
+  else
+    align_timer:set_enabled(true)
+  end
+end
+
+-- Put every window that is still on a zone back on that zone, matched against
+-- the frame the window was placed in. That is the load-time re-apply for a
+-- frame that moved instead of a config that reloaded: a right half stays the
+-- right half when the dock card changes width, which is exactly what an install
+-- leaves behind -- the shell restarts with the new files after the reload, so
+-- the card the windows were dealt with is not the card they end up next to.
+-- The plugin matches the window against the old frame (the overrides), so one
+-- the user moved -- it no longer sits on a zone -- is left where it is. The
+-- match is exact, which is why the frame is kept as the numbers the plugin was
+-- given: half of a rebuilt approximation lands inside the plugin's slop and
+-- hides the difference.
+local function reapply_frame(old)
+  local p = bars()
+  if p == nil or p.zone == nil then
+    return
+  end
+  for _, w in ipairs(as_list(hl.get_windows())) do
+    if w.floating and not w.pinned and not w.hidden then
+      local ok, kind = pcall(p.zone, w, old)
+      if not ok or type(kind) ~= "string" or kind == "" then
+        local ok2, kind2 = pcall(p.zone, w)
+        kind = ok2 and kind2 or nil
+      end
+      if type(kind) == "string" and kind ~= "" then
+        pcall(function()
+          p.snap({ kind = kind, window = w })
+        end)
+      end
+    end
+  end
+end
+
+frame_changed = function(old)
+  if old == nil then
+    return
+  end
+  align_later("frame", function()
+    reapply_frame(old)
+  end)
+  align_arm()
 end
 
 local function ensure_tab_group(window)
@@ -2589,14 +2711,17 @@ end
 -- already folded same-app windows into a single group.
 local ARRANGE_MARKER = X_MODE_STATE .. "/arrange"
 
-local function take_arrange_marker()
+local function read_arrange_marker()
   local file = io.open(ARRANGE_MARKER, "r")
   if file == nil then
     return false
   end
   file:close()
-  os.remove(ARRANGE_MARKER)
   return true
+end
+
+local function clear_arrange_marker()
+  os.remove(ARRANGE_MARKER)
 end
 
 function x_mode.arrange_halves()
@@ -2644,6 +2769,10 @@ end
 local FADE_STEPS   = 10
 local FADE_STEP_MS = 25
 local SETTLE_MS    = 120
+-- How long the fade may stay on screen if the plugin cannot answer. The reveal
+-- is idempotent, so whichever comes first -- the deal landing or this -- brings
+-- the windows back.
+local ARRANGE_REVEAL_MS = 2000
 
 local function set_window_opacity(windows, value)
   for _, w in ipairs(windows) do
@@ -2723,8 +2852,27 @@ clear_fade()
 -- still-tiled windows, gather same-app windows into tabs, deal them into
 -- halves, and reveal once the new boxes have landed. The windows are named now,
 -- at the fade, so the reveal targets exactly the ones that were faded.
-local arrange_pending = take_arrange_marker()
+--
+-- The marker is read here, not taken: it is removed only once the deal has
+-- actually happened. The arrange is the one pass that may not run twice -- it
+-- deals the windows in a shuffled order -- and a parse that cannot run it (the
+-- plugin is loaded from exec_on_start, and the plugin's own load re-runs this
+-- file) used to remove the marker and drop the whole thing. It stays pending
+-- now and align_flush runs it the moment the plugin can answer; the reveal has
+-- a deadline so the windows cannot stay invisible waiting for it.
+local arrange_pending = read_arrange_marker()
 local arrange_fade = {}
+local arrange_revealed = false
+
+local function reveal_arrange()
+  if arrange_revealed then
+    return
+  end
+  arrange_revealed = true
+  set_window_opacity(arrange_fade, "1")
+  arrange_fade = {}
+end
+
 if arrange_pending then
   math.randomseed(os.time())
   arrange_fade = arrange_candidates()
@@ -2732,20 +2880,23 @@ if arrange_pending then
 end
 
 hl.timer(function()
-  if arrange_pending then
-    arrange_pending = false
-    float_tiled()
-    consolidate()
-    x_mode.arrange_halves()
-    hl.timer(function()
-      set_window_opacity(arrange_fade, "1")
-      arrange_fade = {}
-    end, { timeout = SETTLE_MS, type = "oneshot" })
-  else
-    consolidate()
-  end
   for _, w in ipairs(as_list(hl.get_windows())) do
     release_hypr_maximize(refresh_window(w) or w)
+  end
+  if arrange_pending then
+    -- The re-float and the grouping are not the plugin's and happen behind the
+    -- fade, as they always did; only the deal needs the plugin.
+    float_tiled()
+    consolidate()
+    align_later("arrange", function()
+      x_mode.arrange_halves()
+      clear_arrange_marker()
+      hl.timer(reveal_arrange, { timeout = SETTLE_MS, type = "oneshot" })
+    end)
+    align_arm()
+    hl.timer(reveal_arrange, { timeout = ARRANGE_REVEAL_MS, type = "oneshot" })
+  else
+    consolidate()
   end
 end, { timeout = 600, type = "oneshot" })
 
@@ -2763,9 +2914,12 @@ if not arrange_pending then
   hl.timer(float_tiled, { timeout = 300, type = "oneshot" })
 end
 
--- A load re-applies the zone box to every window that is still zone-shaped (see
--- resnap_zoned). Not with an arrange pending: that one deals every window into
--- the halves itself.
+-- A load re-applies the zone box to every window that is still zone-shaped
+-- (see resnap_zoned). Not with an arrange pending: that one deals every window
+-- into the halves itself. The pass waits for the plugin like the others: on the
+-- first parse of a session there is none yet, and it used to run into that and
+-- silently do nothing.
 if not arrange_pending then
-  resnap_zoned()
+  align_later("resnap", resnap_zoned)
+  align_arm()
 end

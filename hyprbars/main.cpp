@@ -247,9 +247,10 @@ static int luaSnap(lua_State* L) {
     return 0;
 }
 
-// The snap zone a window currently fills, or nil. An optional { gap, border }
-// tests the position against the zones those gaps would produce, so a window
-// snapped with no gaps is still recognised after the gaps come back.
+// The snap zone a window currently fills, or nil. An optional
+// { gap, border, inset } tests the position against the zones that frame would
+// produce, so a window snapped with no gaps, or before the dock card resized,
+// is still recognised after the frame changes.
 static int luaZone(lua_State* L) {
     PHLWINDOW w = nullptr;
     if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
@@ -257,7 +258,7 @@ static int luaZone(lua_State* L) {
     if (!w)
         w = Desktop::focusState()->window();
 
-    int gap = -1, border = -1;
+    int gap = -1, border = -1, inset = -1;
     if (lua_istable(L, 2)) {
         lua_getfield(L, 2, "gap");
         if (lua_isnumber(L, -1))
@@ -267,11 +268,15 @@ static int luaZone(lua_State* L) {
         if (lua_isnumber(L, -1))
             border = sc<int>(lua_tonumber(L, -1));
         lua_pop(L, 1);
+        lua_getfield(L, 2, "inset");
+        if (lua_isnumber(L, -1))
+            inset = sc<int>(lua_tonumber(L, -1));
+        lua_pop(L, 1);
     }
 
-    Snap::assumeGaps(gap, border);
+    Snap::assumeFrame(gap, border, inset);
     const auto kind = Snap::kindOf(w);
-    Snap::assumeGaps(-1, -1);
+    Snap::assumeFrame(-1, -1, -1);
 
     if (kind == Snap::eKind::None) {
         lua_pushnil(L);

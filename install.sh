@@ -144,12 +144,12 @@ print(json.dumps(out))
   log "loading patched hyprbars"
   hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
   hyprctl plugin load "$HYPRBARS_SO" >/dev/null 2>&1 || warn "could not load hyprbars now (it will load on next login)"
-  # Before either reload: the config spreads the already-open windows across
-  # the left and right halves, then deletes the marker. Whichever of the two
-  # reloads parses the new config first does the arrange; the other, and
-  # every reload after, leaves windows where the user put them.
-  mkdir -p "$X_MODE_STATE_DIR"
-  : > "$X_MODE_STATE_DIR/arrange"
+  # No arrange marker here. This reload is the plugin's (on a fresh install the
+  # pack's config is not wired in yet, on a reinstall it is still the previous
+  # one), and a marker left for it is an arrange with the old geometry -- or a
+  # second arrange, redrawing the halves in a new order a moment later. The one
+  # marker is written below, for the reload that parses the config just
+  # installed.
   log "reloading Hyprland to activate hyprbars"
   hyprctl reload >/dev/null 2>&1 || true
 
@@ -193,8 +193,10 @@ print(json.dumps(out))
   log "wiring x-mode into hyprland.lua"
   sentinel_add "$HYPR/hyprland.lua"
 
-  # Recreate the marker: the reload above may already have consumed it, and
-  # this reload is the one that parses the config just installed.
+  # The one arrange marker. The config spreads the already-open windows across
+  # the left and right halves and removes the marker only once it has actually
+  # dealt them, so a parse that cannot run the deal (the plugin is not loaded
+  # yet) keeps it instead of dropping the arrange on the floor.
   mkdir -p "$X_MODE_STATE_DIR"
   : > "$X_MODE_STATE_DIR/arrange"
 
