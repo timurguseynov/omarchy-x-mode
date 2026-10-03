@@ -423,6 +423,140 @@ function setOccupiedKey(appsCfg, cls, id, on) {
     return mergePanelCfg(appsCfg, cls, cfg.chrome, cfg.alwaysTabbar, cfg.ctrlW, cfg.ctrlAsSuper, cfg.ctrlCShift, cfg.ctrlClick, keys, cfg.digitTabs)
 }
 
+// --- keyboard replacements: one screen, two scopes ---------------------------
+//
+// Every keyboard replacement can be forced on for every app from the main panel
+// (options.keys), and the same rows then serve an app's card. There a forced row
+// reads as checked and locked: the app cannot disagree with the main panel, and
+// there is one source of truth rather than two that drift. Nothing is forced by
+// default, so all of this starts empty.
+
+var KEY_FLAG_NAMES = ["ctrlAsSuper", "digitTabs", "ctrlW", "ctrlClick", "ctrlCShift"]
+
+// What one row shows: locked means "set for every app", so the card may not
+// change it.
+function keyFlagState(cfg, forced, flag) {
+    if (forced && forced[flag])
+        return { checked: true, locked: true }
+    return { checked: !!(cfg && cfg[flag]), locked: false }
+}
+
+// The same for one occupied key; the global list is an array of ids.
+function keyStealState(cfg, forced, id) {
+    var list = (forced && forced.steal) || []
+    for (var i = 0; i < list.length; i++) {
+        if (String(list[i]) === String(id))
+            return { checked: true, locked: true }
+    }
+    return { checked: hasOccupiedKey(cfg, id), locked: false }
+}
+
+// The global scope as a config object, so the rows render from one shape whichever
+// scope they are showing: the app card passes its own, this passes the forced map.
+function globalScopeCfg(keys) {
+    var k = keys || {}
+    var cfg = { chrome: true, alwaysTabbar: false, ctrlAsSuperKeys: copyOccupiedKeys(k.steal) }
+    for (var i = 0; i < KEY_FLAG_NAMES.length; i++)
+        cfg[KEY_FLAG_NAMES[i]] = !!k[KEY_FLAG_NAMES[i]]
+    return cfg
+}
+
+// The map with one flag written: false removes it, so the file holds only what is
+// actually forced on. Null for an unknown flag name.
+function setGlobalFlag(keys, flag, on) {
+    if (KEY_FLAG_NAMES.indexOf(String(flag)) < 0)
+        return null
+    var k = keys || {}
+    var next = {}
+    for (var i = 0; i < KEY_FLAG_NAMES.length; i++) {
+        var name = KEY_FLAG_NAMES[i]
+        if (name !== flag && k[name])
+            next[name] = true
+    }
+    if (on)
+        next[flag] = true
+    var steal = copyOccupiedKeys(k.steal)
+    if (steal.length)
+        next.steal = steal
+    return next
+}
+
+// One occupied key forced on for every app.
+function setGlobalSteal(keys, id, on) {
+    id = String(id || "")
+    if (id === "")
+        return keys
+    var k = keys || {}
+    var next = {}
+    for (var i = 0; i < KEY_FLAG_NAMES.length; i++) {
+        if (k[KEY_FLAG_NAMES[i]])
+            next[KEY_FLAG_NAMES[i]] = true
+    }
+    var list = copyOccupiedKeys(k.steal)
+    var steal = []
+    var seen = false
+    for (var j = 0; j < list.length; j++) {
+        if (String(list[j]) === id) {
+            seen = true
+            if (on)
+                steal.push(list[j])
+        } else {
+            steal.push(list[j])
+        }
+    }
+    if (on && !seen)
+        steal.push(id)
+    if (steal.length)
+        next.steal = steal
+    return next
+}
+
+// The "for every app" entry row: what is in force, or that nothing is.
+function globalKeysSummary(keys) {
+    var k = keys || {}
+    var n = 0
+    for (var i = 0; i < KEY_FLAG_NAMES.length; i++) {
+        if (k[KEY_FLAG_NAMES[i]])
+            n++
+    }
+    var keysN = copyOccupiedKeys(k.steal).length
+    if (n === 0 && keysN === 0)
+        return "Nothing set for every app"
+    var parts = []
+    if (n)
+        parts.push(n === 1 ? "1 replacement" : n + " replacements")
+    if (keysN)
+        parts.push(keysN === 1 ? "1 key" : keysN + " keys")
+    return parts.join(", ") + " for every app"
+}
+
+// The card's entry row: what is on for this app, or that the main panel decides.
+function appKeysSummary(cfg, forced) {
+    var f = forced || {}
+    var forcedAny = f.steal && f.steal.length > 0
+    for (var i = 0; i < KEY_FLAG_NAMES.length; i++) {
+        if (f[KEY_FLAG_NAMES[i]])
+            forcedAny = true
+    }
+    if (forcedAny)
+        return "Some are set for every app"
+    var c = cfg || {}
+    var n = 0
+    for (var i = 0; i < KEY_FLAG_NAMES.length; i++) {
+        if (c[KEY_FLAG_NAMES[i]])
+            n++
+    }
+    var keysN = (c.ctrlAsSuperKeys || []).length
+    if (n === 0 && keysN === 0)
+        return "Off: Super keys reach the app as they are"
+    var parts = []
+    if (n)
+        parts.push(n === 1 ? "1 replacement" : n + " replacements")
+    if (keysN)
+        parts.push(keysN === 1 ? "1 key" : keysN + " keys")
+    return parts.join(", ")
+}
+
 // Settings-panel running list: one row per app class with the best-focus
 // window's title, plus configured-but-not-running classes, sorted by class.
 // Pure: the caller assigns it to `running`.

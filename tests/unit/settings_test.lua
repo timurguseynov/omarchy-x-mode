@@ -29,6 +29,25 @@ check("opt.defaults3", d.workspaces_fkeys, false)
 local f = settings.parse_options('{"options":{"workspacesOnFkeys":true},"apps":{}}')
 check("opt.workspacesOnFkeys", f.workspaces_fkeys, true)
 
+-- The keyboard replacements the main panel forces on for every app. Absent means
+-- per app, so every flag has to read as unset when there is no keys block.
+local kopt = settings.parse_options('{"options":{"keys":{"ctrlAsSuper":true,"ctrlW":true,"steal":["q","SHIFT+tab","mouse:272"]}},"apps":{}}')
+check("opt.keys.ctrlAsSuper", kopt.key_flags.ctrl_as_super, true)
+check("opt.keys.ctrlW", kopt.key_flags.ctrl_w, true)
+check("opt.keys.digitTabs.absent", kopt.key_flags.digit_tabs, nil)
+check("opt.keys.steal.q", kopt.global_steal["Q"], true)
+check("opt.keys.steal.shift-tab", kopt.global_steal["SHIFT+TAB"], true)
+check("opt.keys.steal.junk", kopt.global_steal["mouse:272"], nil)
+
+local nokeys = settings.parse_options('{"options":{"noGaps":true},"apps":{}}')
+check("opt.keys.none", next(nokeys.key_flags) == nil, true)
+check("opt.keys.none.steal", next(nokeys.global_steal) == nil, true)
+
+-- An app class called "keys" must not be read as the options block: the global
+-- map has to come from under "options".
+local named = settings.parse_options('{"options":{"noGaps":true},"apps":{"keys":{"ctrlW":true}}}')
+check("opt.keys.not-an-app", next(named.key_flags) == nil, true)
+
 -- The apps scan must be pointed at the apps section, not the whole file, or
 -- "options" comes back as an app class (the merged-settings bug).
 local raw = '{"options":{"nativeScroll":false,"noGaps":true},"apps":{"chromium":{"chrome":false,"alwaysTabbar":true},"Zed":{"alwaysTabbar":true}}}'

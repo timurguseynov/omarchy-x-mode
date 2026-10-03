@@ -271,6 +271,76 @@ TestCase {
         compare(Logic.setPanelFlag({}, "", "ctrlW", true), null, "empty class")
     }
 
+    function test_keyFlagState() {
+        // Nothing forced: the row is the app's own switch.
+        var off = Logic.keyFlagState({ ctrlW: false }, {}, "ctrlW")
+        compare(off.checked, false)
+        compare(off.locked, false)
+        var on = Logic.keyFlagState({ ctrlW: true }, {}, "ctrlW")
+        compare(on.checked, true)
+        compare(on.locked, false)
+        // Forced for every app: checked and locked, whatever the card says.
+        var forced = Logic.keyFlagState({ ctrlW: false }, { ctrlW: true }, "ctrlW")
+        compare(forced.checked, true)
+        compare(forced.locked, true)
+        var other = Logic.keyFlagState({ ctrlW: false }, { ctrlAsSuper: true }, "ctrlW")
+        compare(other.checked, false, "another flag being forced is not this one")
+        compare(other.locked, false)
+    }
+
+    function test_keyStealState() {
+        var cfg = { ctrlAsSuperKeys: ["Q"] }
+        compare(Logic.keyStealState(cfg, {}, "Q").checked, true)
+        compare(Logic.keyStealState(cfg, {}, "Q").locked, false)
+        compare(Logic.keyStealState({}, {}, "Q").checked, false)
+        var forced = Logic.keyStealState({}, { steal: ["Q"] }, "Q")
+        compare(forced.checked, true)
+        compare(forced.locked, true)
+        compare(Logic.keyStealState({}, { steal: ["TAB"] }, "Q").checked, false)
+    }
+
+    function test_globalKeys() {
+        // The global scope renders as the same shape the card uses.
+        var cfg = Logic.globalScopeCfg({ ctrlAsSuper: true, steal: ["Q", "TAB"] })
+        compare(cfg.ctrlAsSuper, true)
+        compare(cfg.ctrlW, false)
+        compare(cfg.ctrlAsSuperKeys.length, 2)
+
+        var one = Logic.setGlobalFlag({}, "ctrlW", true)
+        compare(one.ctrlW, true)
+        compare(one.ctrlAsSuper, undefined)
+        var both = Logic.setGlobalFlag(one, "digitTabs", true)
+        compare(both.ctrlW, true, "the other flag is kept")
+        compare(both.digitTabs, true)
+        var cleared = Logic.setGlobalFlag(both, "ctrlW", false)
+        compare(cleared.ctrlW, undefined, "off removes the key rather than storing false")
+        compare(cleared.digitTabs, true)
+        compare(Logic.setGlobalFlag({ ctrlW: true }, "nonsense", true), null, "unknown flag")
+
+        var stolen = Logic.setGlobalSteal({ ctrlW: true }, "Q", true)
+        compare(stolen.steal.length, 1)
+        compare(stolen.steal[0], "Q")
+        compare(stolen.ctrlW, true, "stealing keeps the flags")
+        var two = Logic.setGlobalSteal(stolen, "TAB", true)
+        compare(two.steal.length, 2)
+        var back = Logic.setGlobalSteal(two, "Q", false)
+        compare(back.steal.length, 1)
+        compare(back.steal[0], "TAB")
+        compare(Logic.setGlobalSteal(back, "TAB", false).steal, undefined, "an empty list is dropped")
+
+        compare(Logic.globalKeysSummary({}), "Nothing set for every app")
+        compare(Logic.globalKeysSummary({ ctrlW: true }), "1 replacement for every app")
+        compare(Logic.globalKeysSummary({ ctrlW: true, ctrlAsSuper: true }), "2 replacements for every app")
+        compare(Logic.globalKeysSummary({ steal: ["Q"] }), "1 key for every app")
+        compare(Logic.globalKeysSummary({ ctrlW: true, steal: ["Q", "TAB"] }), "1 replacement, 2 keys for every app")
+
+        compare(Logic.appKeysSummary({}, {}), "Off: Super keys reach the app as they are")
+        compare(Logic.appKeysSummary({ ctrlW: true }, {}), "1 replacement")
+        compare(Logic.appKeysSummary({ ctrlW: true, ctrlAsSuperKeys: ["Q"] }, {}), "1 replacement, 1 key")
+        compare(Logic.appKeysSummary({}, { ctrlW: true }), "Some are set for every app")
+        compare(Logic.appKeysSummary({ ctrlW: true }, { steal: ["Q"] }), "Some are set for every app")
+    }
+
     function test_occupiedKeys() {
         var parsed = Logic.parseApps('{"Chromium":{"ctrlAsSuperKeys":["Q","TAB"]}}')
         compare(parsed["chromium"].ctrlAsSuperKeys.length, 2)

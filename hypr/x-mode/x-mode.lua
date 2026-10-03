@@ -501,6 +501,27 @@ local ctrl_c_shift_apps = {}
 -- Classes with the panel's "⌘+click as Ctrl+click" flag: Super+mouse button
 -- is sent as Ctrl+click. Unflagged apps still get Super+click (pass_event).
 local ctrl_click_apps = {}
+-- Keyboard replacements the main panel forces on for every class, keyed by the
+-- same name the parsed apps use (options.keys). A flag here is read as set for
+-- any class, and the card shows the row checked and locked instead of editable,
+-- so both screens agree on what is in force.
+local key_flags = {}
+-- Occupied Super keys stolen for every class (options.keys.steal), same idea.
+local global_steal = {}
+
+-- One keyboard flag for a class: the global override or the app's own switch.
+local function key_flag(set, name, cls)
+  if cls == nil then
+    return false
+  end
+  return key_flags[name] == true or set[cls] == true
+end
+
+-- Whether anything claims the flag at all. The generated binds exist only when
+-- something does, and a global override is not visible in the per-app set.
+local function key_flag_any(set, name)
+  return key_flags[name] == true or next(set) ~= nil
+end
 local ctrl_c_binds = {}
 -- Defined with the other option appliers (it reads the bind table out of band),
 -- forward-declared so the app refresh can call it.
@@ -528,8 +549,12 @@ local function send_ctrl(key, shift, w)
 end
 
 local function key_stolen(cls, key, shift)
+  local id = supermap.key_id(key, shift)
+  if global_steal[id] == true then
+    return true
+  end
   local ids = steal_keys[cls]
-  return ids ~= nil and ids[supermap.key_id(key, shift)] == true
+  return ids ~= nil and ids[id] == true
 end
 
 local function window_by_addr(addr)
@@ -671,7 +696,7 @@ local function super_ctrl_click(button)
     -- The window under the cursor, not the focused one: Cmd+click a link in
     -- a background window should still be Ctrl+click there.
     local w = window_at_cursor()
-    if w == nil or not ctrl_click_apps[window_class(w)] then
+    if w == nil or not key_flag(ctrl_click_apps, "ctrl_click", window_class(w)) then
       return { pass_event = true }
     end
     hl.dispatch(hl.dsp.send_shortcut({
@@ -952,7 +977,7 @@ o.bind("SUPER + W", "Close window", function()
   if w == nil then
     return
   end
-  if ctrl_w_apps[window_class(w)] then
+  if key_flag(ctrl_w_apps, "ctrl_w", window_class(w)) then
     send_ctrl("W", false, w)
     return
   end
@@ -1409,12 +1434,12 @@ sync_app_flags()
 -- Only the physical key is caught: a chord the desktop sends goes straight to
 -- the client and never through the bind table, so this cannot loop.
 local function apply_ctrl_c_shift()
-  if #ctrl_c_binds > 0 or next(ctrl_c_shift_apps) == nil then
+  if #ctrl_c_binds > 0 or not key_flag_any(ctrl_c_shift_apps, "ctrl_c_shift") then
     return
   end
   local ok, kb = pcall(hl.bind, "CTRL + C", function()
     local w = hl.get_active_window()
-    if w == nil or not ctrl_c_shift_apps[window_class(w)] then
+    if w == nil or not key_flag(ctrl_c_shift_apps, "ctrl_c_shift", window_class(w)) then
       return { pass_event = true }
     end
     send_chord("CTRL SHIFT", "C", w)
@@ -1537,6 +1562,8 @@ local function load_options()
   ctrl_tab_switch = o.ctrl_tab_switch
   no_gaps = o.no_gaps
   workspaces_fkeys = o.workspaces_fkeys
+  key_flags = o.key_flags
+  global_steal = o.global_steal
 end
 
 -- gaps_* only schedule a layout refresh, and `hyprctl eval` returns before
@@ -1748,7 +1775,7 @@ end
 -- key exactly as before.
 local function super_ctrl_key(key, shift)
   local w = hl.get_active_window()
-  if w == nil or not ctrl_as_super[window_class(w)] then
+  if w == nil or not key_flag(ctrl_as_super, "ctrl_as_super", window_class(w)) then
     return { pass_event = true }
   end
   send_ctrl(key, shift, w)
@@ -1908,7 +1935,7 @@ local function bind_super_ctrl(raw, gen)
   ensure_omarchy_exec()
   write_occupied(raw)
   apply_steal_wraps(raw)
-  if next(ctrl_as_super) == nil then
+  if not key_flag_any(ctrl_as_super, "ctrl_as_super") then
     return
   end
   for _, b in ipairs(supermap.plan(raw)) do
@@ -1994,10 +2021,10 @@ local function digit_key(index)
   return function()
     local w = hl.get_active_window()
     local cls = w ~= nil and window_class(w) or nil
-    if cls ~= nil and digit_tabs[cls] then
+    if cls ~= nil and key_flag(digit_tabs, "digit_tabs", cls) then
       return focus_group_tab(index, true)
     end
-    if cls ~= nil and ctrl_as_super[cls] then
+    if cls ~= nil and key_flag(ctrl_as_super, "ctrl_as_super", cls) then
       send_ctrl(digit_name(index), false, w)
       return
     end

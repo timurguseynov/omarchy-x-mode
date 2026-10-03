@@ -274,14 +274,14 @@ function M.occupied_list(raw)
     end
   end
   local out = {}
-  for _, key in ipairs(M.KEYS) do
-    local plain = by_id[M.key_id(key, false)]
-    if plain then
-      out[#out + 1] = plain
-    end
-    local shifted = by_id[M.key_id(key, true)]
-    if shifted then
-      out[#out + 1] = shifted
+  -- Plain keys first, then their Shift forms: the panel shows this list, and a
+  -- key that only has one of the two forms would break up the run otherwise.
+  for _, shift in ipairs({ false, true }) do
+    for _, key in ipairs(M.KEYS) do
+      local e = by_id[M.key_id(key, shift)]
+      if e then
+        out[#out + 1] = e
+      end
     end
   end
   return out

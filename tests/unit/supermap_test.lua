@@ -311,6 +311,23 @@ check("occ.shift-tab", occ["SHIFT+TAB"] ~= nil, true)
 check("occ.steal-wrap", occ["K"] ~= nil, true)
 check("occ.t.label", occ["T"].label, "⌘+T")
 check("occ.shift-tab.label", occ["SHIFT+TAB"].label, "⌘+⇧+Tab")
+
+-- Panel row order: every plain Super+key first, then the Shift ones, each in
+-- KEYS order. Interleaving them by key reads as a jumble in the panel whenever
+-- a key has only one of the two forms. This is also the order the rows arrive in.
+local function occ_blk(mask, key, desc)
+  return "bind\n\tmodmask: " .. mask .. "\n\tsubmap: \n\tkey: " .. key
+    .. "\n\tkeycode: 0\n\tcatchall: false\n\tdescription: " .. desc
+    .. "\n\tdispatcher: exec\n\targ: x\n\n"
+end
+local order_raw = occ_blk(64, "TAB", "next") .. occ_blk(65, "TAB", "prev")
+  .. occ_blk(64, "F", "full") .. occ_blk(65, "F", "file")
+  .. occ_blk(64, "K", "keys") .. occ_blk(65, "B", "browser")
+local ids = {}
+for _, e in ipairs(supermap.occupied_list(order_raw)) do
+  ids[#ids + 1] = e.id
+end
+check("occ.order", table.concat(ids, ","), "F,K,TAB,SHIFT+B,SHIFT+F,SHIFT+TAB")
 check("pretty.comma", supermap.label("comma", false), "⌘+,")
 check("pretty.esc", supermap.label("ESCAPE", false), "⌘+Esc")
 check("pretty.enter", supermap.label("RETURN", false), "⌘+Enter")

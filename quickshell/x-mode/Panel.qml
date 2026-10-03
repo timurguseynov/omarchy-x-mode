@@ -28,7 +28,24 @@ Panel {
   // sized to the space actually left in the capped card. Excludes `listFlick`
   // itself -- referencing its height here would be circular.
   readonly property real listFixedHeight: {
-    var items = [hero, sepTop, scrollRow, tabKeysRow, workspaceKeysRow, gapsRow, sepMid, backRow, sectionHeader, searchField]
+    var items = [hero, sepTop, scrollRow, tabKeysRow, workspaceKeysRow, keysEntryRow, gapsRow, sepMid, backRow, sectionHeader, searchField]
+    var h = 0
+    var n = 0
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i]
+      if (!it || it.visible === false)
+        continue
+      h += it.implicitHeight
+      n++
+    }
+    if (n > 1)
+      h += (n - 1) * column.spacing
+    return h
+  }
+
+  // The rows that stay above the keys screen: the back row and its header.
+  readonly property real keysFixedHeight: {
+    var items = [backRow, sectionHeader]
     var h = 0
     var n = 0
     for (var i = 0; i < items.length; i++) {
@@ -54,6 +71,13 @@ Panel {
   // the same room, and they scroll inside the card instead of shrinking it.
   readonly property int cardCap: Style.space(720)
   property var appsCfg: ({})
+  // The keyboard replacements forced on for every app (settings options.keys).
+  // A flag here is read as set for any class, and the card shows the row locked.
+  property var globalKeys: ({})
+  // The keys screen is a page on top of whatever is showing: back returns to it,
+  // and its scope is decided by where it was opened from (no class = every app).
+  property bool keysOpen: false
+  readonly property string view: root.keysOpen ? "keys" : (root.openCls === "" ? "main" : "app")
   property var running: []
   property string query: ""
   property string openCls: ""
@@ -102,6 +126,21 @@ Panel {
     writeSettings("hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null")
   }
 
+  // The same two, for the global map: a reload because the handlers read the
+  // option block at load, and one key changing hands has to re-plan the binds.
+  function setGlobalFlag(flag, value) {
+    var next = Logic.setGlobalFlag(globalKeys, flag, value)
+    if (!next)
+      return
+    globalKeys = next
+    writeSettings("hyprctl reload >/dev/null")
+  }
+
+  function setGlobalSteal(id, value) {
+    globalKeys = Logic.setGlobalSteal(globalKeys, id, value)
+    writeSettings("hyprctl reload >/dev/null")
+  }
+
   // The panel's whole state in one file, so the options and the app list can
   // never drift apart. `followUp` is the hyprctl call the change needs.
   function writeSettings(followUp) {
@@ -118,7 +157,7 @@ Panel {
       }
     }
     var json = JSON.stringify({
-      options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps, workspacesOnFkeys: root.workspacesOnFkeys },
+      options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps, workspacesOnFkeys: root.workspacesOnFkeys, keys: root.globalKeys },
       apps: apps
     })
     Quickshell.execDetached([
@@ -151,6 +190,7 @@ Panel {
   onOpenedChanged: {
     if (opened) {
       openCls = ""
+      keysOpen = false
       // A filter left from the last time the panel was open would hide apps
       // the next time it is, so every open starts from the whole list.
       query = ""
@@ -172,12 +212,14 @@ Panel {
         root.ctrlTabSwitch = !!o.ctrlTabSwitch
         root.noGaps = !!o.noGaps
         root.workspacesOnFkeys = !!o.workspacesOnFkeys
+        root.globalKeys = (o.keys && typeof o.keys === "object") ? o.keys : ({})
         root.appsCfg = Logic.parseApps((d && d.apps) || {})
       } catch (e) {
         root.nativeScroll = false
         root.ctrlTabSwitch = false
         root.noGaps = false
         root.workspacesOnFkeys = false
+        root.globalKeys = ({})
         root.appsCfg = {}
       }
       root.refreshClients()
@@ -187,6 +229,7 @@ Panel {
       root.ctrlTabSwitch = false
       root.noGaps = false
       root.workspacesOnFkeys = false
+      root.globalKeys = ({})
       root.appsCfg = {}
     }
   }
@@ -293,6 +336,143 @@ Panel {
         foreground: root.contentForeground
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
+      }
+    }
+  }
+
+  // A row that opens another screen: a label, a line saying what is behind it, and
+  // a chevron. Used for the keyboard replacements from the main panel and from an
+  // app's card, which is where the scope is decided.
+  component LinkRow: CursorSurface {
+    id: lrow
+    property string label: ""
+    property string description: ""
+    signal clicked()
+
+    implicitHeight: lrowContent.implicitHeight + Style.spacing.rowPaddingX
+    foreground: root.contentForeground
+    hasCursor: lrowMouse.containsMouse
+
+    MouseArea {
+      id: lrowMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: lrow.clicked()
+    }
+
+    Item {
+      id: lrowContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(10)
+      implicitHeight: Math.max(lrowText.implicitHeight, lrowChevron.implicitHeight)
+
+      Column {
+        id: lrowText
+        spacing: Style.space(1)
+        anchors.left: parent.left
+        anchors.right: lrowChevron.left
+        anchors.rightMargin: Style.space(10)
+        anchors.verticalCenter: parent.verticalCenter
+
+        Text {
+          text: lrow.label
+          color: root.contentForeground
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideRight
+          width: parent.width
+        }
+        Text {
+          visible: lrow.description !== ""
+          text: lrow.description
+          color: Qt.darker(root.contentForeground, 1.5)
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+          width: parent.width
+        }
+      }
+
+      Text {
+        id: lrowChevron
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        text: "›"
+        color: Qt.darker(root.contentForeground, 1.5)
+        font.family: root.contentFontFamily
+        font.pixelSize: Style.font.body
+      }
+    }
+  }
+
+  // The keyboard replacements themselves, in one element used by both scopes: with
+  // `cls` empty it is the "for every app" screen, with a class it is that app's.
+  // A row the main panel forces is shown checked and locked instead of hidden --
+  // it is still in force, and hiding it would make the app look like it decides.
+  // The force lives in one place, the rows are identical in both screens.
+  component KeyRows: Column {
+    id: krows
+    property string cls: ""
+    property var cfg: ({})
+    property var forced: ({})
+    property bool workspacesOnFkeys: false
+    property var occupiedKeys: []
+    signal flagToggled(string flag, bool value)
+    signal keyToggled(string id, bool value)
+
+    width: parent ? parent.width : 0
+    spacing: Style.space(4)
+
+    // A card cannot disagree with the main panel, so its forced rows are locked.
+    readonly property bool isApp: krows.cls !== ""
+
+    readonly property var flagRows: [
+      { flag: "ctrlAsSuper", label: "Super works as Ctrl", description: "Keys Omarchy does not already use" },
+      { flag: "digitTabs", label: "⌘+1..0 for the pack's tabs", description: krows.workspacesOnFkeys ? "Reserved: no tab of that number means the key does nothing" : "Needs Workspaces on F1..F10, which frees the digits" },
+      { flag: "ctrlW", label: "⌘+W as Ctrl+W", description: "Close window" },
+      { flag: "ctrlClick", label: "⌘+click as Ctrl+click", description: "Links, multi-select" },
+      { flag: "ctrlCShift", label: "Ctrl+C as Ctrl+Shift+C", description: "Interrupt in a terminal; Super+C still copies" }
+    ]
+
+    Repeater {
+      model: krows.flagRows
+      SwitchRow {
+        required property var modelData
+        width: krows.width
+        label: modelData.label
+        description: {
+          var st = Logic.keyFlagState(krows.cfg, krows.forced, modelData.flag)
+          return (krows.isApp && st.locked) ? "Set for every app" : modelData.description
+        }
+        checked: Logic.keyFlagState(krows.cfg, krows.forced, modelData.flag).checked
+        rowEnabled: !(krows.isApp && Logic.keyFlagState(krows.cfg, krows.forced, modelData.flag).locked)
+        onToggled: krows.flagToggled(modelData.flag, !Logic.keyFlagState(krows.cfg, krows.forced, modelData.flag).checked)
+      }
+    }
+
+    PanelSeparator {
+      width: krows.width
+      visible: krows.occupiedKeys.length > 0
+      foreground: root.contentForeground
+    }
+
+    Repeater {
+      model: krows.occupiedKeys
+      SwitchRow {
+        required property var modelData
+        width: krows.width
+        label: Logic.stealToggleLabel(modelData.label || modelData.id)
+        description: {
+          var st = Logic.keyStealState(krows.cfg, krows.forced, modelData.id)
+          return (krows.isApp && st.locked) ? "Set for every app" : String(modelData.description || "")
+        }
+        checked: Logic.keyStealState(krows.cfg, krows.forced, modelData.id).checked
+        rowEnabled: !(krows.isApp && Logic.keyStealState(krows.cfg, krows.forced, modelData.id).locked)
+        onToggled: krows.keyToggled(modelData.id, !Logic.keyStealState(krows.cfg, krows.forced, modelData.id).checked)
       }
     }
   }
@@ -453,7 +633,7 @@ Panel {
       SwitchRow {
         id: scrollRow
         width: parent.width
-        visible: root.openCls === ""
+        visible: root.view === "main"
         label: "Native scroll"
         description: "Natural (reversed) touchpad scrolling"
         checked: root.nativeScroll
@@ -464,7 +644,7 @@ Panel {
       SwitchRow {
         id: tabKeysRow
         width: parent.width
-        visible: root.openCls === ""
+        visible: root.view === "main"
         label: "Ctrl+1..0 switches tabs"
         description: "Jump to a titlebar tab; off, the shortcut goes to the app"
         checked: root.ctrlTabSwitch
@@ -475,9 +655,9 @@ Panel {
       SwitchRow {
         id: workspaceKeysRow
         width: parent.width
-        visible: root.openCls === ""
+        visible: root.view === "main"
         label: "Workspaces on F1..F10"
-        description: "Super+F1..F10 switch workspaces; the freed digits follow the app's card"
+        description: "Super+F1..F10 switch workspaces; the freed digits follow Key replacements"
         checked: root.workspacesOnFkeys
         rowEnabled: root.xModeOn
         onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, root.noGaps, !root.workspacesOnFkeys)
@@ -486,7 +666,7 @@ Panel {
       SwitchRow {
         id: gapsRow
         width: parent.width
-        visible: root.openCls === ""
+        visible: root.view === "main"
         label: "No gaps"
         description: "Remove the space between windows and their borders"
         checked: root.noGaps
@@ -494,16 +674,27 @@ Panel {
         onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, !root.noGaps, root.workspacesOnFkeys)
       }
 
+      // The keys screen is several rows long, so the main panel gets an entry
+      // like an app's card does, and the scope is decided by where it was opened.
+      LinkRow {
+        id: keysEntryRow
+        width: parent.width
+        visible: root.view === "main"
+        label: "Key replacements"
+        description: Logic.globalKeysSummary(root.globalKeys)
+        onClicked: root.keysOpen = true
+      }
+
       PanelSeparator {
         id: sepMid
-        visible: root.openCls === ""
+        visible: root.view === "main"
         foreground: root.contentForeground
       }
 
       CursorSurface {
         id: backRow
         width: parent.width
-        visible: root.openCls !== ""
+        visible: root.view === "app" || root.keysOpen
         implicitHeight: backText.implicitHeight + Style.spacing.rowPaddingX
         foreground: root.contentForeground
         hasCursor: backMouse.containsMouse
@@ -513,7 +704,14 @@ Panel {
           anchors.fill: parent
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
-          onClicked: root.openCls = ""
+          onClicked: {
+            // The keys screen is a page on top of the current one, so back closes
+            // it before it leaves an app's card.
+            if (root.keysOpen)
+              root.keysOpen = false
+            else
+              root.openCls = ""
+          }
         }
 
         Text {
@@ -532,7 +730,9 @@ Panel {
 
       PanelSectionHeader {
         id: sectionHeader
-        text: root.openCls === "" ? "APPS" : root.appName(root.openApp ? root.openApp.cls : root.openCls).toUpperCase()
+        text: root.keysOpen
+          ? (root.openCls === "" ? "FOR EVERY APP" : "KEY REPLACEMENTS")
+          : (root.openCls === "" ? "APPS" : root.appName(root.openApp ? root.openApp.cls : root.openCls).toUpperCase())
         foreground: root.contentForeground
         fontFamily: root.contentFontFamily
       }
@@ -540,7 +740,7 @@ Panel {
       TextField {
         id: searchField
         width: parent.width
-        visible: root.openCls === ""
+        visible: root.view === "main"
         placeholderText: "Filter apps"
         text: root.query
         foreground: root.contentForeground
@@ -550,7 +750,7 @@ Panel {
       Flickable {
         id: detailFlick
         width: parent.width
-        visible: root.openCls !== ""
+        visible: root.view === "app"
         // Same leftover-space math as the app list: the chrome flags and the
         // occupied Super keys are one page, so they scroll inside the card
         // instead of sitting above it and getting clipped.
@@ -589,57 +789,53 @@ Panel {
             onToggled: root.setFlag("alwaysTabbar", !root.cfgFor(root.openCls).alwaysTabbar)
           }
 
-          SwitchRow {
+          LinkRow {
             width: parent.width
-            label: "Super works as Ctrl"
-            description: "Keys Omarchy does not already use"
-            checked: root.cfgFor(root.openCls).ctrlAsSuper
-            onToggled: root.setFlag("ctrlAsSuper", !root.cfgFor(root.openCls).ctrlAsSuper)
+            label: "Key replacements"
+            description: Logic.appKeysSummary(root.cfgFor(root.openCls), root.globalKeys)
+            onClicked: root.keysOpen = true
           }
+        }
+      }
 
-          SwitchRow {
-            width: parent.width
-            label: "⌘+1..0 for the pack's tabs"
-            description: root.workspacesOnFkeys
-              ? "Reserved: no tab of that number means the key does nothing"
-              : "Needs Workspaces on F1..F10, which frees the digits"
-            checked: root.cfgFor(root.openCls).digitTabs
-            onToggled: root.setFlag("digitTabs", !root.cfgFor(root.openCls).digitTabs)
+      // The keys screen: one page, two scopes. Opened from the main panel it is
+      // "for every app" and writes the global map; opened from a card it is that
+      // app, and a row the main panel forced shows as checked and locked there.
+      Flickable {
+        id: keysFlick
+        width: parent.width
+        visible: root.view === "keys"
+        height: {
+          var cap = root.cardCap
+          var avail = panel.availableCardHeight > 0 ? panel.availableCardHeight : cap
+          var cardContent = Math.max(0, Math.min(cap, avail) - panel.verticalContentInset)
+          var room = cardContent - root.keysFixedHeight - column.spacing
+          var wanted = Math.max(Style.space(80), keysColumn.implicitHeight)
+          return Math.max(Style.space(80), Math.min(wanted, room))
+        }
+        contentHeight: keysColumn.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+
+        KeyRows {
+          id: keysColumn
+          cls: root.openCls
+          cfg: root.openCls === "" ? Logic.globalScopeCfg(root.globalKeys) : root.cfgFor(root.openCls)
+          forced: root.openCls === "" ? ({}) : root.globalKeys
+          workspacesOnFkeys: root.workspacesOnFkeys
+          occupiedKeys: root.occupiedKeys
+          onFlagToggled: (flag, value) => {
+            if (root.openCls === "")
+              root.setGlobalFlag(flag, value)
+            else
+              root.setFlag(flag, value)
           }
-
-          SwitchRow {
-            width: parent.width
-            label: "⌘+click as Ctrl+click"
-            description: "Links, multi-select"
-            checked: root.cfgFor(root.openCls).ctrlClick
-            onToggled: root.setFlag("ctrlClick", !root.cfgFor(root.openCls).ctrlClick)
-          }
-
-          SwitchRow {
-            width: parent.width
-            label: "⌘+W as Ctrl+W"
-            description: "Close window"
-            checked: root.cfgFor(root.openCls).ctrlW
-            onToggled: root.setFlag("ctrlW", !root.cfgFor(root.openCls).ctrlW)
-          }
-
-          Repeater {
-            model: root.occupiedKeys
-            SwitchRow {
-              width: detailColumn.width
-              label: Logic.stealToggleLabel(modelData.label || modelData.id)
-              description: String(modelData.description || "")
-              checked: Logic.hasOccupiedKey(root.cfgFor(root.openCls), modelData.id)
-              onToggled: root.setOccupiedKey(modelData.id, !Logic.hasOccupiedKey(root.cfgFor(root.openCls), modelData.id))
-            }
-          }
-
-          SwitchRow {
-            width: parent.width
-            label: "Ctrl+C as Ctrl+Shift+C"
-            description: "Interrupt in a terminal; Super+C still copies"
-            checked: root.cfgFor(root.openCls).ctrlCShift
-            onToggled: root.setFlag("ctrlCShift", !root.cfgFor(root.openCls).ctrlCShift)
+          onKeyToggled: (id, value) => {
+            if (root.openCls === "")
+              root.setGlobalSteal(id, value)
+            else
+              root.setOccupiedKey(id, value)
           }
         }
       }
@@ -647,7 +843,7 @@ Panel {
       Flickable {
         id: listFlick
         width: parent.width
-        visible: root.openCls === ""
+        visible: root.view === "main"
         // Fill only the space left under the fixed content inside the capped
         // card, so a long list scrolls in place instead of spilling past the
         // popup. `listFixedHeight` excludes this list, so this is not circular.

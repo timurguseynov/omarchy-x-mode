@@ -207,6 +207,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/titlebar_drawn_test.sh` | the titlebar band is actually painted |
 | `integration/resize_after_open_clears_bar_test.sh` | a window resized after opening still clears the bar (known gap, reported) |
 | `integration/titlebar_rmb_no_drag_test.sh` | a right-button drag does nothing, a left-button drag moves |
+| `integration/global_keys_test.sh` | a keyboard replacement forced on for every app (options.keys) reaches an app with no entry of its own: the generated Super-as-Ctrl binds exist for it, a globally stolen Super+Q arrives as Ctrl+Q, and the app is not closed |
 | `integration/digit_tabs_test.sh` | with the workspaces on the F keys, the freed Cmd+1..0 follow each app's card: a reserved digit switches the pack's tab (and is eaten even with no such tab), `Super works as Ctrl` alone hands over Ctrl+digit (byte-equal to a physical one), both flags mean the tab, and with neither the digit does nothing |
 | `integration/workspaces_on_fkeys_test.sh` | the workspace keys move to Super+F1..F10 and the pack binds the freed digits itself — Cmd+0 as the tenth tab, no generated super-ctrl bind left on them |
 
@@ -545,7 +546,7 @@ Same idea for the shell plugin: the pure JS it shares lives in
 
 | file | covers |
 |---|---|
-| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, ctrlW, ctrlAsSuper, ctrlCShift, digitTabs, ctrlAsSuperKeys, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, pin moves a running app), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg`, `setPanelFlag`, `setOccupiedKey`, `stealToggleLabel`, `sameOccupiedList`, `buildPanelRunning` |
+| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, ctrlW, ctrlAsSuper, ctrlCShift, digitTabs, ctrlAsSuperKeys, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, pin moves a running app), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg`, `setPanelFlag`, `setOccupiedKey`, `keyFlagState`/`keyStealState` (a forced row reads checked and locked), `globalScopeCfg`, `setGlobalFlag`, `setGlobalSteal`, `globalKeysSummary`, `appKeysSummary`, `stealToggleLabel`, `sameOccupiedList`, `buildPanelRunning` |
 
 What is *not* unit-testable this way: the components themselves. `import
 Quickshell` fails under `qmltestrunner` (`plugin "quickshell-coreplugin" not

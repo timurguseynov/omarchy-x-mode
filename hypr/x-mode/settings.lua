@@ -19,9 +19,9 @@ end
 --   "digitTabs": false, "ctrlAsSuperKeys": [] } }.
 -- Missing chrome means on; the rest missing means off.
 -- A legacy array of classes means chrome off.
-local function parse_steal_keys(body)
+local function parse_steal_keys(body, field)
   local keys = {}
-  local arr = body:match('"ctrlAsSuperKeys"%s*:%s*(%b[])')
+  local arr = body:match('"' .. (field or "ctrlAsSuperKeys") .. '"%s*:%s*(%b[])')
   if arr == nil then
     return keys
   end
@@ -91,13 +91,37 @@ function M.ctrl_w_set(cfg)
 end
 
 -- { native_scroll, ctrl_tab_switch, no_gaps, workspaces_fkeys }, each
--- defaulting to false.
+-- defaulting to false, plus the keyboard replacements the main panel forces on for
+-- every app (key_flags) and the occupied keys it steals for every class
+-- (global_steal).
+-- The JSON name of each replacement and the name the parsed apps use, so a forced
+-- flag is read by the handlers under the same shape as a per-app one.
+local KEY_FLAGS = {
+  { "ctrlAsSuper", "ctrl_as_super" },
+  { "digitTabs", "digit_tabs" },
+  { "ctrlW", "ctrl_w" },
+  { "ctrlClick", "ctrl_click" },
+  { "ctrlCShift", "ctrl_c_shift" },
+}
+
 function M.parse_options(raw)
+  -- Scoped to the options block: an app class may be called "keys" too, and the
+  -- flat finds above would happily read its entry.
+  local opts = raw:match('"options"%s*:%s*(%b{})') or ""
+  local keys = opts:match('"keys"%s*:%s*(%b{})') or ""
+  local flags = {}
+  for _, pair in ipairs(KEY_FLAGS) do
+    if keys:find('"' .. pair[1] .. '"%s*:%s*true') then
+      flags[pair[2]] = true
+    end
+  end
   return {
     native_scroll = raw:find('"nativeScroll"%s*:%s*true') ~= nil,
     ctrl_tab_switch = raw:find('"ctrlTabSwitch"%s*:%s*true') ~= nil,
     no_gaps = raw:find('"noGaps"%s*:%s*true') ~= nil,
     workspaces_fkeys = raw:find('"workspacesOnFkeys"%s*:%s*true') ~= nil,
+    key_flags = flags,
+    global_steal = parse_steal_keys(keys, "steal"),
   }
 end
 
