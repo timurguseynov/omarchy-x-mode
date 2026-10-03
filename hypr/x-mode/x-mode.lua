@@ -508,6 +508,10 @@ local ctrl_click_apps = {}
 local key_flags = {}
 -- Occupied Super keys stolen for every class (options.keys.steal), same idea.
 local global_steal = {}
+-- Whether the pack takes Ctrl+Cmd+Q for the lock (options.lockScreenKey, on
+-- unless the file says false). Declared here because the lock bind is applied
+-- with the capture keys, above the options block that reads it.
+local lock_key = true
 
 -- One keyboard flag for a class: the global override or the app's own switch.
 local function key_flag(set, name, cls)
@@ -1298,6 +1302,37 @@ for _, e in ipairs(CAPTURE) do
   pcall(o.bind, e.keys, e.label, e.cmd)
 end
 
+-- The macOS lock key. Omarchy locks on Ctrl+Cmd+L and keeps its Calculator on
+-- Ctrl+Cmd+Q; macOS puts Lock Screen on Ctrl+Cmd+Q, so the pack takes that one
+-- key -- both spellings, since Omarchy may write it by keycode -- and binds
+-- Omarchy's own lock command to it. Unlike the capture keys this takes a key a
+-- user may want, so it is an option: with it off nothing is unbound, and the
+-- reload that applies an option brings Omarchy's Calculator back. It is applied
+-- at the bottom with the other option appliers, not inline here: the option is
+-- read from the settings file further down, and binding before that would take
+-- the key whatever the file says.
+local LOCK_KEYS = "SUPER + CTRL + Q"
+local LOCK_CODE = "SUPER + CTRL + code:24"
+local lock_binds = {}
+
+local function apply_lock_key()
+  for _, kb in ipairs(lock_binds) do
+    pcall(function()
+      kb:unbind()
+    end)
+  end
+  lock_binds = {}
+  if not lock_key then
+    return
+  end
+  hl.unbind(LOCK_KEYS)
+  hl.unbind(LOCK_CODE)
+  local ok, kb = pcall(o.bind, LOCK_KEYS, "Lock the screen", "omarchy-system-lock")
+  if ok and kb then
+    lock_binds[#lock_binds + 1] = kb
+  end
+end
+
 local function ws_id(w)
   local ws = w and w.workspace
   if ws == nil then
@@ -1562,6 +1597,7 @@ local function load_options()
   ctrl_tab_switch = o.ctrl_tab_switch
   no_gaps = o.no_gaps
   workspaces_fkeys = o.workspaces_fkeys
+  lock_key = o.lock_key
   key_flags = o.key_flags
   global_steal = o.global_steal
 end
@@ -2066,6 +2102,7 @@ function x_mode.refresh_options()
   apply_ctrl_tab_switch()
   apply_no_gaps()
   apply_workspace_keys()
+  apply_lock_key()
   -- The digits this took are occupied now, and the ones it gave back are free:
   -- the Super-as-Ctrl plan has to be read again or it would keep binding a key
   -- the pack has taken, and one press would run both.
@@ -2077,6 +2114,7 @@ apply_native_scroll()
 apply_ctrl_tab_switch()
 apply_no_gaps()
 apply_workspace_keys()
+apply_lock_key()
 
 local function skip_group(w)
   if w == nil or w.pinned or w.hidden then

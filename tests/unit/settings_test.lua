@@ -43,6 +43,12 @@ local nokeys = settings.parse_options('{"options":{"noGaps":true},"apps":{}}')
 check("opt.keys.none", next(nokeys.key_flags) == nil, true)
 check("opt.keys.none.steal", next(nokeys.global_steal) == nil, true)
 
+-- The lock key is the one option whose default is on: Omarchy's Calculator sits
+-- on Ctrl+Cmd+Q and the pack ships the Mac lock there unless the file says no.
+check("opt.lockKey.default", nokeys.lock_key, true)
+check("opt.lockKey.on", settings.parse_options('{"options":{"lockScreenKey":true},"apps":{}}').lock_key, true)
+check("opt.lockKey.off", settings.parse_options('{"options":{"lockScreenKey":false},"apps":{}}').lock_key, false)
+
 -- An app class called "keys" must not be read as the options block: the global
 -- map has to come from under "options".
 local named = settings.parse_options('{"options":{"noGaps":true},"apps":{"keys":{"ctrlW":true}}}')

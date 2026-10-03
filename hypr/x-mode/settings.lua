@@ -120,6 +120,10 @@ function M.parse_options(raw)
     ctrl_tab_switch = raw:find('"ctrlTabSwitch"%s*:%s*true') ~= nil,
     no_gaps = raw:find('"noGaps"%s*:%s*true') ~= nil,
     workspaces_fkeys = raw:find('"workspacesOnFkeys"%s*:%s*true') ~= nil,
+    -- The one option whose default is on: Omarchy keeps its Calculator on
+    -- Ctrl+Cmd+Q, macOS puts Lock Screen there, and the pack ships the Mac key.
+    -- Absent means on; only an explicit false gives the key back.
+    lock_key = opts:find('"lockScreenKey"%s*:%s*false') == nil,
     key_flags = flags,
     global_steal = parse_steal_keys(keys, "steal"),
   }

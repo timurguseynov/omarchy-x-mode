@@ -74,6 +74,9 @@ Panel {
   // The keyboard replacements forced on for every app (settings options.keys).
   // A flag here is read as set for any class, and the card shows the row locked.
   property var globalKeys: ({})
+  // Ctrl+Cmd+Q is the Mac lock key, and Omarchy's Calculator sits there. On unless
+  // the file says otherwise; off hands the key back to the Calculator.
+  property bool lockKey: true
   // The keys screen is a page on top of whatever is showing: back returns to it,
   // and its scope is decided by where it was opened from (no class = every app).
   property bool keysOpen: false
@@ -141,6 +144,13 @@ Panel {
     writeSettings("hyprctl reload >/dev/null")
   }
 
+  // The lock key is not a replacement for one class, so it is an option of its
+  // own; the reload both re-reads it and recreates the Calculator bind it dropped.
+  function setLockKey(value) {
+    root.lockKey = !!value
+    writeSettings("hyprctl reload >/dev/null")
+  }
+
   // The panel's whole state in one file, so the options and the app list can
   // never drift apart. `followUp` is the hyprctl call the change needs.
   function writeSettings(followUp) {
@@ -157,7 +167,7 @@ Panel {
       }
     }
     var json = JSON.stringify({
-      options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps, workspacesOnFkeys: root.workspacesOnFkeys, keys: root.globalKeys },
+      options: { nativeScroll: root.nativeScroll, ctrlTabSwitch: root.ctrlTabSwitch, noGaps: root.noGaps, workspacesOnFkeys: root.workspacesOnFkeys, lockScreenKey: root.lockKey, keys: root.globalKeys },
       apps: apps
     })
     Quickshell.execDetached([
@@ -213,6 +223,7 @@ Panel {
         root.noGaps = !!o.noGaps
         root.workspacesOnFkeys = !!o.workspacesOnFkeys
         root.globalKeys = (o.keys && typeof o.keys === "object") ? o.keys : ({})
+        root.lockKey = !(o.lockScreenKey === false)
         root.appsCfg = Logic.parseApps((d && d.apps) || {})
       } catch (e) {
         root.nativeScroll = false
@@ -220,6 +231,7 @@ Panel {
         root.noGaps = false
         root.workspacesOnFkeys = false
         root.globalKeys = ({})
+        root.lockKey = true
         root.appsCfg = {}
       }
       root.refreshClients()
@@ -230,6 +242,7 @@ Panel {
       root.noGaps = false
       root.workspacesOnFkeys = false
       root.globalKeys = ({})
+      root.lockKey = true
       root.appsCfg = {}
     }
   }
@@ -460,6 +473,16 @@ Panel {
         checked: root.workspacesOnFkeys
         rowEnabled: root.xModeOn
         onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, root.noGaps, !root.workspacesOnFkeys)
+      }
+
+      SwitchRow {
+        id: krowsLockKeyRow
+        width: parent.width
+        label: "⌃⌘Q locks the screen"
+        description: "Takes Omarchy's Calculator key; off gives it back"
+        checked: root.lockKey
+        rowEnabled: root.xModeOn
+        onToggled: root.setLockKey(!root.lockKey)
       }
 
       PanelSeparator {

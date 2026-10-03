@@ -39,5 +39,9 @@ o.bind("SUPER + SHIFT + code:12", "Move window to workspace 3", hl.dsp.window.mo
 o.bind("SUPER + SHIFT + code:13", "Move window to workspace 4", hl.dsp.window.move({ workspace = "4" }))
 o.bind("SUPER + SHIFT + code:14", "Move window to workspace 5", hl.dsp.window.move({ workspace = "5" }))
 o.bind("SUPER + SHIFT + code:15", "Move window to workspace 6", hl.dsp.window.move({ workspace = "6" }))
+-- Omarchy's Calculator sits on Ctrl+Cmd+Q, which is where macOS puts Lock Screen.
+-- The pack takes that one key for the lock when its option is on, so the key has
+-- to be occupied here for the scenario to see who holds it.
+o.bind("SUPER + CTRL + Q", "Calculator", "omarchy-menu toggle trigger.app.calculator")
 
 dofile(os.getenv("X_MODE_LUA") or ((os.getenv("HOME") or "") .. "/.config/hypr/x-mode/x-mode.lua"))
