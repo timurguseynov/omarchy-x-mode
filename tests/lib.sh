@@ -949,6 +949,19 @@ dock_box() { # "X Y W H" of the dock's layer surface
   dock_layer_box x-mode-dock
 }
 
+# The order the card is actually showing: one class per line in the file the
+# dock writes when its published list changes, as one line for assertions.
+dock_order() {
+  tr '\n' ' ' < "$DOCK_RUNTIME/omarchy-x-mode.dock-order" 2>/dev/null | sed 's/ *$//'
+}
+
+# Wait for the card to show this order. The box says how many icons there are
+# and not which, so a pin of an app that is already running leaves it alone and
+# the order is the only thing that moves.
+dock_wait_order() { # "class class ..."
+  wait_until 5 [ "$(dock_order)" = "$1" ]
+}
+
 dock_layer_box() { # NAMESPACE
   nest_ctl layers -j | python3 -c "
 import json, sys
@@ -1056,11 +1069,14 @@ dock_settle() {
 # the file, so no restart is needed.
 dock_pinned_file() { printf '%s/.config/omarchy/x-mode-dock.json' "$NEST_STATE/home"; }
 dock_pin() {
-  local before="" cur i
+  local before="" before_order="" cur cur_order i
   # A dock that is not running reads the file at startup, so there is nothing
   # to wait for. One that is running rebuilds when the file changes; the card
-  # changing is that rebuild.
+  # changing is that rebuild -- and the card's *order* counts as changing too,
+  # because pinning an app that is already running leaves the number of icons
+  # and so the height alone.
   before="$(dock_box 2>/dev/null || true)"
+  before_order="$(dock_order)"
   mkdir -p "$(dirname "$(dock_pinned_file)")"
   printf '%s\n' "$1" > "$(dock_pinned_file)"
   [ -n "$before" ] || return 0
@@ -1068,7 +1084,11 @@ dock_pin() {
   # trying to commit the new card. The slower gap is the same wait.
   for i in $(seq 1 16); do
     cur="$(dock_box 2>/dev/null || true)"
-    [ -n "$cur" ] && [ "$cur" != "$before" ] && { dock_settle; return 0; }
+    cur_order="$(dock_order)"
+    if [ -n "$cur" ] && { [ "$cur" != "$before" ] || [ "$cur_order" != "$before_order" ]; }; then
+      dock_settle
+      return 0
+    fi
     sleep 0.25
   done
   dock_settle

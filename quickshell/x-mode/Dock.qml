@@ -63,6 +63,13 @@ Item {
   readonly property bool emptyDock: pinnedApps.length === 0 && runningApps.length === 0
 
   readonly property string pinnedPath: Quickshell.env("HOME") + "/.config/omarchy/x-mode-dock.json"
+  // What the card is actually showing, one class per line, next to the other
+  // files the pack keeps in the runtime directory. The card's box says how many
+  // icons there are but not which, and the order is what the click helpers
+  // depend on -- a test cannot tell a stale order from a missed click without
+  // it. Written only when the published list changes, the same moment the
+  // icons move.
+  readonly property string orderPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode.dock-order"
   readonly property int iconSize: 26
   readonly property int pad: 7
   readonly property int iconSpacing: 6
@@ -110,6 +117,10 @@ Item {
     if (sig !== root.appsSig) {
       root.appsSig = sig
       root.apps = out
+      var order = []
+      for (var j = 0; j < out.length; j++)
+        order.push(out[j].cls)
+      orderFile.setText(order.join("\n") + "\n")
     }
   }
 
@@ -573,6 +584,12 @@ Item {
       return
     root.touchedDuringQuery = ({})
     clientsProc.running = true
+  }
+
+  FileView {
+    id: orderFile
+    path: root.orderPath
+    printErrors: false
   }
 
   FileView {

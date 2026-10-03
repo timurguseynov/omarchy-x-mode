@@ -88,6 +88,12 @@ worker() { # SLOT TEST...
   shift
   SIG=""
   nest_paths
+  # The runner gives each worker a process group of its own (job control around
+  # the fork), which is what lets one kill take this worker and its scenarios.
+  # Job control itself is turned back off here: with it on, the shell puts every
+  # background job in a group of its own, and the `setsid` the nest, the bar and
+  # the dock are started with then has to fork, which changes how they come up.
+  set +m
   # A missed bar used to exit the worker, so the retry below never ran and
   # the compositor stayed up. The trap still covers a real exit.
   trap 'dock_stop; nest_stop' EXIT
@@ -141,12 +147,49 @@ done
 
 fail=0
 pids=()
+
+# Ctrl+C has to take the nests with it. The nests are in sessions of their own
+# (setsid), so the terminal's signal never reaches them, and the workers are
+# asynchronous jobs: a run stopped in the terminal otherwise leaves the
+# compositors on screen and the workers printing into a terminal nobody is
+# reading. Job control is what lets one kill take a worker, its scenario and
+# everything the scenario started; it also stops the shell from ignoring SIGINT
+# in the worker, which it does for asynchronous jobs when job control is off.
+abort() {
+  trap - INT TERM HUP
+  local pid f s
+  for pid in ${pids[@]:+"${pids[@]}"}; do
+    kill -- "-$pid" 2>/dev/null || true
+  done
+  sleep 0.5
+  for pid in ${pids[@]:+"${pids[@]}"}; do
+    kill -9 -- "-$pid" 2>/dev/null || true
+  done
+  # A worker killed before its own trap ran leaves its files behind, and the
+  # nest is what a person is looking at when the run stops, so it is killed
+  # from here too.
+  for s in $(seq 0 $((JOBS - 1))); do
+    NEST_SLOT="$s"
+    nest_paths
+    for f in "$NEST_STATE/pid" "$NEST_STATE/dock.pid" "$NEST_STATE/bar.pid" "$NEST_STATE/ipc.pid"; do
+      [ -f "$f" ] || continue
+      pid="$(cat "$f" 2>/dev/null)" || continue
+      [ -n "$pid" ] || continue
+      kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    done
+  done
+  exit 130
+}
+trap abort INT TERM HUP
+
 for s in $(seq 0 $((JOBS - 1))); do
   # A second apart. Mapping several nests in the same instant makes the
   # host configure one of them as 0x0, and that nest's output never comes up.
   [ "$s" -gt 0 ] && sleep 1
   # shellcheck disable=SC2086 - the slot list is a list of test paths
+  set -m
   worker "$s" ${slots[$s]} &
+  set +m
   pids+=($!)
 done
 for pid in "${pids[@]}"; do
