@@ -1,20 +1,15 @@
 #!/usr/bin/env bash
 # "Workspaces on F1..F10" moves the workspace keys off Super+1..0 and onto
-# Super+F1..F10, which frees the digits for "Super works as Ctrl" to take. Off is
-# Omarchy's layout: Super+1..0 on the workspaces. The nest does not load
-# Omarchy's config, so its workspace binds (written by keycode, code:10 is
-# workspace 1) are planted here.
+# Super+F1..F10. Off is Omarchy's layout: Super+1..0 on the workspaces. The nest
+# does not load Omarchy's config, so its workspace binds (written by keycode,
+# code:10 is workspace 1) are planted here.
+#
+# The freed digit is the pack's own key, not a generated one: it hands Ctrl+digit
+# to an app that asked for it and switches the pack's own tab for one that did
+# not (integration/digit_tabs_test drives both halves).
 . "$(dirname "$0")/../../lib.sh"
 
 SETTINGS="$NEST_SETTINGS"
-
-generated_for() { # KEY
-  nest_ctl binds -j | python3 -c "
-import json, sys
-want = ('x-mode-super-ctrl ' + '$1').lower()
-print(sum(1 for b in json.load(sys.stdin)
-          if (b.get('description') or '').lower() == want and int(b.get('modmask') or 0) == 64))"
-}
 
 open_window kitty
 
@@ -40,10 +35,8 @@ key super+f3
 settle
 assert_eq "$(viewed_workspace)" 3 "on: Super+F3 switches to workspace 3"
 
-# And the freed digit is what the app gets: the map now plans Ctrl+3 for kitty.
-refresh_apps
-for _ in $(seq 1 25); do
-  [ "$(generated_for 3)" = 1 ] && break
-  sleep 0.2
-done
-assert_eq "$(generated_for 3)" 1 "the freed digit is mapped for the app"
+# The freed digit is bound once, by the pack: the generator must not also plan it
+# or one press would run both.
+assert_eq "$(bind_count_desc_exact "Tab 3, or Ctrl+3 for the app" 64)" 1 "the freed digit is the pack's own key"
+assert_eq "$(bind_count 3 64)" 1 "and it is the only bind on the key"
+assert_eq "$(bind_count_desc 'x-mode-super-ctrl 3' 64)" 0 "the generator leaves it alone"

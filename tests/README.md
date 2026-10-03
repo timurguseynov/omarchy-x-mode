@@ -207,7 +207,8 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/titlebar_drawn_test.sh` | the titlebar band is actually painted |
 | `integration/resize_after_open_clears_bar_test.sh` | a window resized after opening still clears the bar (known gap, reported) |
 | `integration/titlebar_rmb_no_drag_test.sh` | a right-button drag does nothing, a left-button drag moves |
-| `integration/workspaces_on_fkeys_test.sh` | the workspace keys move to Super+F1..F10 and the freed digits are mapped for the app |
+| `integration/digit_tabs_test.sh` | with the workspaces on the F keys, Cmd+1..9 switch the pack's tabs for an app that is not handed Ctrl+digit, and hand the chord to one that is |
+| `integration/workspaces_on_fkeys_test.sh` | the workspace keys move to Super+F1..F10 and the freed digit is the pack's own key |
 
 `focus_test.sh` relies on `hyprctl clients -j` being in z-order (topmost last),
 which is what `lib.sh`'s helpers read.

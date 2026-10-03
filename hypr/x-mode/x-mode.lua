@@ -1961,6 +1961,23 @@ local function add_workspace_key(keys, description, dispatcher)
   end
 end
 
+-- The digit with the workspaces on the F keys: the key is free, and it is the
+-- pack's. An app that is being handed Ctrl+digit gets that; one that is not gets
+-- the pack's own tab, and a window with no chrome of ours has no tabs, so
+-- focus_group_tab passes the key through. The generated Super-as-Ctrl binds
+-- cannot carry this half: they exist only while some app has the flag, so with
+-- none the digit would sit there doing nothing at all.
+local function digit_key(digit)
+  return function()
+    local w = hl.get_active_window()
+    if w ~= nil and ctrl_as_super[window_class(w)] then
+      send_ctrl(digit, false, w)
+      return
+    end
+    return focus_group_tab(tonumber(digit))
+  end
+end
+
 local function apply_workspace_keys()
   drop_workspace_keys()
   if not workspaces_fkeys then
@@ -1973,6 +1990,11 @@ local function apply_workspace_keys()
     hl.unbind("SUPER + SHIFT + ALT + code:" .. code)
     local fkey = "F" .. tostring(i)
     local ws = tostring(i)
+    -- Tabs, not workspaces: ten of these would be one past the ninth tab, and
+    -- Cmd+0 keeps the app's own Ctrl+0 through the generated binds.
+    if i < 10 then
+      add_workspace_key("SUPER + " .. ws, "Tab " .. ws .. ", or Ctrl+" .. ws .. " for the app", digit_key(ws))
+    end
     add_workspace_key("SUPER + " .. fkey, "Switch to workspace " .. ws, function()
       hl.dispatch(hl.dsp.focus({ workspace = ws }))
     end)
@@ -1991,6 +2013,10 @@ function x_mode.refresh_options()
   apply_ctrl_tab_switch()
   apply_no_gaps()
   apply_workspace_keys()
+  -- The digits this took are occupied now, and the ones it gave back are free:
+  -- the Super-as-Ctrl plan has to be read again or it would keep binding a key
+  -- the pack has taken, and one press would run both.
+  apply_super_ctrl()
 end
 
 load_options()

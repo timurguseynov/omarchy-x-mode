@@ -31,7 +31,10 @@ o.bind("SUPER + S", "Toggle scratchpad", hl.dsp.workspace.toggle_special("scratc
 o.bind("SUPER + ALT + S", "Move window to scratchpad", hl.dsp.window.move({ workspace = "special:scratchpad", follow = false }))
 -- Omarchy writes the workspace digits by keycode (code:12 is the 3 key). The
 -- pack takes Cmd+Shift+3..6 for its screenshot keys, so the keycode spellings
--- of the window moves have to be dropped for the keys it takes.
+-- of the window moves have to be dropped for the keys it takes. The plain 3 is
+-- planted too: while Omarchy's workspace key owns it, the pack must leave the
+-- digit to the desktop rather than switching its own tabs with it.
+o.bind("SUPER + code:12", "Switch to workspace 3", hl.dsp.no_op())
 o.bind("SUPER + SHIFT + code:12", "Move window to workspace 3", hl.dsp.window.move({ workspace = "3" }))
 o.bind("SUPER + SHIFT + code:13", "Move window to workspace 4", hl.dsp.window.move({ workspace = "4" }))
 o.bind("SUPER + SHIFT + code:14", "Move window to workspace 5", hl.dsp.window.move({ workspace = "5" }))
