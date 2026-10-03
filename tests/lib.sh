@@ -633,6 +633,14 @@ nest_clean() {
   # reset. refresh_apps_off drops them from the empty file, so a scenario that
   # turned chrome off does not leave that rule for the next one, and a reload
   # is not required to do it.
+  #
+  # The option block needs its own reset, and more of it than the chrome rules:
+  # a scenario that drove the panel (or called refresh_options itself) has the
+  # pack holding the options it read then -- the global keyboard replacements
+  # among them, and global_keys_test steals Super+Q for every app, which decides
+  # what the next scenario's Super+Q does. refresh_apps_off does not re-read the
+  # file, so the pack has to be pointed at the empty one it was just given.
+  nest_hyprctl eval 'if x_mode and x_mode.refresh_options then x_mode.refresh_options() end' >/dev/null 2>&1 || true
   nest_hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null 2>&1 || true
 }
 
@@ -972,7 +980,10 @@ dock_box() { # "X Y W H" of the dock's layer surface
 # The order the card is actually showing: one class per line in the file the
 # dock writes when its published list changes, as one line for assertions.
 dock_order() {
-  tr '\n' ' ' < "$DOCK_RUNTIME/omarchy-x-mode.dock-order" 2>/dev/null | sed 's/ *$//'
+  local f="$DOCK_RUNTIME/omarchy-x-mode.dock-order"
+  # No file yet is not an error: the dock writes it when its list first changes.
+  [ -f "$f" ] || return 0
+  tr '\n' ' ' < "$f" | sed 's/ *$//'
 }
 
 # Wait for the card to show this order. The box says how many icons there are
