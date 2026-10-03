@@ -63,6 +63,14 @@ build_keyboard
 build_nestq
 export NEST_SKIP_BUILD=1
 
+# The runner needs the paths too: the queue of scenarios and the lock its report
+# lines are printed under both live in NEST_ROOT. Each worker computes its own
+# again with its slot.
+nest_paths
+NEST_QUEUE="$NEST_ROOT/queue"
+NEST_QUEUE_AT="$NEST_ROOT/queue.at"
+NEST_QUEUE_LOCK="$NEST_ROOT/queue.lock"
+
 # Keep a newly mapped nest from taking focus, and pin it so a later focus
 # does not cover it. NEST_WORKSPACE drops the pin and maps the nests on that
 # workspace instead. A covered nest on this workspace gets no frames, so its
@@ -78,14 +86,43 @@ report() { # STATUS NAME FILE
   if [ "$1" = ok ]; then
     echo "  ${GREEN}ok${RESET}   $2"
   else
-    echo "  ${RED}FAIL${RESET} $2 (slot $NEST_SLOT)"
+    echo "  ${RED}FAIL${RESET} $2${NEST_SLOT:+ (slot $NEST_SLOT)}"
   fi
   [ -s "$3" ] && sed 's/^/       /' "$3"
 } 9>"$NEST_ROOT/print.lock"
 
-worker() { # SLOT TEST...
+# The scenarios come off one queue instead of being split into a list per slot.
+# A slot whose nest will not come up returns without having reached the rest of
+# its scenarios; with the queue they stay where they are and the next worker to
+# ask for one takes them.
+queue_fill() {
+  : > "$NEST_QUEUE"
+  for t in "${chosen[@]}"; do
+    printf '%s\n' "$t" >> "$NEST_QUEUE"
+  done
+  printf '0\n' > "$NEST_QUEUE_AT"
+}
+
+next_test() { # prints the next scenario, non-zero when the queue is empty
+  local at total
+  exec 8>"$NEST_QUEUE_LOCK"
+  flock 8
+  total="$(wc -l < "$NEST_QUEUE")"
+  at="$(cat "$NEST_QUEUE_AT" 2>/dev/null || echo 0)"
+  if [ "$at" -ge "$total" ]; then
+    flock -u 8
+    exec 8>&-
+    return 1
+  fi
+  at=$((at + 1))
+  printf '%s\n' "$at" > "$NEST_QUEUE_AT"
+  flock -u 8
+  exec 8>&-
+  sed -n "${at}p" "$NEST_QUEUE"
+}
+
+worker() { # SLOT
   export NEST_SLOT="$1"
-  shift
   SIG=""
   nest_paths
   # The runner gives each worker a process group of its own (job control around
@@ -98,16 +135,18 @@ worker() { # SLOT TEST...
   # the compositor stayed up. The trap still covers a real exit.
   trap 'dock_stop; nest_stop' EXIT
   # A nest whose bar never reserves has no geometry the scenarios can trust.
-  # Starting it again is a new compositor. The first attempt returns instead
-  # of exiting, which is what lets this second start happen.
+  # Starting it again is a new compositor. The first attempt returns instead of
+  # exiting, which is what lets this second start happen; a second miss is this
+  # slot's to lose, and it is told apart from a failing scenario by the status:
+  # 2 is "no nest", so the runner starts the slot again for the queue.
   if ! nest_start; then
     echo "nest bar missed on slot $NEST_SLOT, starting again" >&2
     nest_stop
     sleep 0.5
-    nest_start || return 1
+    nest_start || return 2
   fi
   local t name out rc=0
-  for t in "$@"; do
+  while t="$(next_test)"; do
     name="$(name_of "$t")"
     nest_clean
     out="$(mktemp)"
@@ -133,17 +172,29 @@ worker() { # SLOT TEST...
   return "$rc"
 }
 
-# Round-robin, so one worker does not draw every dock scenario.
-slots=()
-for i in $(seq 0 $((JOBS - 1))); do
-  slots[$i]=""
-done
-i=0
-for t in "${chosen[@]}"; do
-  s=$((i % JOBS))
-  slots[$s]="${slots[$s]} $t"
-  i=$((i + 1))
-done
+# One process per slot, outliving the workers in it: a worker that could not
+# bring its nest up returns, and this starts it again so the queue keeps moving.
+slot_runner() { # SLOT
+  local tries=0 rc
+  while :; do
+    worker "$1"
+    rc=$?
+    case $rc in
+      2)
+        tries=$((tries + 1))
+        if [ "$tries" -ge 3 ]; then
+          # Not a failure by itself: the scenarios this slot did not reach stay
+          # in the queue for the others, and whatever is left at the end is what
+          # the run reports. This is only here so the operator can see it.
+          echo "slot $1 gave up after $tries nests" >&2
+          return 0
+        fi
+        sleep 1
+        ;;
+      *) return "$rc" ;;
+    esac
+  done
+}
 
 fail=0
 pids=()
@@ -182,17 +233,33 @@ abort() {
 }
 trap abort INT TERM HUP
 
+queue_fill
+
 for s in $(seq 0 $((JOBS - 1))); do
   # A second apart. Mapping several nests in the same instant makes the
   # host configure one of them as 0x0, and that nest's output never comes up.
   [ "$s" -gt 0 ] && sleep 1
-  # shellcheck disable=SC2086 - the slot list is a list of test paths
   set -m
-  worker "$s" ${slots[$s]} &
+  slot_runner "$s" &
   set +m
   pids+=($!)
 done
 for pid in "${pids[@]}"; do
   wait "$pid" || fail=1
 done
+
+# Whatever the queue still holds was never run: that is what a slot giving up
+# leaves behind, and a run that is red has to say which scenarios those were.
+handed="$(cat "$NEST_QUEUE_AT" 2>/dev/null || echo 0)"
+total="$(wc -l < "$NEST_QUEUE")"
+if [ "$handed" -lt "$total" ]; then
+  while IFS= read -r t; do
+    reason="$(mktemp)"
+    printf 'the nest on this slot did not come up, and none was left to try\n' > "$reason"
+    NEST_SLOT=""
+    report fail "$(name_of "$t")" "$reason"
+    rm -f "$reason"
+  done < <(sed -n "$((handed + 1)),\$p" "$NEST_QUEUE")
+  fail=1
+fi
 exit "$fail"
