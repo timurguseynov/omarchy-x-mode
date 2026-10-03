@@ -262,4 +262,13 @@ if [ "$handed" -lt "$total" ]; then
   done < <(sed -n "$((handed + 1)),\$p" "$NEST_QUEUE")
   fail=1
 fi
+
+# The scenarios' own lines say what ran. This is the one line that says whether
+# the layer came out clean, for a run started on its own -- the suite above
+# prints its own summary, and until now a nest run just stopped talking.
+if [ "$fail" = 0 ]; then
+  echo "== nest ok"
+else
+  echo "== nest failed"
+fi
 exit "$fail"

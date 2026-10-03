@@ -348,16 +348,22 @@ raise SystemExit(1)' && [ "$(bar_top 2>/dev/null)" = 24 ]
 # The output shows up after the wayland socket. A bar started before that
 # binds no screen and never maps, and the reserved top stays whatever the
 # output reported on the way up.
-nest_output_ready() {
+#
+# The size, and not "wide enough": the backend offers 1280x720 first, the host
+# rejects that mode, and until its own configure lands hyprctl still reports that
+# wide monitor -- which a width threshold accepts. What is waited for is a size
+# that stops changing instead; see nest_bar_spawn.
+nest_output_size() {
   nest_ctl monitors -j 2>/dev/null | python3 -c '
 import json, sys
 try:
     mons = json.load(sys.stdin) or []
 except Exception:
     raise SystemExit(1)
-# A 0x0 configure leaves the output up with no usable mode. Width stays
-# tiny, and the bar then reserves nothing. The real nest is 450 wide.
-raise SystemExit(0 if any(int(m.get("width") or 0) >= 400 for m in mons) else 1)
+if not mons:
+    raise SystemExit(1)
+m = mons[0]
+print("%dx%d" % (int(m.get("width") or 0), int(m.get("height") or 0)))
 '
 }
 
@@ -373,18 +379,22 @@ nest_bar_spawn() {
   [ -S "$disp" ] || return 1
   # The first configure is 0x0. The backend answers with 1280x720, the host
   # rejects that mode, and for a moment hyprctl still reports a wide monitor.
-  # qs started on that blip binds no real screen. Wait until the width holds.
-  local ready=0 streak=0
+  # qs started on that blip binds no real screen, and "wide enough" is true of
+  # the rejected mode as well -- so what is waited for is one non-zero size that
+  # holds. Eighth tenths of a second is a configure cycle on a loaded host.
+  local ready=0 streak=0 size="" held=""
   for i in $(seq 1 100); do
-    if nest_output_ready; then
+    size="$(nest_output_size 2>/dev/null || true)"
+    if [ -n "$size" ] && [ "$size" != "0x0" ] && [ "$size" = "$held" ]; then
       streak=$((streak + 1))
-      if [ "$streak" -ge 3 ]; then
+      if [ "$streak" -ge 8 ]; then
         ready=1
         break
       fi
     else
       streak=0
     fi
+    held="$size"
     sleep 0.1
   done
   [ "$ready" = 1 ] || return 1
@@ -403,7 +413,7 @@ nest_bar_start() {
   # the host drops that wayland client while several nests are mapping.
   # A later try has the output, and a shell that already bound a placeholder
   # is thrown away rather than waited on.
-  for attempt in 1 2 3; do
+  for attempt in 1 2 3 4; do
     nest_bar_spawn || {
       sleep 0.3
       continue
@@ -416,7 +426,11 @@ nest_bar_start() {
   done
   # return, do not exit. fail() ends the worker, so the caller's
   # "start the nest again" never runs and one missed bar drops the slot.
-  echo "bar reserved '$(bar_top 2>/dev/null)'" >&2
+  # The output is printed with it: an empty reserved top says the nest has no
+  # output at all, '0' that it has one and the bar reserved nothing on it, and
+  # a width that is not the settled one says the bar bound the mode the host
+  # had not accepted yet.
+  echo "bar reserved '$(bar_top 2>/dev/null)' with the output '$(nest_output_size 2>/dev/null || echo none)'" >&2
   sed 's/^/       /' "$NEST_STATE/bar.log" >&2
   echo "the nest bar did not reserve the top" >&2
   return 1
