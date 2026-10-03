@@ -19,6 +19,28 @@ usage() {
   sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
 }
 
+# One place that says how a run is doing, so `status` and the status file a
+# finished run leaves behind cannot disagree.
+status_text() { # LABEL LOG
+  local label="$1" log="$2" pid state
+  pid="$(cat "$log.pid" 2>/dev/null || true)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    state="running"
+  elif grep -qaE "^== (all ok|nest failed)" "$log"; then
+    state="finished"
+  else
+    state="done, no summary line"
+  fi
+  printf '%s: %s\n' "$label" "$state"
+  if grep -qaE "^== " "$log"; then
+    grep -aE "^== " "$log" | tail -2
+  else
+    tail -3 "$log"
+  fi
+  printf 'ok: %s  FAIL: %s\n' "$(grep -ac $'\033\[32mok' "$log")" "$(grep -ac FAIL "$log")"
+  grep -a "FAIL" "$log" | head -5
+}
+
 case "${1:-}" in
   run)
     label="${2:-}" && shift 2 || true
@@ -28,9 +50,19 @@ case "${1:-}" in
     fi
     log="$LOG_DIR/xmode-test-$label.log"
     : > "$log"
+    rm -f "$log.status"
     nohup env NEST_JOBS=5 NEST_WORKSPACE=5 "$@" > "$log" 2>&1 &
     echo "$!" > "$log.pid"
-    printf 'started %s (pid %s) -> %s\n' "$label" "$!" "$log"
+    # The run reports itself when it ends: `<log>.status` with the same text
+    # `status` prints, plus the log path. A watcher can take it from there (the
+    # pi extension .pi/extensions/test-status.ts turns it into a message), and
+    # nobody has to poll the run.
+    (
+      pid="$(cat "$log.pid")"
+      while kill -0 "$pid" 2>/dev/null; do sleep 2; done
+      { printf 'log: %s\n' "$log"; status_text "$label" "$log"; } > "$log.status"
+    ) &
+    printf 'started %s (pid %s) -> %s\n' "$label" "$(cat "$log.pid")" "$log"
     ;;
   status)
     label="${2:-}"
@@ -43,22 +75,7 @@ case "${1:-}" in
       echo "no run logged for '$label' ($log)"
       exit 2
     fi
-    pid="$(cat "$log.pid" 2>/dev/null || true)"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      state="running"
-    elif grep -qaE "^== (all ok|nest failed)" "$log"; then
-      state="finished"
-    else
-      state="done, no summary line"
-    fi
-    printf '%s: %s\n' "$label" "$state"
-    if grep -qaE "^== " "$log"; then
-      grep -aE "^== " "$log" | tail -2
-    else
-      tail -3 "$log"
-    fi
-    printf 'ok: %s  FAIL: %s\n' "$(grep -ac $'\033\[32mok' "$log")" "$(grep -ac FAIL "$log")"
-    grep -a "FAIL" "$log" | head -5
+    status_text "$label" "$log"
     ;;
   *)
     usage

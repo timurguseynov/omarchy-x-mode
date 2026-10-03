@@ -94,24 +94,51 @@ Pack code, in this repo:
   loaded `x-mode-hyprbars.so`: overwriting a mapped `.so` corrupts its pages and
   crashes the compositor (`SIGILL`). The nest is where a plugin gets loaded.
 - After every successful edit or completed task, commit in the repo that owns
-  the change. The message says what changed and why.
+  the change. The message says what changed and why. The commit flow is the
+  user's: the `pi-git-commit` extension blocks `git add`/`git commit` in the
+  agent's bash and unlocks the `git_commit` tool only while `/commit` is open, so
+  the agent finishes a task, says it is ready, and waits for `/commit` -- it
+  cannot stage or commit on its own. `/toggle-allow-git` is what allows
+  mutative git in bash for a session, if the user wants the agent to commit
+  without the flow.
 
 ## Running the suite from an agent session
 
 Tests here take minutes, and an agent tool call that waits for one is killed
 part-way: that reads as a hang and wastes the run. So **no test run is waited for
-inside a call**. Start it detached, and check on it with a short command:
+inside a call**. The agent's whole part is to start the run detached; the run
+reports itself when it is over (see the status file below), and the agent
+resumes from that report.
 
 ```sh
 bash tests/async.sh run suite bash tests/run.sh
 bash tests/async.sh run keys  bash tests/nest/run.sh key_pin digit_tabs
-bash tests/async.sh status keys
 ```
 
-`async.sh` sets the sanctioned `NEST_JOBS=5 NEST_WORKSPACE=5`, keeps one log per
-label under `$XDG_RUNTIME_DIR`, and `status` prints whether the run is still going,
-its summary lines and its counts. After starting one, say which run is going and
-carry on with something else, or ask the user to say when it is done: the user's
-`== all ok` is as good as waiting. Never put a long `sleep` in a call, and never
-wait for a run inside one -- that is exactly what gets killed, whatever the run's
-size. Only the sanctioned invocation counts as evidence.
+`async.sh` sets the sanctioned `NEST_JOBS=5 NEST_WORKSPACE=5` and keeps one log
+per label under `$XDG_RUNTIME_DIR`.
+
+After starting a run, say which label is going and stop there: do **not** poll it
+with `status`, do not `sleep` before a check, and do not wait for it in a call.
+
+`tests/async.sh run` writes `<log>.status` the moment a run ends: the same text
+`status` prints (state, summary lines, counts, the failing scenarios) plus the
+log path. The project extension `.pi/extensions/test-status.ts` watches those
+files and sends that text as a message that starts a turn, so **the run reports
+itself**: the agent starts a run, stops, and resumes on its own when the report
+arrives -- no timer, no poll, no token. The user's token (`готово` when the run
+is green, `+` when there is something in it for the agent) is only the fallback
+for when the watcher is not loaded, such as a session started before the
+extension was added.
+
+Once a run has reported itself (or been reported), the agent may read the log,
+the status file and the run's counts -- that is looking at a finished run, not
+polling a going one. Only the sanctioned invocation counts as evidence, and a
+run counts once its status file says finished. While a run is going, work on
+something that cannot invalidate it: do not edit files a running suite reads, and
+start no second run against the same scenarios. If there is nothing else to do,
+say so and stop: the report is a message that will arrive.
+
+A scenario written to look at one thing while working on a test is named
+`tests/nest/integration/debug_tmp_test.sh`: it is gitignored on purpose, and it
+must be deleted or renamed before the change lands.

@@ -46,6 +46,11 @@ bash tests/async.sh run suite bash tests/run.sh
 bash tests/async.sh status suite
 ```
 
+The `run` also writes `<log>.status` when the run ends: the same text `status`
+prints, plus the log path. `.pi/extensions/test-status.ts` watches those files and
+sends one as a message that starts a turn, so a finished run reaches an agent
+session by itself instead of being polled for.
+
 Nest scenarios can be picked by name, whole or in part:
 
 ```sh

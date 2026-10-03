@@ -6,11 +6,14 @@
 --   -- <<< omarchy-x-mode <<<
 --
 -- This file holds the pack: the floating desktop, the Mac titlebar/tabbar
--- (patched hyprbars), and the Rectangle-style snap + same-app grouping engine.
--- Geometry is not here: the plugin owns it (hyprbars/snap.cpp -- zones, the snap
--- cycle, the work frame, the chrome), and this config asks it. Pure parsing
--- lives next to it in the same directory so it can be tested on its own
--- (tests/unit). Personal look'n'feel (input, monitors, decoration, native snap,
+-- (patched hyprbars), the key/mouse bindings, and the state that comes from
+-- events (groups, focus, the switcher). Everything that puts a *window on a
+-- zone* -- snap, restore, the re-apply a load or a moved frame needs, the
+-- one-shot arrange -- is layout.lua next to this file, so there is one place to
+-- read when a window is not where it should be. Geometry is not in either: the
+-- plugin owns it (hyprbars/snap.cpp -- zones, the snap cycle, the work frame,
+-- the chrome) and both only ask for it. Pure parsing lives in the same directory
+-- so it can be tested on its own (tests/unit). Personal look'n'feel (input, monitors, decoration, native snap,
 -- ...) lives in a separate file the pack does not own -- see
 -- omarchy-x-vm/taste.lua -- so uninstalling the pack never removes it.
 
@@ -24,6 +27,7 @@ local mru = dofile(X_MODE_DIR .. "mru.lua")
 local group = dofile(X_MODE_DIR .. "group.lua")
 local supermap = dofile(X_MODE_DIR .. "supermap.lua")
 local textkeys = dofile(X_MODE_DIR .. "textkeys.lua")
+local layout = dofile(X_MODE_DIR .. "layout.lua")
 
 -- A list out of a query result. Omarchy's keybindings scan
 -- (`omarchy-menu-keybindings`) dofiles hyprland.lua with a stub `hl` whose every
@@ -344,9 +348,6 @@ end
 -- it had is used, and this one only before it has ever been seen.
 local DOCK_CARD_FALLBACK = 40
 local dock_card = DOCK_CARD_FALLBACK
--- The gap, border and dock inset the zones were last built from; set by
--- apply_gap_geometry below.
-local last_frame = nil
 local function DOCK_PULL()
   return dock_card + math.floor(GAP_OUT() / 2)
 end
@@ -379,12 +380,11 @@ local function apply_gap_geometry()
       },
     },
   })
-  -- The frame the zones are built from, as the plugin was told it. A window put
-  -- on a zone was put there by *these* numbers, and a later change to them (the
-  -- dock card moving) is what asks for it to be put there again -- matched
-  -- against the frame it was placed in, so keeping them is not a cache: it is
-  -- the frame the match has to use.
-  last_frame = { gap = GAP_OUT(), border = BORDER(), inset = DOCK_PULL() }
+  -- The frame the zones are built from, as the plugin was told it. layout.lua
+  -- keeps it: a window on a zone was put there by *these* numbers, so a later
+  -- change to them (the dock card moving) is what asks for the window to be put
+  -- there again, matched against the frame it was placed in.
+  layout.observe_frame(GAP_OUT(), BORDER(), DOCK_PULL())
 end
 
 apply_gap_geometry()
@@ -408,23 +408,16 @@ local function dock_card_now()
   return nil
 end
 
--- The zone geometry follows the card, and the windows on a zone follow the
--- geometry: a card that grew by 40px moved the right zone's edge, and a window
--- placed under the old one has to be placed again -- against the frame it was
--- placed in. That re-apply is part of the alignment code below (it asks the
--- plugin, which a layer event can fire before); it is named here so this can
--- ask for it.
-local frame_changed = function() end
-
 local function refresh_dock_card()
   local w = dock_card_now()
   if w == nil or w == dock_card then
     return
   end
-  local was = last_frame
   dock_card = w
   apply_gap_geometry()
-  frame_changed(was)
+  -- The zones moved with the card; put the windows that were on one back on it,
+  -- matched against the frame they were placed in (layout.lua keeps it).
+  layout.frame_changed()
 end
 
 -- Load hyprpm-managed plugins, then the patched x-mode hyprbars on login
@@ -439,10 +432,10 @@ o.exec_on_start("sh -c 'hyprctl plugin unload \"$HOME/.local/share/hyprbars/hypr
 
 -- Rectangle-style snap for floating windows.
 -- Titlebar drag-to-edge lives in the patched hyprbars (CDragSession): it moves
--- the window, draws the preview, and applies the snap. Lua keeps restore +
--- Super+Alt hotkeys, and defers same-app grouping while a drag is in progress.
+-- the window, draws the preview, and applies the snap. The zones, the restore
+-- and the Super+Alt hotkeys are layout.lua's; this file binds them, unbinds what
+-- Omarchy had on the same keys, and defers same-app grouping during a drag.
 
-local saved = {}
 -- Same-app windows that arrived during a drag; joined after the drag ends.
 local pending_join = {}
 local flush_pending_joins = function() end
@@ -475,21 +468,6 @@ local function vec(value)
 end
 
 -- The top the bar reserves. It is a layer-shell surface and is gone for a
-local function usable(monitor)
-  -- The plugin's frame: the monitor minus its reserved area and the dock inset,
-  -- with the same bar-height memory across a shell restart a snap uses. It is
-  -- the frame a left and a right half split, so a clamp or a restore default
-  -- taken from it can never disagree with the zones.
-  local p = bars()
-  if p == nil or p.usable == nil or monitor == nil then
-    return nil
-  end
-  local ok, box = pcall(p.usable, monitor.name)
-  if not ok or type(box) ~= "table" then
-    return nil
-  end
-  return box.x, box.y, box.w, box.h
-end
 
 local function window_class(w)
   if w == nil then
@@ -498,122 +476,45 @@ local function window_class(w)
   return string.lower(tostring(w.initial_class or w.class or ""))
 end
 
-local function chrome_h(window)
-  -- The plugin's number, including its no_bar check (Snap::chromeH): a window
-  -- with its titlebar off has no chrome to keep free above its content.
-  local p = bars()
-  if p == nil or p.chrome_height == nil then
-    return 0
-  end
-  local ok, h = pcall(p.chrome_height, window)
-  if not ok or type(h) ~= "number" then
-    return 0
-  end
-  return h
-end
+-- layout.lua owns everything that puts a window on a zone: the snap, the
+-- restore, the re-apply a load or a moved frame needs, and the one-shot arrange.
+-- It asks the plugin for geometry and remembers the frame it asked with; this
+-- file gives it the pieces of the pack it cannot reach -- the plugin handle, the
+-- drag, the dock card, the window queries and the grouping -- and the state dir
+-- the arrange marker lives in.
+--
+-- ws_id, refresh_window and consolidate are defined further down (they need
+-- helpers from the grouping section); forward-declared here so the closures
+-- below see the real functions rather than a global that never exists.
+local find_peer
+local ws_id
+local refresh_window
+local consolidate
 
--- Alignment is applied, never guessed at after a delay. Every pass that asks
--- the plugin for geometry -- the re-apply a load does, the one a card change
--- needs, the arrange -- runs through here, and a pass whose plugin is not there
--- yet is kept, not dropped. That state is normal, not an error: the config
--- parses before the plugin exists (the pack loads it from exec_on_start), and
--- the dock's width arrives after it. The poll below runs whatever is left the
--- moment the plugin can answer, and stops when there is nothing left. Without
--- the plugin there is no geometry to align to at all, so a pass that is still
--- waiting after five seconds is dropped: the plugin's own load re-runs this
--- file, and that parse asks again.
-local function plugin_ready()
-  local p = bars()
-  return p ~= nil and p.snap ~= nil and p.zone ~= nil
-end
-
-local ALIGN_GIVE_UP_TICKS = 50
-local ALIGN_TICK_MS = 100
-local align_pending = {}
-local align_timer = nil
-local align_missing = 0
-
-local function align_later(name, fn)
-  align_pending[name] = fn
-end
-
-local function align_flush()
-  if not plugin_ready() then
-    align_missing = align_missing + 1
-    if align_missing > ALIGN_GIVE_UP_TICKS then
-      align_pending = {}
-      align_missing = 0
-      if align_timer ~= nil then
-        align_timer:set_enabled(false)
-      end
-    end
-    return
-  end
-  align_missing = 0
-  -- A drag owns the box it is moving; re-applying a zone under it would fight
-  -- the gesture. It stays pending until the drag ends (see the drag event).
-  if dragging() then
-    return
-  end
-  local todo = align_pending
-  align_pending = {}
-  for _, fn in pairs(todo) do
-    pcall(fn)
-  end
-  if next(align_pending) == nil and align_timer ~= nil then
-    align_timer:set_enabled(false)
-  end
-end
-
-local function align_arm()
-  if align_timer == nil then
-    align_timer = hl.timer(align_flush, { timeout = ALIGN_TICK_MS, type = "repeat" })
-  else
-    align_timer:set_enabled(true)
-  end
-end
-
--- Put every window that is still on a zone back on that zone, matched against
--- the frame the window was placed in. That is the load-time re-apply for a
--- frame that moved instead of a config that reloaded: a right half stays the
--- right half when the dock card changes width, which is exactly what an install
--- leaves behind -- the shell restarts with the new files after the reload, so
--- the card the windows were dealt with is not the card they end up next to.
--- The plugin matches the window against the old frame (the overrides), so one
--- the user moved -- it no longer sits on a zone -- is left where it is. The
--- match is exact, which is why the frame is kept as the numbers the plugin was
--- given: half of a rebuilt approximation lands inside the plugin's slop and
--- hides the difference.
-local function reapply_frame(old)
-  local p = bars()
-  if p == nil or p.zone == nil then
-    return
-  end
-  for _, w in ipairs(as_list(hl.get_windows())) do
-    if w.floating and not w.pinned and not w.hidden then
-      local ok, kind = pcall(p.zone, w, old)
-      if not ok or type(kind) ~= "string" or kind == "" then
-        local ok2, kind2 = pcall(p.zone, w)
-        kind = ok2 and kind2 or nil
-      end
-      if type(kind) == "string" and kind ~= "" then
-        pcall(function()
-          p.snap({ kind = kind, window = w })
-        end)
-      end
-    end
-  end
-end
-
-frame_changed = function(old)
-  if old == nil then
-    return
-  end
-  align_later("frame", function()
-    reapply_frame(old)
-  end)
-  align_arm()
-end
+layout.init({
+  plugin = bars,
+  dragging = dragging,
+  dock_card = function()
+    return dock_card
+  end,
+  state_dir = X_MODE_STATE,
+  list = function()
+    return as_list(hl.get_windows())
+  end,
+  class_of = window_class,
+  space_of = function(w)
+    return ws_id(w)
+  end,
+  refresh = function(w)
+    return refresh_window(w)
+  end,
+  find_peer = function(w)
+    return find_peer(w)
+  end,
+  consolidate = function()
+    consolidate()
+  end,
+})
 
 local function ensure_tab_group(window)
   if window == nil or window.group ~= nil then
@@ -624,9 +525,7 @@ local function ensure_tab_group(window)
   end)
 end
 
--- Defined later (need window_class/ws_id/... helpers); forward-declared so
--- snap() can join an existing same-app group before creating a new one.
-local find_peer
+-- join_same_app is defined with the rest of the grouping below.
 local join_same_app
 local apps_off = {}
 -- Keyboard replacements the main panel forces on for every class, keyed by the
@@ -696,105 +595,6 @@ local function window_by_addr(addr)
   return hl.get_window(a)
 end
 
-local function save(window)
-  if window == nil then
-    return
-  end
-  local x, y = vec(window.at)
-  local w, h = vec(window.size)
-  saved[window.address] = { x = x, y = y, w = w, h = h }
-end
-
-local function place(x, y, w, h, window)
-  window = window or hl.get_active_window()
-  if window == nil then
-    return
-  end
-
-  if window.fullscreen and window.fullscreen ~= 0 then
-    hl.dispatch(hl.dsp.window.fullscreen({ action = "unset", window = window }))
-  end
-  if not window.floating then
-    hl.dispatch(hl.dsp.window.float({ action = "enable", window = window }))
-  end
-
-  hl.dispatch(hl.dsp.window.resize({ x = w, y = h, relative = false, window = window }))
-  hl.dispatch(hl.dsp.window.move({ x = x, y = y, relative = false, window = window }))
-end
-
-local function snap(kind, window)
-  window = window or hl.get_active_window()
-  if window == nil then
-    return
-  end
-
-  if kind ~= "restore" then
-    save(window)
-  end
-
-  if kind == "restore" then
-    local monitor = window.monitor or hl.get_monitor_at_cursor() or hl.get_active_monitor()
-    if monitor == nil then
-      return
-    end
-    local x, y, w, h = usable(monitor)
-    if x == nil then
-      return
-    end
-    local prev = saved[window.address]
-    if prev then
-      place(prev.x, prev.y, prev.w, prev.h, window)
-    else
-      place(x + math.floor(w * 0.15), y + math.floor(h * 0.12), math.floor(w * 0.7), math.floor(h * 0.76), window)
-    end
-    return
-  end
-
-  -- Join an existing same-app group first; only create a fresh group if there
-  -- is no group to join (otherwise snapping would spawn a second group). Join
-  -- directly (no keep_pos) so the snapped position is not undone afterwards.
-  if window.group == nil and find_peer ~= nil then
-    local peer = find_peer(window)
-    if peer ~= nil and peer.group ~= nil then
-      pcall(function()
-        peer.group:add(window)
-      end)
-    end
-  end
-  -- The zone geometry (and the client minimum a zone grows to) is the plugin's
-  -- (Snap::applyKind / contentBox). Without the plugin there is no snap: the
-  -- pack is its plugin, and a second implementation in here is exactly the
-  -- drift the old fallback caused.
-  local p = bars()
-  if p ~= nil and p.snap ~= nil then
-    pcall(function()
-      p.snap({ kind = kind, window = window })
-    end)
-  end
-end
-
--- Super+Alt+Left/Right step the window through the cycle sizes on that side
--- (half, two thirds, a third) and snap it to the side's zone when it is not on
--- one of them yet. Both the sizes and the matching live in the plugin
--- (Snap::cycle): they are the same frame, chrome, client minimum and insets a
--- zone is built from, so there is no second copy to keep in step.
-local function snap_or_expand(side)
-  local window = hl.get_active_window()
-  local monitor = hl.get_monitor_at_cursor() or hl.get_active_monitor()
-  if window == nil or monitor == nil then
-    return
-  end
-
-  local p = bars()
-  if p ~= nil and p.cycle ~= nil then
-    local ok, stepped = pcall(p.cycle, window, side)
-    if ok and stepped then
-      return
-    end
-  end
-  snap(side, window)
-end
-
 -- Super+LMB was window drag, Super+RMB was resize. Titlebar drag-to-edge
 -- lives in hyprbars (CDragSession); Super+click is Ctrl+click for apps with
 -- the panel flag, and otherwise reaches the app as Super+click.
@@ -842,15 +642,8 @@ o.bind("SUPER + mouse:274", "Ctrl+click", super_ctrl_click(274), { mouse = true 
 -- client's xdg request. Either one means the window is not a normal floating
 -- window, and the pack must not move, resize or re-fit it. Checking only
 -- `fullscreen` left a client-fullscreen window (a video player, a game, or an
--- app that stayed fullscreen after the compositor's flag was cleared) to be
--- pushed below the top bar and off the bottom of the screen by the next clamp.
-local function is_fullscreen(w)
-  if w == nil then
-    return false
-  end
-  return (w.fullscreen ~= nil and w.fullscreen ~= 0) or (w.fullscreen_client ~= nil and w.fullscreen_client ~= 0)
-end
-
+-- The fullscreen check a zone re-apply needs is layout.lua's (is_fullscreen
+-- there); what is left here is the comment about keeping a window below the bar.
 -- Keeping a window below the bar is the plugin's job: CHyprBar::updateWindow
 -- runs on every move and resize (updateWindowDecos calls it) and
 -- Snap::clampToWorkArea fits the box with the same gap, border and chromeH the
@@ -1241,10 +1034,10 @@ hl.unbind("SUPER + SHIFT + DOWN")
 hl.unbind("SUPER + ALT + LEFT")
 hl.unbind("SUPER + ALT + RIGHT")
 o.bind("SUPER + ALT + LEFT", "Snap or expand window left", function()
-  snap_or_expand("left")
+  layout.cycle("left")
 end)
 o.bind("SUPER + ALT + RIGHT", "Snap or expand window right", function()
-  snap_or_expand("right")
+  layout.cycle("right")
 end)
 
 -- Super+Alt+Up/Down were "move window to group on top/bottom". We never want
@@ -1265,29 +1058,29 @@ hl.unbind("SUPER + ALT + S")
 -- Super+Alt+F was Hyprland "full width" (maximized). Match drag-to-top-center instead.
 hl.unbind("SUPER + ALT + F")
 o.bind("SUPER + ALT + F", "Maximize window", function()
-  snap("maximize")
+  layout.snap("maximize")
 end)
 hl.unbind("SUPER + ALT + A")
 o.bind("SUPER + ALT + A", "Almost maximize window", function()
-  snap("almost-maximize")
+  layout.snap("almost-maximize")
 end)
 o.bind("CTRL + ALT + UP", "Maximize window", function()
-  snap("maximize")
+  layout.snap("maximize")
 end)
 o.bind("CTRL + ALT + DOWN", "Restore window size", function()
-  snap("restore")
+  layout.snap("restore")
 end)
 o.bind("CTRL + ALT + U", "Snap window top-left", function()
-  snap("top-left")
+  layout.snap("top-left")
 end)
 o.bind("CTRL + ALT + I", "Snap window top-right", function()
-  snap("top-right")
+  layout.snap("top-right")
 end)
 o.bind("CTRL + ALT + J", "Snap window bottom-left", function()
-  snap("bottom-left")
+  layout.snap("bottom-left")
 end)
 o.bind("CTRL + ALT + K", "Snap window bottom-right", function()
-  snap("bottom-right")
+  layout.snap("bottom-right")
 end)
 
 -- --- macOS text chords ------------------------------------------------------
@@ -1462,7 +1255,7 @@ local function apply_lock_key()
   end
 end
 
-local function ws_id(w)
+function ws_id(w)
   local ws = w and w.workspace
   if ws == nil then
     return nil
@@ -1727,57 +1520,13 @@ local function flush_layout()
   end)
 end
 
--- A window can be sitting in one of two layouts: the one the live gaps make,
--- or the one "No gaps" leaves behind. Only the second is known from the option:
--- a reload starts Lua over, and the config above this file has already put the
--- normal gaps back while the windows are still where the previous option left
--- them. So each window is matched twice, once against the live gaps and, for
--- whatever is left, against the no-gap layout. Only a window in the *other*
--- layout is returned; one already in the target layout is left alone, as is a
--- window that fills no zone at all (moved by hand).
---
--- The dock inset follows gaps_out, so the no-gap pass has to push the inset
--- that layout used as well; the plugin's own gap override only covers the gap
--- and border, and without this a right-edge window misses by half a gap.
-local function zoned_hits(target)
-  local hits = {}
-  local p = bars()
-  if p == nil or p.snap == nil or p.zone == nil then
-    return hits
-  end
-
-  local rest = {}
-  for _, w in ipairs(as_list(hl.get_windows())) do
-    if w.floating and not w.pinned and not w.hidden then
-      local ok, kind = pcall(p.zone, w)
-      if ok and type(kind) == "string" and kind ~= "" then
-        if target ~= "live" then
-          hits[#hits + 1] = { window = w, kind = kind }
-        end
-      else
-        rest[#rest + 1] = w
-      end
-    end
-  end
-
-  if #rest > 0 then
-    -- No gaps means gaps_out is 0, so the inset is the dock card alone.
-    hl.config({ plugin = { hyprbars = { x_mode_dock_inset = dock_card } } })
-    for _, w in ipairs(rest) do
-      local ok, kind = pcall(p.zone, w, { gap = 0, border = 1 })
-      if ok and type(kind) == "string" and kind ~= "" and target ~= "no-gap" then
-        hits[#hits + 1] = { window = w, kind = kind }
-      end
-    end
-  end
-
-  return hits
-end
-
+-- The two-layout match a gaps change needs is layout.zoned_hits: it returns
+-- the windows in the *other* layout (matched against the live gaps, then, for
+-- whatever is left, against the no-gap layout), and the pass below applies them.
 local function apply_no_gaps()
   -- Name the zones while the windows are still in the layout they were snapped
   -- in: change the gaps first and there is nothing left to compare against.
-  local hits = zoned_hits(no_gaps and "no-gap" or "live")
+  local hits = layout.zoned_hits(no_gaps and "no-gap" or "live")
 
   if no_gaps then
     pcall(function()
@@ -1796,52 +1545,7 @@ local function apply_no_gaps()
   -- the dock inset back after the no-gap pass above moved it.
   apply_gap_geometry()
   flush_layout()
-
-  local p = bars()
-  if p == nil or p.snap == nil then
-    return
-  end
-  for _, hit in ipairs(hits) do
-    pcall(function()
-      p.snap({ kind = hit.kind, window = hit.window })
-    end)
-  end
-end
-
--- Put the windows that are still shaped like a zone back on that zone, with the
--- live gaps. A window snapped and then nudged a little (or left a titlebar lower
--- while its client settled) is still that zone -- the plugin's zone match reads a
--- full-height zone by x and size, not by an exact y -- so a load re-applies the
--- zone box instead of leaving it out of line with the gaps around it.
---
--- This is a *load-time* pass on purpose. The same re-apply used to fall out of
--- Snap::clampToWorkArea, which runs from the bar's updateRules, and Hyprland
--- re-evaluates every window's rules whenever *any* window opens: a snapped
--- window dragged a little down flew back into its snap when another window
--- opened, with nothing in sight to explain it. A window moved out of the zone's
--- shape (another x or width) is free and is left alone, as is one being dragged
--- right now.
-local function resnap_zoned()
-  local p = bars()
-  if p == nil or p.snap == nil or p.zone == nil then
-    return
-  end
-  if p.dragging ~= nil then
-    local ok, dragging = pcall(p.dragging)
-    if ok and dragging then
-      return
-    end
-  end
-  for _, w in ipairs(as_list(hl.get_windows())) do
-    if w.floating and not w.pinned and not w.hidden then
-      local ok, kind = pcall(p.zone, w)
-      if ok and type(kind) == "string" and kind ~= "" then
-        pcall(function()
-          p.snap({ kind = kind, window = w })
-        end)
-      end
-    end
-  end
+  layout.apply_hits(hits)
 end
 
 local function apply_native_scroll()
@@ -2291,7 +1995,7 @@ local function addr_sel(w)
   return "address:" .. a
 end
 
-local function refresh_window(w)
+function refresh_window(w)
   if w == nil or w.address == nil then
     return w
   end
@@ -2324,13 +2028,13 @@ local function absorb_chrome_growth(w, old_x, old_y, old_w, old_h, old_chrome)
   if mon == nil then
     return
   end
-  local _, uy, _, uh = usable(mon)
+  local _, uy, _, uh = layout.usable(mon)
   if uy == nil then
     return
   end
   local x, y = vec(w.at)
   local ww, wh = vec(w.size)
-  local new_chrome = chrome_h(w)
+  local new_chrome = layout.chrome_h(w)
   local grow = math.max(new_chrome - (old_chrome or 0), 0)
   local edge = GAP_OUT() + BORDER()
   local ny = old_y + grow
@@ -2416,7 +2120,7 @@ join_same_app = function(w)
   end
   local px, py = vec(peer.at)
   local pw, ph = vec(peer.size)
-  local old_chrome = chrome_h(peer)
+  local old_chrome = layout.chrome_h(peer)
   pcall(function()
     if peer.group == nil then
       hl.dispatch(hl.dsp.group.toggle({ window = peer }))
@@ -2513,7 +2217,7 @@ local function release_hypr_maximize(w)
     return
   end
   hl.dispatch(hl.dsp.window.fullscreen({ action = "unset", window = w }))
-  snap("maximize", w)
+  layout.snap("maximize", w)
 end
 
 hl.on("window.fullscreen", function(w)
@@ -2626,9 +2330,12 @@ local function bind_drag()
       -- Remember where the window was, so a later restore snaps back to it. The
       -- drag clamps itself in C++ and may hang off an edge; the work-area clamp
       -- skips a window the drag owns, so nothing pulls it back mid-gesture.
-      save(w)
+      layout.save(w)
     else
       flush_pending_joins()
+      -- A pass held back by the drag (re-applying a zone would fight the
+      -- gesture) runs now rather than at the next tick.
+      layout.flush()
     end
   end)
   if ok and sub ~= nil then
@@ -2659,7 +2366,7 @@ refresh_dock_card()
 -- same-app windows were opened while the config was reloading, they can end up
 -- spread across separate groups. Pick a grouped window as the leader when there
 -- is one, so the group keeps its position.
-local function consolidate()
+function consolidate()
   local windows = as_list(hl.get_windows())
   if type(windows) ~= "table" then
     return
@@ -2700,204 +2407,32 @@ local function consolidate()
   end
 end
 
--- The marker comes from install.sh (a fresh install) or from the off path
--- above (the desktop was just switched back on from the bar panel). Spread
--- the windows that were already open across the left and right halves, one
--- side per app, alternating in a shuffled order so the two sides come out
--- roughly even. Per workspace: each space is shuffled and split on its own,
--- and a window is never moved to another space. The marker is removed on
--- sight, so the second reload and every reload while already on leave windows
--- where the user put them. One window per class, because consolidate() has
--- already folded same-app windows into a single group.
-local ARRANGE_MARKER = X_MODE_STATE .. "/arrange"
-
-local function read_arrange_marker()
-  local file = io.open(ARRANGE_MARKER, "r")
-  if file == nil then
-    return false
-  end
-  file:close()
-  return true
-end
-
-local function clear_arrange_marker()
-  os.remove(ARRANGE_MARKER)
-end
-
+-- The arrange and its marker are layout.lua's now: the marker is read, not
+-- taken, and removed only once the deal has actually happened. Kept as a name
+-- on x_mode so `hyprctl eval` can still ask for one deal by hand.
 function x_mode.arrange_halves()
-  local windows = as_list(hl.get_windows())
-  if type(windows) ~= "table" then
-    return
-  end
-  local seen = {}
-  local by_space = {}
-  for _, w in ipairs(windows) do
-    w = refresh_window(w) or w
-    if w.mapped and not w.hidden and not is_fullscreen(w) and w.monitor ~= nil then
-      local cls = window_class(w)
-      local wid = tostring(ws_id(w) or "")
-      local key = cls .. "@" .. wid
-      if cls ~= "" and not seen[key] then
-        seen[key] = true
-        by_space[wid] = by_space[wid] or {}
-        table.insert(by_space[wid], w)
-      end
-    end
-  end
-  -- Fisher-Yates per workspace, so each space is split roughly evenly and a
-  -- window stays on the space it was on. math.random is seeded from the clock
-  -- below; without the shuffle the order is just whatever Hyprland enumerated.
-  for _, leaders in pairs(by_space) do
-    for i = #leaders, 2, -1 do
-      local j = math.random(i)
-      leaders[i], leaders[j] = leaders[j], leaders[i]
-    end
-    for i, w in ipairs(leaders) do
-      snap(i % 2 == 1 and "left" or "right", w)
-    end
-  end
+  layout.arrange_halves()
 end
 
--- Hide the switch-over behind a fade. Everything turning X Mode back on does
--- to a window -- the titlebars coming back and the boxes being refitted on the
--- reload, the re-float, the tab grouping, the arrange -- moves it, and a fade
--- that starts at the arrange is already too late for the first of those: that
--- move is seen on screen and then the fade runs on the new positions. So the
--- fade starts here, as soon as the marker is read, and the windows stay
--- invisible while the rest happens. The reveal is one step at the end,
--- deliberately not animated, so the new layout simply appears.
-local FADE_STEPS   = 10
-local FADE_STEP_MS = 25
-local SETTLE_MS    = 120
--- How long the fade may stay on screen if the plugin cannot answer. The reveal
--- is idempotent, so whichever comes first -- the deal landing or this -- brings
--- the windows back.
-local ARRANGE_REVEAL_MS = 2000
 
-local function set_window_opacity(windows, value)
-  for _, w in ipairs(windows) do
-    if w ~= nil then
-      pcall(function()
-        -- Hyprland draws the focused window from "opacity" and every other one
-        -- from "opacity_inactive" (Window.cpp: alpha() vs alphaInactive()), so
-        -- both have to be set or only the focused window is seen to change.
-        hl.dispatch(hl.dsp.window.set_prop({ prop = "opacity", value = value, window = w }))
-        hl.dispatch(hl.dsp.window.set_prop({ prop = "opacity_inactive", value = value, window = w }))
-      end)
-    end
-  end
-end
+-- A reload in the middle of a fade leaves the windows at whatever step the
+-- timers reached; those timers die with the config, so the state has to be put
+-- back before anything else touches opacity. layout.lua owns the fade (and the
+-- switch-over it hides), including the reveal and its deadline.
+layout.clear_fade()
 
--- The windows an arrange can touch, named when the fade starts so the reveal
--- targets the same set even after consolidate() folds same-app windows into a
--- group.
-local function arrange_candidates()
-  local out = {}
-  for _, w in ipairs(as_list(hl.get_windows())) do
-    w = refresh_window(w) or w
-    if w.mapped and not w.hidden and not is_fullscreen(w) and w.monitor ~= nil then
-      out[#out + 1] = w
-    end
-  end
-  return out
-end
-
--- Float anything still tiled. A 300ms timer does this normally; with an
--- arrange pending it is deferred to inside the fade, so the float happens on
--- invisible windows instead of moving them on screen before the fade.
-local function float_tiled()
-  for _, w in ipairs(as_list(hl.get_windows())) do
-    if w.mapped and not w.floating and not is_fullscreen(w) then
-      hl.dispatch(hl.dsp.window.float({ action = "enable", window = w }))
-    end
-  end
-end
-
--- Fade the windows out and leave them invisible; the timer below reveals them
--- after the arrange. Every step is pcall'd: a window can close mid-fade, and
--- one bad handle must not leave the rest stuck at opacity 0.
-local function fade_out(windows)
-  if #windows == 0 then
-    return
-  end
-  local step = 0
-  local timer
-  timer = hl.timer(function()
-    step = step + 1
-    set_window_opacity(windows, string.format("%.3f", math.max(0, 1 - step / FADE_STEPS)))
-    if step >= FADE_STEPS then
-      timer:set_enabled(false)
-    end
-  end, { timeout = FADE_STEP_MS, type = "repeat" })
-end
-
--- A reload in the middle of a fade leaves the windows wherever the last step put
--- them: the timers that would have faded them back die with the config, and 0.9
--- -- the first step -- is exactly what a window looks like when that happens. A
--- reinstall reloads, so that is the shape a stuck desktop has. The state the pack
--- wants is the catch-all rule's 1.0, so put it back on every window before
--- anything else touches opacity.
-local function clear_fade()
-  local windows = {}
-  for _, w in ipairs(as_list(hl.get_windows())) do
-    windows[#windows + 1] = w
-  end
-  set_window_opacity(windows, "1")
-end
-
-clear_fade()
-
--- The marker is dropped by install.sh before its reload and by the off path
--- when the desktop is switched back on. Arrange once per load: re-float the
--- still-tiled windows, gather same-app windows into tabs, deal them into
--- halves, and reveal once the new boxes have landed. The windows are named now,
--- at the fade, so the reveal targets exactly the ones that were faded.
---
--- The marker is read here, not taken: it is removed only once the deal has
--- actually happened. The arrange is the one pass that may not run twice -- it
--- deals the windows in a shuffled order -- and a parse that cannot run it (the
--- plugin is loaded from exec_on_start, and the plugin's own load re-runs this
--- file) used to remove the marker and drop the whole thing. It stays pending
--- now and align_flush runs it the moment the plugin can answer; the reveal has
--- a deadline so the windows cannot stay invisible waiting for it.
-local arrange_pending = read_arrange_marker()
-local arrange_fade = {}
-local arrange_revealed = false
-
-local function reveal_arrange()
-  if arrange_revealed then
-    return
-  end
-  arrange_revealed = true
-  set_window_opacity(arrange_fade, "1")
-  arrange_fade = {}
-end
-
-if arrange_pending then
-  math.randomseed(os.time())
-  arrange_fade = arrange_candidates()
-  fade_out(arrange_fade)
-end
+-- The marker is dropped by install.sh before its reload and by the off path when
+-- the desktop is switched back on. layout.lua owns it: it reads the marker,
+-- starts the fade, and removes the marker only once the windows have actually
+-- been dealt -- a parse that cannot deal (no plugin yet) keeps the request
+-- instead of dropping it. This file asks once per load and gives it the tick.
+local arrange_pending = layout.arrange_pending()
 
 hl.timer(function()
   for _, w in ipairs(as_list(hl.get_windows())) do
     release_hypr_maximize(refresh_window(w) or w)
   end
-  if arrange_pending then
-    -- The re-float and the grouping are not the plugin's and happen behind the
-    -- fade, as they always did; only the deal needs the plugin.
-    float_tiled()
-    consolidate()
-    align_later("arrange", function()
-      x_mode.arrange_halves()
-      clear_arrange_marker()
-      hl.timer(reveal_arrange, { timeout = SETTLE_MS, type = "oneshot" })
-    end)
-    align_arm()
-    hl.timer(reveal_arrange, { timeout = ARRANGE_REVEAL_MS, type = "oneshot" })
-  else
-    consolidate()
-  end
+  layout.settle(arrange_pending)
 end, { timeout = 600, type = "oneshot" })
 
 pcall(function()
@@ -2911,15 +2446,19 @@ end)
 -- pending the timer above does this after the fade instead, so the float is not
 -- seen (this 300ms timer would move the windows on screen before the fade).
 if not arrange_pending then
-  hl.timer(float_tiled, { timeout = 300, type = "oneshot" })
+  hl.timer(layout.float_tiled, { timeout = 300, type = "oneshot" })
 end
 
 -- A load re-applies the zone box to every window that is still zone-shaped
--- (see resnap_zoned). Not with an arrange pending: that one deals every window
--- into the halves itself. The pass waits for the plugin like the others: on the
--- first parse of a session there is none yet, and it used to run into that and
+-- (layout.resnap). Not with an arrange pending: that one deals every window into
+-- the halves itself. The pass waits for the plugin like the others: on the first
+-- parse of a session there is none yet, and it used to run into that and
 -- silently do nothing.
 if not arrange_pending then
-  align_later("resnap", resnap_zoned)
-  align_arm()
+  layout.resnap()
 end
+
+-- The alignment module, reachable from `hyprctl eval` (`x_mode.layout.state()`
+-- says where each window was snapped from and what frame the zones were built
+-- from). The panel and the binds go through the calls above, not this.
+x_mode.layout = layout
