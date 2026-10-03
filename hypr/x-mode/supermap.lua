@@ -405,6 +405,11 @@ end
 -- letter also gets its Shift variant (Ctrl+Shift+T, Ctrl+Shift+N, ...); for
 -- punctuation the shifted keysym is a different key, so a Shift bind would
 -- never match and none is planned.
+--
+-- The digits are never planned, even when nothing holds them. They are the
+-- workspace keys, and with the workspaces on the F keys the pack binds them
+-- itself (workspaces_on... digit_tabs) so the focused app decides at press time.
+-- A generated bind here would sit on the same key as that one.
 function M.plan(raw)
   -- Nothing parsed means the bind table did not land or is not in the shape this
   -- expects. Planning on that would read as "nothing is bound" and generate a
@@ -416,11 +421,13 @@ function M.plan(raw)
   local shifted = occupied(raw, SUPER + SHIFT)
   local out     = {}
   for _, key in ipairs(M.KEYS) do
-    if not plain[key:lower()] then
-      out[#out + 1] = { key = key, shift = false }
-    end
-    if key:match("^%a$") and not shifted[key:lower()] then
-      out[#out + 1] = { key = key, shift = true }
+    if not is_digit(key) then
+      if not plain[key:lower()] then
+        out[#out + 1] = { key = key, shift = false }
+      end
+      if key:match("^%a$") and not shifted[key:lower()] then
+        out[#out + 1] = { key = key, shift = true }
+      end
     end
   end
   return out

@@ -16,7 +16,7 @@ end
 
 -- { "class": { "chrome": true, "alwaysTabbar": false, "ctrlW": false,
 --   "ctrlAsSuper": false, "ctrlCShift": false, "ctrlClick": false,
---   "ctrlAsSuperKeys": [] } }.
+--   "digitTabs": false, "ctrlAsSuperKeys": [] } }.
 -- Missing chrome means on; the rest missing means off.
 -- A legacy array of classes means chrome off.
 local function parse_steal_keys(body)
@@ -43,6 +43,7 @@ function M.parse_apps(raw)
     local ctrl_super = body:find('"ctrlAsSuper"%s*:%s*true') ~= nil
     local ctrl_c = body:find('"ctrlCShift"%s*:%s*true') ~= nil
     local ctrl_click = body:find('"ctrlClick"%s*:%s*true') ~= nil
+    local digit_tabs = body:find('"digitTabs"%s*:%s*true') ~= nil
     cfg[string.lower(cls)] = {
       chrome = chrome,
       always_tabbar = always,
@@ -50,6 +51,7 @@ function M.parse_apps(raw)
       ctrl_as_super = ctrl_super,
       ctrl_c_shift = ctrl_c,
       ctrl_click = ctrl_click,
+      digit_tabs = digit_tabs,
       ctrl_as_super_keys = parse_steal_keys(body),
     }
   end
@@ -62,6 +64,7 @@ function M.parse_apps(raw)
         ctrl_as_super = false,
         ctrl_c_shift = false,
         ctrl_click = false,
+        digit_tabs = false,
         ctrl_as_super_keys = {},
       }
     end

@@ -150,6 +150,14 @@ check("plan.empty.t", empty_plan["T/plain"], true)
 check("plan.empty.t.shift", empty_plan["T/shift"], true)
 check("plan.empty.punct", empty_plan["comma/plain"], true)
 
+-- The digits are never planned, even when nothing holds them: they belong to
+-- Omarchy's workspaces, and with the workspaces on the F keys the pack binds
+-- them itself so the focused app decides. Planning one here would put two
+-- handlers on the same key.
+check("plan.empty.digit", empty_plan["1/plain"], nil)
+check("plan.empty.digit.ten", empty_plan["0/plain"], nil)
+check("plan.empty.digit.shift", empty_plan["1/shift"], nil)
+
 -- Punctuation gets no Shift variant: the shifted keysym is a different key, so
 -- the bind would never match.
 check("plan.punct.no-shift", empty_plan["comma/shift"], nil)

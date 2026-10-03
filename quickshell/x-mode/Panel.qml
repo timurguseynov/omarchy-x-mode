@@ -108,8 +108,10 @@ Panel {
     var apps = {}
     for (var k in appsCfg) {
       var e = appsCfg[k]
-      if (e && (e.chrome === false || e.alwaysTabbar || e.ctrlW || e.ctrlAsSuper || e.ctrlCShift || e.ctrlClick || (e.ctrlAsSuperKeys && e.ctrlAsSuperKeys.length))) {
+      if (e && (e.chrome === false || e.alwaysTabbar || e.ctrlW || e.ctrlAsSuper || e.ctrlCShift || e.ctrlClick || e.digitTabs || (e.ctrlAsSuperKeys && e.ctrlAsSuperKeys.length))) {
         var row = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlCShift: !!e.ctrlCShift, ctrlClick: !!e.ctrlClick }
+        if (e.digitTabs)
+          row.digitTabs = true
         if (e.ctrlAsSuperKeys && e.ctrlAsSuperKeys.length)
           row.ctrlAsSuperKeys = e.ctrlAsSuperKeys
         apps[k] = row
@@ -463,7 +465,7 @@ Panel {
         id: tabKeysRow
         width: parent.width
         visible: root.openCls === ""
-        label: "Ctrl+1..9 switches tabs"
+        label: "Ctrl+1..0 switches tabs"
         description: "Jump to a titlebar tab; off, the shortcut goes to the app"
         checked: root.ctrlTabSwitch
         rowEnabled: root.xModeOn
@@ -475,7 +477,7 @@ Panel {
         width: parent.width
         visible: root.openCls === ""
         label: "Workspaces on F1..F10"
-        description: "Switch workspaces with Super+F1..F10, leaving Super+1..0 for the app"
+        description: "Super+F1..F10 switch workspaces; the freed digits follow the app's card"
         checked: root.workspacesOnFkeys
         rowEnabled: root.xModeOn
         onToggled: root.setOptions(root.nativeScroll, root.ctrlTabSwitch, root.noGaps, !root.workspacesOnFkeys)
@@ -593,6 +595,16 @@ Panel {
             description: "Keys Omarchy does not already use"
             checked: root.cfgFor(root.openCls).ctrlAsSuper
             onToggled: root.setFlag("ctrlAsSuper", !root.cfgFor(root.openCls).ctrlAsSuper)
+          }
+
+          SwitchRow {
+            width: parent.width
+            label: "⌘+1..0 for the pack's tabs"
+            description: root.workspacesOnFkeys
+              ? "Reserved: no tab of that number means the key does nothing"
+              : "Needs Workspaces on F1..F10, which frees the digits"
+            checked: root.cfgFor(root.openCls).digitTabs
+            onToggled: root.setFlag("digitTabs", !root.cfgFor(root.openCls).digitTabs)
           }
 
           SwitchRow {

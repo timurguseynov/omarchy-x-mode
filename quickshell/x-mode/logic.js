@@ -34,13 +34,13 @@ function copyOccupiedKeys(keys) {
 }
 
 function emptyAppCfg() {
-    return { chrome: false, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlCShift: false, ctrlClick: false, ctrlAsSuperKeys: [] }
+    return { chrome: false, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlCShift: false, ctrlClick: false, digitTabs: false, ctrlAsSuperKeys: [] }
 }
 
 // The panel's apps map: { "class": { chrome, alwaysTabbar, ctrlW, ctrlAsSuper,
-// ctrlCShift, ctrlAsSuperKeys } }. Accepts the parsed object (from settings.json)
-// or a raw JSON string (the old apps.json). A legacy array of classes means
-// chrome off.
+// ctrlCShift, ctrlClick, digitTabs, ctrlAsSuperKeys } }. Accepts the parsed object
+// (from settings.json) or a raw JSON string (the old apps.json). A legacy array of
+// classes means chrome off.
 function parseApps(raw) {
     var set = {}
     try {
@@ -52,7 +52,7 @@ function parseApps(raw) {
             for (var k in d) {
                 var e = d[k]
                 if (e && typeof e === "object")
-                    set[String(k).toLowerCase()] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlCShift: !!e.ctrlCShift, ctrlClick: !!e.ctrlClick, ctrlAsSuperKeys: copyOccupiedKeys(e.ctrlAsSuperKeys) }
+                    set[String(k).toLowerCase()] = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, ctrlW: !!e.ctrlW, ctrlAsSuper: !!e.ctrlAsSuper, ctrlCShift: !!e.ctrlCShift, ctrlClick: !!e.ctrlClick, digitTabs: !!e.digitTabs, ctrlAsSuperKeys: copyOccupiedKeys(e.ctrlAsSuperKeys) }
                 else
                     set[String(k).toLowerCase()] = emptyAppCfg()
             }
@@ -320,7 +320,7 @@ function panelCfgFor(appsCfg, cls) {
     var key = String(cls || "").toLowerCase()
     var e = (appsCfg || {})[key]
     if (!e)
-        return { chrome: true, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlCShift: false, ctrlClick: false, ctrlAsSuperKeys: [] }
+        return { chrome: true, alwaysTabbar: false, ctrlW: false, ctrlAsSuper: false, ctrlCShift: false, ctrlClick: false, digitTabs: false, ctrlAsSuperKeys: [] }
     return {
         chrome: e.chrome !== false,
         alwaysTabbar: !!e.alwaysTabbar,
@@ -328,13 +328,14 @@ function panelCfgFor(appsCfg, cls) {
         ctrlAsSuper: !!e.ctrlAsSuper,
         ctrlCShift: !!e.ctrlCShift,
         ctrlClick: !!e.ctrlClick,
+        digitTabs: !!e.digitTabs,
         ctrlAsSuperKeys: copyOccupiedKeys(e.ctrlAsSuperKeys)
     }
 }
 
 // Per-app config update: a copy with the entry set, or dropped when every field
 // is back at its default (chrome on, nothing else). Null for an empty class.
-function mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar, ctrlW, ctrlAsSuper, ctrlCShift, ctrlClick, ctrlAsSuperKeys) {
+function mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar, ctrlW, ctrlAsSuper, ctrlCShift, ctrlClick, ctrlAsSuperKeys, digitTabs) {
     var key = String(cls || "").toLowerCase()
     if (key === "")
         return null
@@ -343,10 +344,10 @@ function mergePanelCfg(appsCfg, cls, chrome, alwaysTabbar, ctrlW, ctrlAsSuper, c
     for (var k in cfg)
         next[k] = cfg[k]
     var keys = copyOccupiedKeys(ctrlAsSuperKeys)
-    if (chrome && !alwaysTabbar && !ctrlW && !ctrlAsSuper && !ctrlCShift && !ctrlClick && keys.length === 0)
+    if (chrome && !alwaysTabbar && !ctrlW && !ctrlAsSuper && !ctrlCShift && !ctrlClick && !digitTabs && keys.length === 0)
         delete next[key]
     else
-        next[key] = { chrome: chrome, alwaysTabbar: !!alwaysTabbar, ctrlW: !!ctrlW, ctrlAsSuper: !!ctrlAsSuper, ctrlCShift: !!ctrlCShift, ctrlClick: !!ctrlClick, ctrlAsSuperKeys: keys }
+        next[key] = { chrome: chrome, alwaysTabbar: !!alwaysTabbar, ctrlW: !!ctrlW, ctrlAsSuper: !!ctrlAsSuper, ctrlCShift: !!ctrlCShift, ctrlClick: !!ctrlClick, digitTabs: !!digitTabs, ctrlAsSuperKeys: keys }
     return next
 }
 
@@ -358,7 +359,7 @@ function setPanelFlag(appsCfg, cls, flag, value) {
         return null
     var cfg = panelCfgFor(appsCfg, key)
     cfg[flag] = !!value
-    return mergePanelCfg(appsCfg, key, cfg.chrome, cfg.alwaysTabbar, cfg.ctrlW, cfg.ctrlAsSuper, cfg.ctrlCShift, cfg.ctrlClick, cfg.ctrlAsSuperKeys)
+    return mergePanelCfg(appsCfg, key, cfg.chrome, cfg.alwaysTabbar, cfg.ctrlW, cfg.ctrlAsSuper, cfg.ctrlCShift, cfg.ctrlClick, cfg.ctrlAsSuperKeys, cfg.digitTabs)
 }
 
 // Occupied-key rows in the panel. Same ids/labels means the Repeater can keep
@@ -419,7 +420,7 @@ function setOccupiedKey(appsCfg, cls, id, on) {
     }
     if (on && !seen)
         keys.push(id)
-    return mergePanelCfg(appsCfg, cls, cfg.chrome, cfg.alwaysTabbar, cfg.ctrlW, cfg.ctrlAsSuper, cfg.ctrlCShift, cfg.ctrlClick, keys)
+    return mergePanelCfg(appsCfg, cls, cfg.chrome, cfg.alwaysTabbar, cfg.ctrlW, cfg.ctrlAsSuper, cfg.ctrlCShift, cfg.ctrlClick, keys, cfg.digitTabs)
 }
 
 // Settings-panel running list: one row per app class with the best-focus

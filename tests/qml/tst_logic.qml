@@ -27,13 +27,14 @@ TestCase {
     }
 
     function test_parseApps_object() {
-        var s = Logic.parseApps('{"Chromium":{"chrome":false,"alwaysTabbar":true,"ctrlW":true,"ctrlAsSuper":true,"ctrlCShift":true,"ctrlClick":true},"Zed":{}}')
+        var s = Logic.parseApps('{"Chromium":{"chrome":false,"alwaysTabbar":true,"ctrlW":true,"ctrlAsSuper":true,"ctrlCShift":true,"ctrlClick":true,"digitTabs":true},"Zed":{}}')
         compare(s["chromium"].chrome, false)
         compare(s["chromium"].alwaysTabbar, true)
         compare(s["chromium"].ctrlW, true)
         compare(s["chromium"].ctrlAsSuper, true)
         compare(s["chromium"].ctrlCShift, true)
         compare(s["chromium"].ctrlClick, true)
+        compare(s["chromium"].digitTabs, true)
         compare(s["chromium"].ctrlAsSuperKeys.length, 0)
         compare(s["zed"].chrome, true)
         compare(s["zed"].alwaysTabbar, false)
@@ -41,6 +42,7 @@ TestCase {
         compare(s["zed"].ctrlAsSuper, false)
         compare(s["zed"].ctrlCShift, false)
         compare(s["zed"].ctrlClick, false)
+        compare(s["zed"].digitTabs, false)
         compare(s["zed"].ctrlAsSuperKeys.length, 0)
     }
 
@@ -50,6 +52,7 @@ TestCase {
         compare(s["foot"].ctrlW, false)
         compare(s["foot"].ctrlAsSuper, false)
         compare(s["foot"].ctrlCShift, false)
+        compare(s["foot"].digitTabs, false)
     }
 
     function test_parseApps_legacy_array() {
@@ -59,6 +62,7 @@ TestCase {
         compare(s["kitty"].ctrlW, false)
         compare(s["kitty"].ctrlAsSuper, false)
         compare(s["kitty"].ctrlCShift, false)
+        compare(s["kitty"].digitTabs, false)
     }
 
     function test_parseApps_invalid() {
@@ -223,6 +227,7 @@ TestCase {
         compare(dflt.ctrlAsSuper, false)
         compare(dflt.ctrlCShift, false)
         compare(dflt.ctrlClick, false)
+        compare(dflt.digitTabs, false)
         compare(dflt.ctrlAsSuperKeys.length, 0)
         var off = Logic.panelCfgFor({ "zed": { chrome: false } }, "ZED")
         compare(off.chrome, false)
@@ -238,6 +243,11 @@ TestCase {
         compare(clip.zed.ctrlCShift, true, "ctrlCShift alone keeps the entry")
         var click = Logic.mergePanelCfg({}, "zed", true, false, false, false, false, true)
         compare(click.zed.ctrlClick, true, "ctrlClick alone keeps the entry")
+        var digits = Logic.mergePanelCfg({}, "foot", true, false, false, false, false, false, [], true)
+        compare(digits.foot.digitTabs, true, "digitTabs alone keeps the entry")
+        var both = Logic.mergePanelCfg({}, "foot", true, false, false, true, false, false, [], true)
+        compare(both.foot.digitTabs, true, "the reserve switch survives alongside the Ctrl flag")
+        compare(both.foot.ctrlAsSuper, true)
         compare(Logic.mergePanelCfg({}, "", true, false, false, false, false), null, "empty class")
     }
 
@@ -248,10 +258,15 @@ TestCase {
         var two = Logic.setPanelFlag(chrome, "chromium", "ctrlW", true)
         compare(two.chromium.ctrlAsSuper, true, "the other flag is kept")
         compare(two.chromium.ctrlW, true)
-        var back = Logic.setPanelFlag(two, "chromium", "ctrlAsSuper", false)
+        var digits = Logic.setPanelFlag(two, "chromium", "digitTabs", true)
+        compare(digits.chromium.digitTabs, true)
+        compare(digits.chromium.ctrlW, true, "the reserve switch keeps the other flags")
+        var back = Logic.setPanelFlag(digits, "chromium", "ctrlAsSuper", false)
         compare(back.chromium.ctrlAsSuper, false, "cleared")
         compare(back.chromium.ctrlW, true, "the entry stays while a flag is on")
-        var none = Logic.setPanelFlag(back, "chromium", "ctrlW", false)
+        var noDigits = Logic.setPanelFlag(back, "chromium", "digitTabs", false)
+        compare(noDigits.chromium.digitTabs, false, "the reserve switch is cleared too")
+        var none = Logic.setPanelFlag(noDigits, "chromium", "ctrlW", false)
         compare(none.chromium, undefined, "the entry is dropped at the default")
         compare(Logic.setPanelFlag({}, "", "ctrlW", true), null, "empty class")
     }

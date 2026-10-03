@@ -487,6 +487,10 @@ local ctrl_w_apps = {}
 -- Classes with the panel's "Super works as Ctrl" flag: unbound Super+key
 -- combinations reach them as Ctrl+key.
 local ctrl_as_super = {}
+-- Classes with the panel's "⌘+1…0 reserved for the pack's tabs" flag: the digit
+-- is not handed over at all -- it switches the pack's tab, and it is eaten even
+-- when there is no such tab. Nothing is on until a card asks for it.
+local digit_tabs = {}
 -- Occupied Super keys stolen per class (supermap ids: Q, TAB, SHIFT+TAB, B).
 -- Unbind is global; the wrap checks this set for the focused window, like Super+W.
 local steal_keys = {}
@@ -1294,10 +1298,13 @@ end
 -- { "options": { "nativeScroll": ..., ... },
 --   "apps": { "class": { "chrome": true, "alwaysTabbar": false,
 --                      "ctrlW": false, "ctrlAsSuper": false, "ctrlCShift": false,
---                      "ctrlClick": false, "ctrlAsSuperKeys": [] } } }
+--                      "ctrlClick": false, "digitTabs": false,
+--                      "ctrlAsSuperKeys": [] } } }
 -- chrome=false → no titlebar/tabbar/grouping. alwaysTabbar → tab strip even
 -- when the window is not grouped. ctrlW → Super+W closes the app's tab (Ctrl+W);
--- ctrlAsSuper → unbound Super+key reaches the app as Ctrl+key; ctrlAsSuperKeys →
+-- ctrlAsSuper → unbound Super+key reaches the app as Ctrl+key; digitTabs → the
+-- freed Super+1..0 are the pack's own tabs for this class (reserved: the app
+-- never sees the digit); ctrlAsSuperKeys →
 -- occupied Super keys stolen for this app (same wrap as Super+W); ctrlClick →
 -- Super+click is Ctrl+click; ctrlCShift →
 -- Ctrl+C reaches it as Ctrl+Shift+C, so the app's own binding can make it the
@@ -1380,6 +1387,7 @@ sync_apps_off()
 local function sync_app_flags()
   ctrl_w_apps = settings.ctrl_w_set(apps_cfg)
   ctrl_as_super = settings.flag_set(apps_cfg, "ctrl_as_super")
+  digit_tabs = settings.flag_set(apps_cfg, "digit_tabs")
   ctrl_c_shift_apps = settings.flag_set(apps_cfg, "ctrl_c_shift")
   ctrl_click_apps = settings.flag_set(apps_cfg, "ctrl_click")
   steal_keys = {}
@@ -1507,12 +1515,13 @@ function x_mode.refresh_apps_off()
   regroup_chrome_on()
 end
 
--- Desktop options (native scroll, Ctrl+1..9 tab switching, no gaps, workspaces
--- on F1..F10), read from settings.json. Ctrl+1..9 switches group tabs when the
+-- Desktop options (native scroll, Ctrl+1..0 tab switching, no gaps, workspaces
+-- on F1..F10), read from settings.json. Ctrl+1..0 switches group tabs when the
 -- focused app has chrome/titlebar on; otherwise the key is passed through to the
 -- app. Off by default, so those shortcuts reach the app. No gaps zeroes the
 -- outer and inner gaps and keeps a hairline border. Workspaces on F1..F10 is
--- what frees Super+1..0 (see apply_workspace_keys); off is Omarchy's layout,
+-- what gives the pack the Super+1..0 digits (see apply_workspace_keys) -- where
+-- they are reserved, handed over or left alone per app; off is Omarchy's layout,
 -- Cmd+1..0 on the workspaces.
 local native_scroll = false
 local ctrl_tab_switch = false
@@ -1669,21 +1678,26 @@ local function apply_native_scroll()
   end)
 end
 
-local function focus_group_tab(index)
+local function focus_group_tab(index, reserve)
   local w = hl.get_active_window()
+  -- Without `reserve` (the Ctrl+1..0 option) a window with no chrome of ours, no
+  -- group, or no such tab passes the key through -- the app's own binding is what
+  -- it should be. With `reserve` (a digit the card claimed for the pack's tabs)
+  -- the key is eaten either way: a dead Cmd+3 is what reserved promises, a key
+  -- that leaks to the app is not.
   if w == nil or w.group == nil or not chrome_on(window_class(w)) then
-    return { pass_event = true }
+    return { pass_event = not reserve }
   end
   local members = w.group.members
   if index < 1 or index > #members then
-    return { pass_event = true }
+    return { pass_event = not reserve }
   end
   -- group.active focuses the tab; the raise is the focus handler's.
   hl.dispatch(hl.dsp.group.active({ index = index, window = w }))
   return { pass_event = false }
 end
 
--- Bind or release Ctrl+1..9. The handles are kept so turning the option off
+-- Bind or release Ctrl+1..0. The handles are kept so turning the option off
 -- removes exactly these binds (hl.unbind would also drop any the user set on
 -- the same keys). A removed bind lets the key fall through to the app.
 local function apply_ctrl_tab_switch()
@@ -1691,7 +1705,7 @@ local function apply_ctrl_tab_switch()
     if #ctrl_tab_binds > 0 then
       return
     end
-    for i = 1, 9 do
+    for i = 1, 10 do
       local ok, kb = pcall(o.bind, "CTRL + code:" .. tostring(i + 9), "Switch to tab " .. i, function()
         return focus_group_tab(i)
       end)
@@ -1941,10 +1955,11 @@ apply_super_ctrl()
 
 -- Workspace switching on F1..F10 instead of Super+1..0. Off is Omarchy's layout:
 -- the pack does nothing. On, the digit binds (Omarchy writes them as
--- `SUPER + code:10..19`) are released so "Super works as Ctrl" can take the
--- digits -- Ctrl+1..0 switches the app's tabs -- and the F keys switch the
--- desktop's workspaces. Turning it back off goes through a reload, which
--- re-creates the Omarchy binds, so only the pack's own binds have to go.
+-- `SUPER + code:10..19`) are released and the pack takes the ten digits itself,
+-- because the class of the focused window is what decides what a digit does (see
+-- digit_key); the F keys switch the desktop's workspaces. Turning it back off
+-- goes through a reload, which re-creates the Omarchy binds, so only the pack's
+-- own binds have to go.
 local function drop_workspace_keys()
   for _, kb in ipairs(workspace_key_binds) do
     pcall(function()
@@ -1961,20 +1976,32 @@ local function add_workspace_key(keys, description, dispatcher)
   end
 end
 
--- The digit with the workspaces on the F keys: the key is free, and it is the
--- pack's. An app that is being handed Ctrl+digit gets that; one that is not gets
--- the pack's own tab, and a window with no chrome of ours has no tabs, so
--- focus_group_tab passes the key through. The generated Super-as-Ctrl binds
--- cannot carry this half: they exist only while some app has the flag, so with
--- none the digit would sit there doing nothing at all.
-local function digit_key(digit)
+-- The digit with the workspaces on the F keys. The pack binds it itself, because
+-- the answer is per class and can change while the pack runs: the card's reserve
+-- switch claims the digit for the pack's own tab and eats it; else "Super works as
+-- Ctrl" hands it over as Ctrl+digit; else the key is not ours and is passed
+-- through. Nothing is claimed by default, so a fresh pack switches no tab. The
+-- generated Super-as-Ctrl binds cannot carry the reserved half either: they exist
+-- only while some app has that flag.
+local function digit_name(index)
+  if index == 10 then
+    return "0"
+  end
+  return tostring(index)
+end
+
+local function digit_key(index)
   return function()
     local w = hl.get_active_window()
-    if w ~= nil and ctrl_as_super[window_class(w)] then
-      send_ctrl(digit, false, w)
+    local cls = w ~= nil and window_class(w) or nil
+    if cls ~= nil and digit_tabs[cls] then
+      return focus_group_tab(index, true)
+    end
+    if cls ~= nil and ctrl_as_super[cls] then
+      send_ctrl(digit_name(index), false, w)
       return
     end
-    return focus_group_tab(tonumber(digit))
+    return { pass_event = true }
   end
 end
 
@@ -1990,11 +2017,10 @@ local function apply_workspace_keys()
     hl.unbind("SUPER + SHIFT + ALT + code:" .. code)
     local fkey = "F" .. tostring(i)
     local ws = tostring(i)
-    -- Tabs, not workspaces: ten of these would be one past the ninth tab, and
-    -- Cmd+0 keeps the app's own Ctrl+0 through the generated binds.
-    if i < 10 then
-      add_workspace_key("SUPER + " .. ws, "Tab " .. ws .. ", or Ctrl+" .. ws .. " for the app", digit_key(ws))
-    end
+    -- Tabs, not workspaces: the tenth digit is the 0 key, and the class of the
+    -- focused window decides at press time what the digit does (digit_key).
+    local digit = digit_name(i)
+    add_workspace_key("SUPER + " .. digit, "Tab " .. i .. ", or Ctrl+" .. digit .. " for an app that asked", digit_key(i))
     add_workspace_key("SUPER + " .. fkey, "Switch to workspace " .. ws, function()
       hl.dispatch(hl.dsp.focus({ workspace = ws }))
     end)

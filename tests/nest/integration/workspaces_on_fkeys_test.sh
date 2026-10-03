@@ -4,9 +4,10 @@
 # does not load Omarchy's config, so its workspace binds (written by keycode,
 # code:10 is workspace 1) are planted here.
 #
-# The freed digit is the pack's own key, not a generated one: it hands Ctrl+digit
-# to an app that asked for it and switches the pack's own tab for one that did
-# not (integration/digit_tabs_test drives both halves).
+# The freed digit is the pack's own key, not a generated one: the class of the
+# focused window decides at press time whether it is the pack's tab (a card
+# reserved it), Ctrl+digit (the card asked for Ctrl) or nothing at all
+# (integration/digit_tabs_test drives all of it).
 . "$(dirname "$0")/../../lib.sh"
 
 SETTINGS="$NEST_SETTINGS"
@@ -37,6 +38,8 @@ assert_eq "$(viewed_workspace)" 3 "on: Super+F3 switches to workspace 3"
 
 # The freed digit is bound once, by the pack: the generator must not also plan it
 # or one press would run both.
-assert_eq "$(bind_count_desc_exact "Tab 3, or Ctrl+3 for the app" 64)" 1 "the freed digit is the pack's own key"
+assert_eq "$(bind_count_desc_exact "Tab 3, or Ctrl+3 for an app that asked" 64)" 1 "the freed digit is the pack's own key"
 assert_eq "$(bind_count 3 64)" 1 "and it is the only bind on the key"
+assert_eq "$(bind_count 0 64)" 1 "Cmd+0 is bound as the tenth digit"
+assert_eq "$(bind_count_desc_exact "Tab 10, or Ctrl+0 for an app that asked" 64)" 1 "and it is the tenth tab, on the 0 key"
 assert_eq "$(bind_count_desc 'x-mode-super-ctrl 3' 64)" 0 "the generator leaves it alone"
