@@ -337,6 +337,13 @@ o.bind("SUPER + SHIFT + RETURN", "Browser", { omarchy = "browser" })
 o.bind("SUPER + ALT + K", "Tmux keybindings", "omarchy-menu-tmux-keybindings")
 o.bind("SUPER + C", "Universal copy", universal_clipboard_shortcut("CTRL", "C"))
 o.bind_toggle("SUPER + SHIFT + SPACE", "Toggle top bar", "bar")
+o.bind("SUPER + SHIFT + P", "Google Photos", { webapp = "https://photos.google.com/", focus = true })
+o.bind("SUPER + SHIFT + A", "ChatGPT", { webapp = "https://chatgpt.com" })
+o.bind("SUPER + SHIFT + O", "Obsidian", { launch = "obsidian", focus = "^obsidian$" })
+o.bind("SUPER + SHIFT + W", "Omawrite", { launch = "omawrite" })
+o.bind("SUPER + SHIFT + D", "Docker", { tui = "omarchy-launch-docker-tui" })
+o.bind("SUPER + SHIFT + U", "Music TUI", { tui = "cliamp", focus = true })
+o.bind("SUPER + SHIFT + Q", "Quoted", { launch = "tea's" })
 ]])
 check("omarchy.k", omarchy["K"], "omarchy-menu-keybindings")
 check("omarchy.return", omarchy["RETURN"], "omarchy-launch-terminal")
@@ -344,6 +351,17 @@ check("omarchy.shift-return", omarchy["SHIFT+RETURN"], "omarchy-launch-browser")
 check("omarchy.alt.skip", omarchy["SHIFT+K"], nil)
 check("omarchy.c.fn.skip", omarchy["C"], nil)
 check("omarchy.toggle", omarchy["SHIFT+SPACE"], "omarchy-toggle-bar")
+
+-- The other table dispatchers Omarchy's helpers build a command for. Without
+-- these the key never reaches the panel's steal list: it stays an opaque
+-- __lua callback, so nothing can replay it after an unbind.
+check("omarchy.webapp.focus", omarchy["SHIFT+P"], "omarchy-launch-or-focus-webapp 'Google Photos' 'https://photos.google.com/'")
+check("omarchy.webapp", omarchy["SHIFT+A"], "omarchy-launch-webapp 'https://chatgpt.com'")
+check("omarchy.launch.focus", omarchy["SHIFT+O"], "omarchy-launch-or-focus '^obsidian$' 'uwsm-app -- obsidian'")
+check("omarchy.launch", omarchy["SHIFT+W"], "uwsm-app -- 'omawrite'")
+check("omarchy.tui", omarchy["SHIFT+D"], "omarchy-launch-tui 'omarchy-launch-docker-tui'")
+check("omarchy.tui.focus", omarchy["SHIFT+U"], "omarchy-launch-or-focus-tui 'cliamp'")
+check("omarchy.quote", omarchy["SHIFT+Q"], "uwsm-app -- 'tea'\\''s'")
 
 if failures > 0 then
   os.exit(1)

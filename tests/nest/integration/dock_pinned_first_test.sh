@@ -14,9 +14,10 @@ sleep 0.3
 assert_eq "$(active_class)" foot "foot is focused to begin with"
 
 read -r px py <<<"$(dock_icon_point 0)"
+printf '  note: the click assumes the pinned column: card %s, height expected %s, icon 0 at %s %s\n' "$(dock_box)" "$(dock_expect_h)" "$px" "$py"
 pointer_click "$px" "$py"
 settle
 
-assert_eq "$(active_class)" kitty "the first icon is the pinned app"
+assert_eq "$(active_class)" kitty "the first icon is the pinned app (focused $(active_class))"
 
 dock_stop

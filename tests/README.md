@@ -145,6 +145,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/drag_snap_zones_test.sh` | side strips give halves, the top strip maximizes, corners quarter |
 | `integration/drag_down_then_focus_keeps_box_test.sh` | a dragged window keeps its drop when another window takes focus |
 | `integration/drag_up_clamps_to_bar_test.sh` | dragging up leaves the chrome below the bar |
+| `integration/capture_keys_test.sh` | the macOS capture keys run Omarchy's capture commands with the matching mode, and the window-move spelling of those digits is gone |
 | `integration/text_chords_test.sh` | the macOS text chords: a tagged terminal gets readline's chord and everything else its toolkit's (the bytes the app received are read back) |
 | `integration/arrow_keys_unbound_test.sh` | Cmd+arrows are the pack's text chords, not Omarchy's directional focus, and still do not move focus |
 | `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |

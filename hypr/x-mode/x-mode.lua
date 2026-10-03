@@ -979,7 +979,18 @@ end)
 -- Cmd+F is Omarchy fullscreen: a Lua dispatcher, so hyprctl cannot replay it
 -- after unbind. Wrap it here like Super+Q. A stolen F is Ctrl+F (Find);
 -- otherwise the compositor fullscreen stays.
+--
+-- Ctrl+Cmd+F is fullscreen on macOS, and it is what is left when the app has
+-- taken Cmd+F for Find -- so it never looks at the steal. Omarchy's own
+-- Ctrl+Cmd+F (tiled fullscreen) is dropped with the other tiling keys above.
 hl.unbind("SUPER + F")
+local function toggle_fullscreen()
+  local w = hl.get_active_window()
+  if w == nil then
+    return
+  end
+  hl.dispatch(hl.dsp.window.fullscreen({ mode = "fullscreen" }))
+end
 o.bind("SUPER + F", "Full screen", function()
   local w = hl.get_active_window()
   if w == nil then
@@ -989,8 +1000,10 @@ o.bind("SUPER + F", "Full screen", function()
     send_ctrl("F", false, w)
     return
   end
-  hl.dispatch(hl.dsp.window.fullscreen({ mode = "fullscreen" }))
+  toggle_fullscreen()
 end)
+hl.unbind("SUPER + CTRL + F")
+o.bind("SUPER + CTRL + F", "Full screen", toggle_fullscreen)
 
 -- Cmd+Tab cycles through windows (like an app switcher) instead of Omarchy's
 -- next/previous workspace; Cmd+Shift+Tab goes the other way. The generated
@@ -1192,6 +1205,69 @@ end
 -- take (Cmd+Shift+Backspace is window gaps, Cmd+Ctrl+Backspace square aspect).
 hl.unbind("SUPER + ALT + BACKSPACE")
 o.bind("SUPER + ALT + BACKSPACE", "Toggle window transparency", "omarchy-hyprland-window-transparency-toggle")
+
+-- --- macOS capture keys -----------------------------------------------------
+-- Cmd+Shift+3/4 and Ctrl+Shift+Cmd+3/4 are the screenshot keys on a Mac, and
+-- Omarchy's capture command has the modes to match: `fullscreen` is the whole
+-- monitor and `region` is the drag, while the second argument picks what happens
+-- to the shot -- unset is their default (the file, the clipboard and the
+-- notification with its "edit with Tensaku" action), `copy` is the clipboard on
+-- its own. The plain keys take the default and the Control ones only copy, which
+-- is the macOS split: on a Mac Cmd+Shift+3 does not overwrite the clipboard
+-- either, and only the plain keys announce themselves.
+--
+-- Cmd+Shift+4 is a plain region and not Omarchy's `smart`, which also offers the
+-- window under the cursor: `smart` feeds slurp a candidate list built from
+-- `hyprctl clients -j` with no z-order in it, and slurp highlights the smallest
+-- rectangle containing the pointer -- so hovering highlights a window that is
+-- actually covered, and a click or a tiny drag snaps to the first rectangle in
+-- the list, which is the monitor. A drag of your own has none of that.
+--
+-- Cmd+Shift+5 is the recording key and Cmd+Shift+6 the Touch Bar shot on a Mac
+-- -- which does not exist here, so that slot carries the OCR region read.
+--
+-- Cmd+Shift+3..6 are also Omarchy's "move window to workspace 3..6", written by
+-- keycode (code:12 is the 3 key). Both spellings are dropped: a bind matches on
+-- its own spelling, so the keycode one left behind would move the window as
+-- well. With workspaces on F1..F10 the moves live on Shift+F1..F10, so nothing
+-- is lost; on Omarchy's own digits, Cmd+Shift+3..6 are the pack's now.
+local CAPTURE = {
+  {
+    keys = "SUPER + SHIFT + 3", code = "SUPER + SHIFT + code:12",
+    label = "Screenshot the screen", cmd = "omarchy-capture-screenshot fullscreen",
+  },
+  {
+    keys = "SUPER + CTRL + SHIFT + 3", code = "SUPER + CTRL + SHIFT + code:12",
+    label = "Screenshot the screen to clipboard", cmd = "omarchy-capture-screenshot fullscreen copy",
+  },
+  {
+    keys = "SUPER + SHIFT + 4", code = "SUPER + SHIFT + code:13",
+    label = "Screenshot a region", cmd = "omarchy-capture-screenshot region",
+  },
+  {
+    keys = "SUPER + CTRL + SHIFT + 4", code = "SUPER + CTRL + SHIFT + code:13",
+    label = "Screenshot a region to clipboard", cmd = "omarchy-capture-screenshot region copy",
+  },
+  {
+    keys = "SUPER + SHIFT + 5", code = "SUPER + SHIFT + code:14",
+    -- Omarchy's own recording key: stop a running recording, otherwise offer
+    -- the options -- which is what Cmd+Shift+5 opens on a Mac too.
+    label = "Screen recording",
+    cmd = "omarchy-capture-screenrecording --stop-recording || omarchy-menu toggle trigger.capture.screenrecord",
+  },
+  {
+    keys = "SUPER + SHIFT + 6", code = "SUPER + SHIFT + code:15",
+    label = "Capture text from a region", cmd = "omarchy-capture-text",
+  },
+}
+
+for _, e in ipairs(CAPTURE) do
+  hl.unbind(e.keys)
+  if e.code ~= nil then
+    hl.unbind(e.code)
+  end
+  pcall(o.bind, e.keys, e.label, e.cmd)
+end
 
 local function ws_id(w)
   local ws = w and w.workspace

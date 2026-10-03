@@ -322,6 +322,48 @@ local function omarchy_keys_to_id(keys)
   return M.canonical_id(shift and ("SHIFT+" .. key) or key)
 end
 
+-- The command behind one of Omarchy's `o.bind` table dispatchers, spelled the
+-- way Omarchy's own helpers `command_from` builds it (with the arguments
+-- shell-quoted, which its own launch/webapp/tui helpers do too), so a steal can
+-- replay the same thing it unbound. Only `omarchy = "name"` was read at first,
+-- which left every web app, `launch` and TUI key out of the panel's list --
+-- Google Photos (`{ webapp = ... }`) was not there to steal.
+local function shell_quote(value)
+  return "'" .. tostring(value or ""):gsub("'", "'\\''") .. "'"
+end
+
+local function command_from(body, description)
+  local omarchy = body:match('omarchy%s*=%s*"([^"]+)"')
+  if omarchy then
+    return "omarchy-launch-" .. omarchy
+  end
+  local focus = body:match('focus%s*=%s*"([^"]*)"')
+  local launch = body:match('launch%s*=%s*"([^"]*)"')
+  local webapp = body:match('webapp%s*=%s*"([^"]*)"')
+  local tui = body:match('tui%s*=%s*"([^"]*)"')
+  if focus ~= nil and launch ~= nil then
+    return "omarchy-launch-or-focus " .. shell_quote(focus) .. " " .. shell_quote("uwsm-app -- " .. launch)
+  end
+  if launch ~= nil then
+    return "uwsm-app -- " .. shell_quote(launch)
+  end
+  if webapp ~= nil then
+    -- The sole-instance form is named by the bind's *description*, not by the
+    -- URL, so the label has to travel with it (helpers.lua launch_webapp_sole).
+    if body:find("focus%s*=") ~= nil then
+      return "omarchy-launch-or-focus-webapp " .. shell_quote(description) .. " " .. shell_quote(webapp)
+    end
+    return "omarchy-launch-webapp " .. shell_quote(webapp)
+  end
+  if tui ~= nil then
+    if body:find("focus%s*=") ~= nil then
+      return "omarchy-launch-or-focus-tui " .. shell_quote(tui)
+    end
+    return "omarchy-launch-tui " .. shell_quote(tui)
+  end
+  return nil
+end
+
 function M.parse_omarchy_binds(raw)
   local out = {}
   raw = raw or ""
@@ -331,11 +373,11 @@ function M.parse_omarchy_binds(raw)
       out[id] = cmd
     end
   end
-  for keys, _, body in raw:gmatch('o%.bind%(%s*"([^"]+)"%s*,%s*"([^"]*)"%s*,%s*(%b{})') do
+  for keys, description, body in raw:gmatch('o%.bind%(%s*"([^"]+)"%s*,%s*"([^"]*)"%s*,%s*(%b{})') do
     local id = omarchy_keys_to_id(keys)
-    local name = body:match('omarchy%s*=%s*"([^"]+)"')
-    if id and name then
-      out[id] = "omarchy-launch-" .. name
+    local cmd = command_from(body, description)
+    if id and cmd then
+      out[id] = cmd
     end
   end
   for keys, _, name in raw:gmatch('o%.bind_toggle%(%s*"([^"]+)"%s*,%s*"([^"]*)"%s*,%s*"([^"]+)"') do

@@ -95,3 +95,22 @@ sleep 0.3
 key super+f
 settle
 assert_eq "$(client_field foot fullscreen)" 2 "an unflagged app still goes fullscreen on Super+F"
+
+# Ctrl+Cmd+F is the macOS fullscreen key, and it is what is left when the app
+# took Cmd+F for Find -- so it does not look at the steal at all. Omarchy's own
+# Ctrl+Cmd+F (tiled fullscreen) is dropped by the pack, so the key is ours.
+assert_eq "$(bind_count_desc_exact "Full screen" 68)" 1 "Ctrl+Cmd+F is the pack's fullscreen"
+assert_eq "$(bind_count_desc "Tiled full screen" 68)" 0 "Omarchy's tiled fullscreen is gone"
+
+nest_ctl dispatch "hl.dsp.window.fullscreen({ action = 'unset', window = 'class:kitty' })" >/dev/null
+nest_ctl dispatch "hl.dsp.window.fullscreen({ action = 'unset', window = 'class:foot' })" >/dev/null
+settle
+nest_ctl dispatch "hl.dsp.focus({ window = 'class:kitty' })" >/dev/null
+sleep 0.3
+key super+ctrl+f
+settle
+assert_eq "$(client_field kitty fullscreen)" 2 "Ctrl+Cmd+F fullscreens the app that stole Cmd+F"
+
+key super+ctrl+f
+settle
+assert_eq "$(client_field kitty fullscreen)" 0 "and it toggles back like Cmd+F"
