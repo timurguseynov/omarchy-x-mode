@@ -611,6 +611,10 @@ nest_clean() {
   # class it names, which shifts the rows the menu tests click on.
   rm -f "$NEST_STATE/home/.config/omarchy/x-mode-dock.json"
   rm -rf "$NEST_STATE/home/.local/share/applications"
+  # Omarchy's permanent toggles are files it sources on every load, so one a
+  # scenario plants (the gaps toggle, to watch the pack retire it) would decide the
+  # next scenario's gaps before it opens a window.
+  rm -rf "$NEST_STATE/home/.local/state/omarchy/toggles"
   # Back to the first workspace: a scenario that switches away (the dock menu one
   # does) would otherwise decide where the next one opens its windows, and two
   # same-app windows that land on one space group instead of staying apart.

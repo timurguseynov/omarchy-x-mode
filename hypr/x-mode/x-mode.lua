@@ -106,6 +106,31 @@ local function restore_desktop()
   end, { timeout = 150, type = "oneshot" })
 end
 
+-- The pack owns the gaps -- the panel's "No gaps" is the switch -- so Omarchy's
+-- own gaps toggle is kept off. Its state is a file Omarchy sources on every load,
+-- so a desktop that ever pressed its key has gaps_out, gaps_in and the border
+-- zeroed for good: no reload brings the values back, and every titlebar sits at
+-- gap 0. Removing the file is exactly what that toggle's own "off" does (see
+-- omarchy-hyprland-toggle), which is why it is done here instead of by running the
+-- script: the script ends with a reload, and a reload cannot start inside a config
+-- load. The reload that puts the values back is scheduled instead -- and only when
+-- there was a file to remove, so it cannot loop. Runs on both paths: switching
+-- x-mode on from the panel reloads, and that load has to do it too.
+local function retire_omarchy_gaps_toggle()
+  local path = (os.getenv("HOME") or "") .. "/.local/state/omarchy/toggles/hypr/window-no-gaps.lua"
+  local file = io.open(path, "r")
+  if file == nil then
+    return
+  end
+  file:close()
+  os.remove(path)
+  hl.timer(function()
+    hl.exec_cmd("hyprctl reload >/dev/null")
+  end, { timeout = 1200, type = "oneshot" })
+end
+
+retire_omarchy_gaps_toggle()
+
 if not x_mode_wanted() then
   -- Remember that the desktop was switched off, so the next time it comes on
   -- (the bar panel writes "on" and reloads) the windows get spread across the
@@ -954,6 +979,11 @@ hl.unbind("SUPER + L") -- workspace layout picker (dwindle/scrolling)
 hl.unbind("SUPER + O") -- pop out: float + pin
 hl.unbind("SUPER + J") -- togglesplit
 hl.unbind("SUPER + P") -- pseudo (dwindle stretch)
+-- Omarchy's own gaps toggle. The pack owns the gaps -- the panel's "No gaps" is
+-- the switch, and it is the only thing that can put them back -- so this key is
+-- free. Both spellings, since Omarchy may write it by keycode.
+hl.unbind("SUPER + SHIFT + BACKSPACE")
+hl.unbind("SUPER + SHIFT + code:22")
 hl.unbind("SUPER + CTRL + F") -- tiled fullscreen
 hl.unbind("SUPER + Home") -- restore saved tiled width
 hl.unbind("SUPER + ALT + Home") -- save tiled width
@@ -2692,6 +2722,22 @@ local function fade_out(windows)
     end
   end, { timeout = FADE_STEP_MS, type = "repeat" })
 end
+
+-- A reload in the middle of a fade leaves the windows wherever the last step put
+-- them: the timers that would have faded them back die with the config, and 0.9
+-- -- the first step -- is exactly what a window looks like when that happens. A
+-- reinstall reloads, so that is the shape a stuck desktop has. The state the pack
+-- wants is the catch-all rule's 1.0, so put it back on every window before
+-- anything else touches opacity.
+local function clear_fade()
+  local windows = {}
+  for _, w in ipairs(as_list(hl.get_windows())) do
+    windows[#windows + 1] = w
+  end
+  set_window_opacity(windows, "1")
+end
+
+clear_fade()
 
 -- The marker is dropped by install.sh before its reload and by the off path
 -- when the desktop is switched back on. Arrange once per load: re-float the

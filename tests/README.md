@@ -105,7 +105,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `snap_test.sh` | halves keep the bar/gap/border inset and do not overlap |
 | `group_test.sh` | a same-app window joins; the tabbar grows the chrome without pushing the visual top |
 | `topbar_test.sh` | with the bar gone (shell restart) a snap still clears where it was |
-| `nogaps_test.sh` | the panel's file + reload zeroes the gaps and re-lays the snapped windows |
+| `nogaps_test.sh` | the panel's file + reload zeroes the gaps and re-lays the snapped windows; the pack returns the desktop's own gaps when the option goes off and when x-mode goes off, and Omarchy's own gaps toggle (`⌘⇧⌫`) is not bound |
 | `focus_test.sh` | the focused window ends up topmost, including after a same-app window joins |
 | `pointer_test.sh` | a titlebar drag moves the window through the drag session, and a click does not |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
@@ -214,8 +214,10 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/titlebar_drawn_test.sh` | the titlebar band is actually painted |
 | `integration/resize_after_open_clears_bar_test.sh` | a window resized after opening still clears the bar (known gap, reported) |
 | `integration/titlebar_rmb_no_drag_test.sh` | a right-button drag does nothing, a left-button drag moves |
+| `integration/gaps_toggle_retired_test.sh` | the pack retires Omarchy's own gaps toggle on every load — the state file it sources goes, and the reload the pack schedules brings the desktop's gaps back — including when x-mode is switched on from the panel |
 | `integration/global_keys_test.sh` | a keyboard replacement forced on for every app (options.keys) reaches an app with no entry of its own: the generated Super-as-Ctrl binds exist for it, a globally stolen Super+Q arrives as Ctrl+Q, and the app is not closed |
 | `integration/lock_key_test.sh` | Ctrl+Cmd+Q locks the screen (Omarchy's lock command) and takes Omarchy's Calculator key with it; turning the option off gives the Calculator back, turning it on takes it again |
+| `integration/fade_opacity_reset_test.sh` | a reload leaves no window dimmed: the arrange fade runs in 25ms steps and the timers die with the config, so a window stuck at the first step (0.9, seen as a translucent titlebar) has to come back at 1 on the next load |
 | `integration/digit_tabs_test.sh` | with the workspaces on the F keys, the freed Cmd+1..0 follow each app's card: a reserved digit switches the pack's tab (and is eaten even with no such tab), `Super works as Ctrl` alone hands over Ctrl+digit (byte-equal to a physical one), both flags mean the tab, and with neither the digit does nothing |
 | `integration/workspaces_on_fkeys_test.sh` | the workspace keys move to Super+F1..F10 and the pack binds the freed digits itself — Cmd+0 as the tenth tab, no generated super-ctrl bind left on them |
 

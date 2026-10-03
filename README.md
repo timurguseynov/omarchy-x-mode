@@ -26,7 +26,7 @@ It is **additive**. The installer only creates files in its own namespace and on
 * **Settings panel.** The top-bar button opens:
   * X Mode on or off. Off ungroups every window and puts it back to the floating or tiled state it had before X Mode was installed
   * Natural (reversed) scrolling, for both mouse and touchpad
-  * No gaps: no space between windows, with a hairline border kept
+  * No gaps: no space between windows, with a hairline border kept. This is the desktop's only gaps switch: Omarchy's own `⌘⇧⌫` toggle has its key taken away and its saved state retired on every load, with the reload that puts the gaps back, since two switches for one setting fight over the values
   * Per-app titlebar and grouping
   * Always show the tab bar, including the `+` for a single window
   * Key replacements, one screen for the whole desktop and one per app. The "for every app" screen opens with the desktop's rows:
