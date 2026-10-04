@@ -88,7 +88,21 @@ report() { # STATUS NAME FILE
   else
     echo "  ${RED}FAIL${RESET} $2${NEST_SLOT:+ (slot $NEST_SLOT)}"
   fi
+  # What was actually reported, by name: the end-of-run check diffs the chosen
+  # scenarios against this, so a scenario taken from the queue and then lost (a
+  # worker killed, a nest that took its shell with it) cannot leave the run
+  # looking green having run less than it was asked to.
+  [ -n "${NEST_ROOT:-}" ] && printf '%s\n' "$2" >> "$NEST_ROOT/reported"
   [ -s "$3" ] && sed 's/^/       /' "$3"
+} 9>"$NEST_ROOT/print.lock"
+
+# A scenario that was chosen and never reported. Not a failure of the scenario
+# itself -- it may never have started -- but the run did not run what it was
+# asked to, so it is not green either.
+report_notrun() { # NAME REASON
+  flock 9
+  printf '  %sNOT RUN%s %s\n' "$YELLOW" "$RESET" "$1"
+  printf '%s\n' "$2" | sed 's/^/       /'
 } 9>"$NEST_ROOT/print.lock"
 
 # Hyprland reports an error the suite used to ignore in two places, and both hid a
@@ -235,7 +249,10 @@ slot_runner() { # SLOT
           echo "slot $1 gave up after $tries nests" >&2
           return 0
         fi
-        sleep 1
+        # The bar that did not reserve is the nest's output not being registered
+        # yet (`bar reserved '0' with the output '0x0'`). Retrying straight away
+        # runs into the same state, so each retry waits longer than the last.
+        sleep $((tries * 3))
         ;;
       *) return "$rc" ;;
     esac
@@ -280,6 +297,8 @@ abort() {
 trap abort INT TERM HUP
 
 queue_fill
+# Reported scenarios, by name, for the end-of-run diff (see report()).
+: > "$NEST_ROOT/reported"
 
 for s in $(seq 0 $((JOBS - 1))); do
   # A second apart. Mapping several nests in the same instant makes the
@@ -294,20 +313,19 @@ for pid in "${pids[@]}"; do
   wait "$pid" || fail=1
 done
 
-# Whatever the queue still holds was never run: that is what a slot giving up
-# leaves behind, and a run that is red has to say which scenarios those were.
-handed="$(cat "$NEST_QUEUE_AT" 2>/dev/null || echo 0)"
-total="$(wc -l < "$NEST_QUEUE")"
-if [ "$handed" -lt "$total" ]; then
-  while IFS= read -r t; do
-    reason="$(mktemp)"
-    printf 'the nest on this slot did not come up, and none was left to try\n' > "$reason"
-    NEST_SLOT=""
-    report fail "$(name_of "$t")" "$reason"
-    rm -f "$reason"
-  done < <(sed -n "$((handed + 1)),\$p" "$NEST_QUEUE")
+# Anything chosen that was never reported: a slot whose nest would not come up
+# leaves scenarios behind, and a scenario can also be taken from the queue and
+# lost with the worker that held it. The diff is against what was *reported*, not
+# against how far the queue counter got, because the counter moves when a
+# scenario is taken and says nothing about whether it ran. A run that did not run
+# what it was asked to is not green, and it names what is missing.
+for t in "${chosen[@]}"; do
+  name="$(name_of "$t")"
+  grep -Fqx -- "$name" "$NEST_ROOT/reported" && continue
+  report_notrun "$name" "never reported: the nest on its slot did not come up, or it was lost with the worker"
   fail=1
-fi
+done
+rm -f "$NEST_ROOT/reported"
 
 # The scenarios' own lines say what ran. This is the one line that says whether
 # the layer came out clean, for a run started on its own -- the suite above

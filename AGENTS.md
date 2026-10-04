@@ -133,14 +133,23 @@ extension was added.
 
 Once a run has reported itself (or been reported), the agent may read the log,
 the status file and the run's counts -- that is looking at a finished run, not
-polling a going one. Only the sanctioned invocation counts as evidence, and a
-run counts once its status file says finished **and its `WARN` count is 0**: the
-runner reports Hyprland's own errors -- a config that threw while parsing, a Lua
-callback that threw while the session ran -- as `WARN` lines, and those are real
-(a parse that died halfway used to pass as green). While a run is going, work on
-something that cannot invalidate it: do not edit files a running suite reads, and
-start no second run against the same scenarios. If there is nothing else to do,
-say so and stop: the report is a message that will arrive.
+polling a going one. Only the sanctioned invocation counts as evidence, and a run
+counts once its status file says finished with `FAIL: 0`, `WARN: 0` and
+`NOT RUN: 0`:
+
+- `WARN` is Hyprland's own errors, reported as `WARN` lines: a config that threw
+  while parsing, a Lua callback that threw while the session ran. Those are real
+  -- a parse that died halfway used to pass as green.
+- `NOT RUN` is a scenario the run was asked for and never reported: a slot whose
+  nest would not come up, or a scenario lost with the worker that held it. The
+  run is red for those, because it ran less than it was asked to. The check diffs
+  the chosen scenarios against what was reported by name, so a scenario that was
+  taken from the queue and then lost cannot slip through.
+
+While a run is going, work on something that cannot invalidate it: do not edit
+files a running suite reads, and start no second run against the same scenarios.
+If there is nothing else to do, say so and stop: the report is a message that
+will arrive.
 
 A scenario written to look at one thing while working on a test is named
 `tests/nest/integration/debug_tmp_test.sh`: it is gitignored on purpose, and it

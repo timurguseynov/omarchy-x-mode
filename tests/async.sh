@@ -38,15 +38,20 @@ status_text() { # LABEL LOG
   else
     tail -3 "$log"
   fi
-  printf 'ok: %s  FAIL: %s  WARN: %s\n' \
+  printf 'ok: %s  FAIL: %s  WARN: %s  NOT RUN: %s\n' \
     "$(grep -ac $'\033\[32mok' "$log")" \
     "$(grep -ac FAIL "$log")" \
-    "$(grep -ac 'hyprland reported an error' "$log")"
+    "$(grep -ac 'hyprland reported an error' "$log")" \
+    "$(grep -ac 'NOT RUN' "$log")"
   grep -a "FAIL" "$log" | head -5
   # Hyprland's own errors: a parse that died and a Lua callback that threw. They
   # are not scenario failures, and they are not visible anywhere else -- the run
   # can be green while the pack's config threw halfway.
   grep -a "hyprland reported an error" "$log" | head -5
+  # Scenarios the run was asked for and never reported: a slot whose nest would
+  # not come up. Those make the run red, and they are named here so a run that ran
+  # less than it was asked to cannot read as finished.
+  grep -a "NOT RUN" "$log" | head -5
 }
 
 case "${1:-}" in
