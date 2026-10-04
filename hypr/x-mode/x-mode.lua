@@ -1482,9 +1482,25 @@ hl.timer(function()
 end, { timeout = 250, type = "oneshot" })
 
 x_mode = x_mode or {}
+-- Defined with the other per-app key appliers further down; forward-declared
+-- because this is the call the panel makes after writing an app's flag, and the
+-- Ctrl+1..0 binds are planned only there.
+local apply_ctrl_tab_switch
+
+-- What the panel's "for one app" rows run after they write the settings file
+-- (the rows that change a desktop option reload instead). Everything a per-app
+-- flag decides has to be re-planned here, whether it went on or off:
+--   apply_apps        re-reads the file (apps_cfg = load_apps()) and applies the
+--                     window rules, the grouping, and apply_ctrl_c_shift -- the
+--                     Ctrl+C bind hangs off a flag being on anywhere;
+--   apply_super_ctrl  the Super-as-Ctrl map, which apply_apps does not touch;
+--   apply_ctrl_tab_switch  the Ctrl+1..0 binds. Missing here is why pinning
+--                     "Ctrl+1..0 switches tabs" for one app wrote the file and
+--                     did nothing until some other click happened to reload.
 function x_mode.refresh_apps_off()
   apply_apps()
   apply_super_ctrl()
+  apply_ctrl_tab_switch()
   ungroup_chrome_off()
   ungroup_never()
   regroup_chrome_on()
@@ -1587,7 +1603,7 @@ end
 -- Bind or release Ctrl+1..0. The handles are kept so turning the option off
 -- removes exactly these binds (hl.unbind would also drop any the user set on
 -- the same keys). A removed bind lets the key fall through to the app.
-local function apply_ctrl_tab_switch()
+apply_ctrl_tab_switch = function()
   if key_flag_any("ctrl_tab_switch") then
     if #ctrl_tab_binds > 0 then
       return
