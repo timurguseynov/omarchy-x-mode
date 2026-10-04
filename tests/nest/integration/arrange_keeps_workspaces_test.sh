@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# The arrange that install.sh triggers deals windows into halves, and it must do
-# that per workspace: a window is never moved to another space. A window left on
-# the second workspace has to be arranged there, not pulled back to the first.
+# The arrange that install.sh triggers deals a room's windows across the
+# workspace, and it must do that per workspace: a window is never moved to another
+# space. A window left on the second workspace has to be arranged there, not pulled
+# back to the first -- and alone on its space it is centred (the plugin's
+# almost-maximize), not put on a half.
 . "$(dirname "$0")/../../lib.sh"
 
 extent="$(pointer_extent)"
@@ -29,4 +31,4 @@ for c in json.load(sys.stdin):
     if c['class'] == 'foot':
         print(c['at'][0], c['at'][1], c['size'][0], c['size'][1], 0)
         break")"
-assert_le "$w" $((half + 40)) "the window is arranged into a half where it already was"
+assert_ge "$w" $((half + 40)) "the lone group is centred where it already was, not on a half"

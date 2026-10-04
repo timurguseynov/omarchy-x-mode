@@ -137,8 +137,8 @@ retire_omarchy_gaps_toggle()
 
 if not x_mode_wanted() then
   -- Remember that the desktop was switched off, so the next time it comes on
-  -- (the bar panel writes "on" and reloads) the windows get spread across the
-  -- halves again, the same as a fresh install. Only the off path writes it:
+  -- (the bar panel writes "on" and reloads) the windows get dealt out again,
+  -- the same as a fresh install. Only the off path writes it:
   -- the on path consumes it, so a reload while already on does nothing.
   pcall(function()
     local marker = io.open(X_MODE_STATE .. "/arrange", "w")
@@ -2432,8 +2432,8 @@ end
 -- The arrange and its marker are layout.lua's now: the marker is read, not
 -- taken, and removed only once the deal has actually happened. Kept as a name
 -- on x_mode so `hyprctl eval` can still ask for one deal by hand.
-function x_mode.arrange_halves()
-  layout.arrange_halves()
+function x_mode.arrange()
+  layout.arrange()
 end
 
 

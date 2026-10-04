@@ -14,10 +14,10 @@
 -- was not there.
 --
 -- The pure half is at the top and takes plain tables, so tests/unit can run it
--- with no compositor: plan_halves is the whole decision an arrange makes. The
+-- with no compositor: plan_arrange is the whole decision an arrange makes. The
 -- rest works off the `ctx` table x-mode.lua hands to init(), and owns the two
--- pieces of state alignment needs across events: the frame the plugin was told
--- (frame_*), and the one-shot arrange (its marker, its fade, its shuffle).
+-- pieces of state alignment needs across events: the frame the plugin resolves
+-- (bars and dock), and the one-shot arrange (its marker, its fade, its shuffle).
 
 local M = {}
 
@@ -26,13 +26,18 @@ local M = {}
 -- Which side each window goes to when an arrange deals them: one window per
 -- class per workspace (the same app is one group -- consolidate() has already
 -- folded it -- and a second window of it on one space would land on the other
--- half and then be yanked back into the group), each space split on its own so
--- a window never changes workspace, alternating so the two sides come out even.
+-- half and then be yanked back into the group), each space dealt on its own so a
+-- window never changes workspace.
+--
+-- A space with a single group has nothing to be on a side of, so it is centred --
+-- the plugin's almost-maximize box, the same one `Super+Alt+A` gives -- and only
+-- from the second group on do the sides alternate, so a workspace with two or
+-- more groups fills left and right.
 --
 -- `windows` is a list of { key = <anything>, class = <class>, space = <space> },
 -- `shuffle(n)` returns 1..n and belongs to the caller so a test can deal in a
--- fixed order. Returns a list of { key = <the same key>, kind = "left"|"right" }.
-function M.plan_halves(windows, shuffle)
+-- fixed order. Returns a list of { key = <the same key>, kind = <snap kind> }.
+function M.plan_arrange(windows, shuffle)
   local seen, by_space, spaces = {}, {}, {}
   for _, w in ipairs(windows) do
     local cls = tostring(w.class or "")
@@ -51,14 +56,18 @@ function M.plan_halves(windows, shuffle)
   local out = {}
   for _, space in ipairs(spaces) do
     local leaders = by_space[space]
-    -- Fisher-Yates, so each space is split roughly evenly; without it the order
-    -- is just whatever Hyprland enumerated.
-    for i = #leaders, 2, -1 do
-      local j = shuffle(i)
-      leaders[i], leaders[j] = leaders[j], leaders[i]
-    end
-    for i, w in ipairs(leaders) do
-      out[#out + 1] = { key = w.key, kind = (i % 2 == 1) and "left" or "right" }
+    if #leaders == 1 then
+      out[#out + 1] = { key = leaders[1].key, kind = "almost-maximize" }
+    else
+      -- Fisher-Yates, so each space is split roughly evenly; without it the order
+      -- is just whatever Hyprland enumerated.
+      for i = #leaders, 2, -1 do
+        local j = shuffle(i)
+        leaders[i], leaders[j] = leaders[j], leaders[i]
+      end
+      for i, w in ipairs(leaders) do
+        out[#out + 1] = { key = w.key, kind = (i % 2 == 1) and "left" or "right" }
+      end
     end
   end
   return out
@@ -690,9 +699,10 @@ function M.float_tiled()
   end
 end
 
--- Deal the open windows into left and right halves. The decision is the pure
--- plan_halves; this only collects what it needs and applies what it returns.
-function M.arrange_halves()
+-- Deal the open windows across the workspace: a lone group centred, two or more
+-- alternating left and right. The decision is the pure plan_arrange; this only
+-- collects what it needs and applies what it returns.
+function M.arrange()
   local entries = {}
   for _, w in ipairs(windows()) do
     w = ctx.refresh(w) or w
@@ -700,7 +710,7 @@ function M.arrange_halves()
       entries[#entries + 1] = { key = w, class = ctx.class_of(w), space = ctx.space_of(w) }
     end
   end
-  for _, deal in ipairs(M.plan_halves(entries, math.random)) do
+  for _, deal in ipairs(M.plan_arrange(entries, math.random)) do
     M.snap(deal.kind, deal.key)
   end
 end
@@ -742,7 +752,7 @@ function M.settle(arranging)
   M.float_tiled()
   ctx.consolidate()
   later("arrange", function()
-    M.arrange_halves()
+    M.arrange()
     clear_marker()
     hl.timer(reveal, { timeout = SETTLE_MS, type = "oneshot" })
   end)

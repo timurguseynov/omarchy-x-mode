@@ -1,5 +1,5 @@
 -- layout.lua's pure half, so this runs with plain lua: no Hyprland, no
--- compositor. plan_halves is the entire decision an arrange makes -- which
+-- compositor. plan_arrange is the entire decision an arrange makes -- which
 -- window goes to which side -- so it is the part that has to be provable on its
 -- own. The appliers below it ask the plugin for geometry and need a compositor;
 -- they are covered by the nest.
@@ -38,7 +38,7 @@ local function keys(plan)
 end
 
 -- Two apps on one workspace alternate, starting left.
-local plan = layout.plan_halves({
+local plan = layout.plan_arrange({
   { key = "a", class = "foot", space = 1 },
   { key = "b", class = "kitty", space = 1 },
 }, in_order)
@@ -47,7 +47,7 @@ check("keys come back unchanged", keys(plan), "a,b")
 
 -- One app is one group, so its second window is not dealt again: the deal would
 -- put it on the other half and the group would then be yanked back.
-plan = layout.plan_halves({
+plan = layout.plan_arrange({
   { key = "a1", class = "foot", space = 1 },
   { key = "a2", class = "foot", space = 1 },
   { key = "b1", class = "kitty", space = 1 },
@@ -55,34 +55,42 @@ plan = layout.plan_halves({
 check("one window per class", kinds(plan), "left,right")
 check("the class' second window is dropped", keys(plan), "a1,b1")
 
--- Each workspace is split on its own, so a window never changes workspace, and
--- every space starts at left again.
-plan = layout.plan_halves({
+-- Each workspace is split on its own, so a window never changes workspace.
+-- A workspace with a single group has nothing to be on a side of: it is centred
+-- (the plugin's almost-maximize box), and only a second group starts the
+-- left/right alternation.
+plan = layout.plan_arrange({
   { key = "a", class = "foot", space = 1 },
   { key = "b", class = "kitty", space = 2 },
   { key = "c", class = "alacritty", space = 2 },
 }, in_order)
-check("workspaces are dealt separately", kinds(plan), "left,left,right")
+check("a lone group is centred", kinds(plan), "almost-maximize,left,right")
 check("space order is the list order", keys(plan), "a,b,c")
 
+-- Namely: one group on one workspace is centred, not left.
+plan = layout.plan_arrange({
+  { key = "a", class = "foot", space = 1 },
+}, in_order)
+check("one group is centred", kinds(plan), "almost-maximize")
+
 -- The same class on two workspaces is two windows (the class key includes the
--- space): one per space, both dealt.
-plan = layout.plan_halves({
+-- space): one group per space, and each space centres its own.
+plan = layout.plan_arrange({
   { key = "a1", class = "foot", space = 1 },
   { key = "a2", class = "foot", space = 2 },
 }, in_order)
-check("same app on two spaces is two deals", kinds(plan), "left,left")
+check("one group on each of two spaces is centred twice", kinds(plan), "almost-maximize,almost-maximize")
 
 -- A class we cannot name is not something to deal (an unknown class could be
--- anything); a window with no workspace is still a window.
-plan = layout.plan_halves({
+-- anything); a window with no workspace is still a window, and alone it centres.
+plan = layout.plan_arrange({
   { key = "x", class = "", space = 1 },
   { key = "y", class = "foot", space = nil },
 }, in_order)
-check("no class, no deal", kinds(plan), "left")
+check("no class, no deal", kinds(plan), "almost-maximize")
 
 -- The shuffle moves the order, and the sides follow the shuffled order.
-plan = layout.plan_halves({
+plan = layout.plan_arrange({
   { key = "a", class = "foot", space = 1 },
   { key = "b", class = "kitty", space = 1 },
 }, swap)
@@ -91,11 +99,11 @@ check("sides follow the shuffled order", kinds(plan), "left,right")
 
 -- An empty list is an empty plan, not an error: the arrange runs on a desktop
 -- with no windows open.
-check("empty", #layout.plan_halves({}, in_order), 0)
+check("empty", #layout.plan_arrange({}, in_order), 0)
 
 -- A space is never left half-empty by the alternation crossing a boundary: with
 -- four apps on one space it is two left, two right.
-plan = layout.plan_halves({
+plan = layout.plan_arrange({
   { key = "a", class = "aa", space = 1 },
   { key = "b", class = "bb", space = 1 },
   { key = "c", class = "cc", space = 1 },

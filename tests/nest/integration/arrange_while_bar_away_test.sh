@@ -38,7 +38,7 @@ assert_eq "$(win_geom foot | cut -d' ' -f1-4)" "$before" \
   "an arrange does not place windows against a frame with no bar"
 
 # With the bar back the frame is known, and the arrange deals the window -- below
-# the bar, on one of the halves.
+# the bar. It is one group on its workspace, so the deal is the centred box.
 nest_bar_start
 top="$(bar_top)"
 want=$((top + 8))
@@ -47,5 +47,5 @@ wait_until 8 '[ "$(visual_top foot)" -ge "$want" ]' \
   || fail "the arrange never ran after the bar returned: $(win_geom foot), visual top $(visual_top foot), bar at $top"
 read -r _ ry rw _ _ <<<"$(win_geom foot)"
 assert_ge "$ry" "$want" "the arranged content is under the bar"
-assert_le "$rw" $((half + 40)) "the window was dealt onto a half"
+assert_ge "$rw" $((half + 40)) "the lone group took the centred box"
 assert_ne "$(win_geom foot | cut -d' ' -f1-4)" "$before" "the arrange dealt the window"
