@@ -70,6 +70,7 @@ const char* Snap::kindToString(eKind k) {
 static int s_gapOverride    = -1;
 static int s_borderOverride = -1;
 static int s_insetOverride  = -1;
+static int s_topOverride    = -1;
 
 int Snap::gapOut() {
     if (s_gapOverride >= 0)
@@ -88,10 +89,11 @@ int Snap::border() {
     return sc<int>(*PBORDER);
 }
 
-void Snap::assumeFrame(int gap, int border, int inset) {
+void Snap::assumeFrame(int gap, int border, int inset, int top) {
     s_gapOverride    = gap;
     s_borderOverride = border;
     s_insetOverride  = inset;
+    s_topOverride    = top;
 }
 
 // The dock inset usable() takes off the frame's right edge.
@@ -131,14 +133,23 @@ CBox Snap::monitorBox(PHLMONITOR mon) {
 static std::unordered_map<std::string, std::pair<double, Time::steady_tp>> s_lastBarTop;
 
 static double resolvedTop(PHLMONITOR mon) {
+    // The bar top a window was placed under, while it is being matched against
+    // the frame it held: a window placed with no bar (a shell restart) sits at
+    // the top edge, and that is the frame its zone has to be read in.
+    if (s_topOverride >= 0)
+        return s_topOverride;
     const double top = mon->m_reservedArea.top();
     if (top > 0) {
         s_lastBarTop[mon->m_name] = {top, Time::steadyNow()};
         return top;
     }
     const auto it = s_lastBarTop.find(mon->m_name);
-    if (it != s_lastBarTop.end() &&
-        std::chrono::duration_cast<std::chrono::seconds>(Time::steadyNow() - it->second.second).count() < 10)
+    // How long the remembered bar covers a bar that is gone: enough for a shell
+    // restart, not so long that a bar the user really removed keeps applying.
+    // 0 means the live top only, which a test uses to pin "no bar here now".
+    const int memoryMs = g_pGlobalState ? sc<int>(g_pGlobalState->config.xModeBarTopMemoryMs->value()) : 10000;
+    if (memoryMs > 0 && it != s_lastBarTop.end() &&
+        std::chrono::duration_cast<std::chrono::milliseconds>(Time::steadyNow() - it->second.second).count() < memoryMs)
         return it->second.first;
     return top;
 }

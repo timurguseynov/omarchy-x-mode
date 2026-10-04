@@ -145,8 +145,73 @@ end
 
 local saved = {}
 
--- Remember the box a window had, so a later restore (or a snap after a drag)
--- can go back to it. The drag event calls this when the gesture starts.
+-- The frame -- the pack's three numbers plus the bar top the plugin resolves --
+-- and the frame the windows were last placed in. Every apply and the queue's gate
+-- use both, and they are defined with the rest of the frame further down: these
+-- forward names are what keeps an apply from reaching a global that never exists.
+-- A timer callback that throws is caught and logged by Hyprland, and the pass it
+-- was going to run then never runs at all -- silently, which is how this looked.
+local frame_of
+local applied_frame = nil
+
+-- The restore points outlive the parse. They have to: a reload (a theme switch,
+-- the panel's toggles, an install) recreates the Lua state but not the windows,
+-- so a point kept in memory alone turned Ctrl+Alt+Down into "give me the default
+-- box" after every reload. One line per window in the state dir, keyed by the
+-- address, which is stable for the session.
+local function restore_path()
+  if ctx.state_dir == nil then
+    return nil
+  end
+  return ctx.state_dir .. "/restore.txt"
+end
+
+local function write_saved()
+  local path = restore_path()
+  if path == nil then
+    return
+  end
+  local file = io.open(path, "w")
+  if file == nil then
+    return
+  end
+  for addr, box in pairs(saved) do
+    -- math.floor: the addresses and sizes come from Hyprland as floats, and %d
+    -- on a number that is not integer-valued raises in Lua 5.3+.
+    file:write(string.format(
+      "%s %d %d %d %d\n",
+      tostring(addr), math.floor(box.x), math.floor(box.y), math.floor(box.w), math.floor(box.h)
+    ))
+  end
+  file:close()
+end
+
+-- Read back what earlier parses saved. An entry whose window is gone is dropped
+-- on the way in: Hyprland reuses window addresses, and a new window must not
+-- inherit a closed one's box. The file is rewritten, so the drop sticks.
+function M.load_restore()
+  local path = restore_path()
+  if path == nil then
+    return
+  end
+  local file = io.open(path, "r")
+  if file == nil then
+    return
+  end
+  local live = {}
+  for line in file:lines() do
+    local addr, x, y, w, h = line:match("^(%S+)%s+(-?%d+)%s+(-?%d+)%s+(-?%d+)%s+(-?%d+)$")
+    if addr ~= nil and ctx.window_at(addr) ~= nil then
+      live[addr] = { x = tonumber(x), y = tonumber(y), w = tonumber(w), h = tonumber(h) }
+    end
+  end
+  file:close()
+  saved = live
+  write_saved()
+end
+
+-- Remember the box a window had, so a later restore (or a snap after a drag) can
+-- go back to it. The drag event calls this when the gesture starts.
 function M.save(window)
   if window == nil then
     return
@@ -154,6 +219,19 @@ function M.save(window)
   local x, y = vec(window.at)
   local w, h = vec(window.size)
   saved[window.address] = { x = x, y = y, w = w, h = h }
+  write_saved()
+end
+
+-- A closed window's box is not a restore point for anything: drop it, so a later
+-- window at the same address cannot inherit it.
+function M.forget(window)
+  if window == nil or window.address == nil then
+    return
+  end
+  if saved[window.address] ~= nil then
+    saved[window.address] = nil
+    write_saved()
+  end
 end
 
 local function place(x, y, w, h, window)
@@ -219,6 +297,7 @@ function M.snap(kind, window)
       p.snap({ kind = kind, window = window })
     end)
   end
+  applied_frame = frame_of()
 end
 
 -- Super+Alt+Left/Right: step through the side's cycle sizes (half, two thirds, a
@@ -237,6 +316,10 @@ function M.cycle(side)
   if p ~= nil and p.cycle ~= nil then
     local ok, stepped = pcall(p.cycle, window, side)
     if ok and stepped then
+      -- The step *is* an apply: it moved the window onto a cycle size, so the
+      -- frame it was placed in has to be remembered here too (a shell restart can
+      -- take the bar away between this and the next snap).
+      applied_frame = frame_of()
       return
     end
   end
@@ -257,6 +340,7 @@ local ALIGN_TICK_MS = 100
 local pending = {}
 local timer = nil
 local missing = 0
+local blocked_ticks = 0
 
 local function ready()
   local p = plugin()
@@ -276,6 +360,19 @@ local function flush()
     return
   end
   missing = 0
+  -- A frame whose bar top is unknown (the bar is gone and the plugin has nothing
+  -- remembered) is a frame of the whole screen: placing windows against it puts
+  -- them at the top edge, and the bar coming back would have to move them again.
+  -- So the pass waits for the bar -- but only so long. A desktop that really has
+  -- no bar has top 0 for good, and there the pass has to run; and if the bar
+  -- comes back after this wait, the frame change re-applies what was placed.
+  if not frame_of().known then
+    blocked_ticks = blocked_ticks + 1
+    if blocked_ticks <= ALIGN_GIVE_UP_TICKS then
+      return
+    end
+  end
+  blocked_ticks = 0
   -- A drag owns the box it is moving; re-applying a zone under it would fight
   -- the gesture. The pass stays pending until the drag ends (the drag event
   -- flushes) or the next tick sees it gone.
@@ -313,27 +410,49 @@ end
 
 -- ---------------------------------------------------------------- the frame --
 
--- The gap, border and dock inset the plugin was last told, and the one before
--- it. A window on a zone was put there by *these* numbers, so a change to them
--- (the dock card moving) is what asks for the window to be put there again --
--- and the match has to use the frame it was placed in, not a rebuilt one: half
--- of an approximation lands inside the plugin's slop and hides the difference.
-local frame_prev = nil
-local frame_now = nil
-
-function M.observe_frame(gap, border, inset)
-  frame_prev = frame_now
-  frame_now = { gap = gap, border = border, inset = inset }
+-- The frame the zones are built from: the pack's three numbers (the outer gap,
+-- the border, the dock inset) and the bar top the plugin resolves. The pack owns
+-- the first three -- it publishes them in its config -- and the plugin owns the
+-- top, which is why the frame is *asked for*, never cached: a shell restart
+-- takes the bar away for a moment and brings it back, and both moments move
+-- every zone.
+--
+-- `known` is the other half: the top is 0 both for "the bar is gone" and for "the
+-- bar was never seen", and a pass that places windows may not do it against a
+-- frame that is really the whole screen when a bar is expected. Live top, or a
+-- top the plugin still remembers, is the difference. A plugin too old to answer
+-- is taken as known.
+frame_of = function()
+  local f = { gap = ctx.gap_out(), border = ctx.border(), inset = ctx.dock_pull(), top = 0, known = true }
+  local p = plugin()
+  if p == nil or p.bar_top == nil then
+    return f
+  end
+  local ok, top, live = pcall(p.bar_top)
+  if not ok or type(top) ~= "number" then
+    return f
+  end
+  f.top = top
+  f.known = top > 0 or (type(live) == "number" and live > 0)
+  return f
 end
+
+local function same_frame(a, b)
+  return a.gap == b.gap and a.border == b.border and a.inset == b.inset and a.top == b.top
+end
+
+-- The frame the windows that are on a zone were last placed in. It is set by
+-- every apply (a snap, the arrange, a re-apply), and a frame that has moved
+-- since is what asks for those windows to be placed again. (Declared with the
+-- other forward names, because an apply sets it before this point in the file.)
 
 -- Put every window that is still on a zone back on that zone, matched against
 -- the frame the window was placed in. That is the load-time re-apply for a frame
 -- that moved instead of a config that reloaded: a right half stays the right
--- half when the dock card changes width, which is what an install leaves behind
--- (the shell restarts with the new files after the reload, so the card the
--- windows were dealt with is not the card they end up next to). The plugin
--- matches against the old frame, so a window the user moved -- it no longer sits
--- on a zone -- is left exactly where it is.
+-- half when the dock card changes width, and a window put at the top edge while
+-- the bar was away comes back under the bar when the bar returns. The plugin
+-- matches against the old frame (the overrides), so a window the user moved --
+-- it no longer sits on a zone -- is left exactly where it is.
 local function reapply(old)
   local p = plugin()
   if p == nil or p.zone == nil then
@@ -353,19 +472,23 @@ local function reapply(old)
       end
     end
   end
+  applied_frame = frame_of()
 end
 
 -- The frame moved: re-apply what the old one held. Nothing to do when the
 -- numbers are the same, so an event that fires without a change (a reload that
--- finds the same card) does not move anything.
+-- finds the same card, a layer opening that is not the bar) does not move
+-- anything.
 function M.frame_changed()
-  if frame_prev == nil or frame_now == nil then
+  if applied_frame == nil then
     return
   end
-  local old = frame_prev
-  if old.gap == frame_now.gap and old.border == frame_now.border and old.inset == frame_now.inset then
+  local now = frame_of()
+  if same_frame(applied_frame, now) then
     return
   end
+  local old = applied_frame
+  applied_frame = now
   later("frame", function()
     reapply(old)
   end)
@@ -430,6 +553,7 @@ function M.apply_hits(hits)
       p.snap({ kind = hit.kind, window = hit.window })
     end)
   end
+  applied_frame = frame_of()
 end
 
 -- Put the windows that are still shaped like a zone back on that zone, with the
@@ -461,6 +585,7 @@ function M.resnap()
         end
       end
     end
+    applied_frame = frame_of()
   end)
 end
 
@@ -633,8 +758,8 @@ function M.state()
   end
   return {
     saved = copy,
-    frame = frame_now,
-    previous = frame_prev,
+    frame = frame_of(),
+    applied = applied_frame,
     pending = next(pending) ~= nil,
   }
 end

@@ -91,6 +91,34 @@ report() { # STATUS NAME FILE
   [ -s "$3" ] && sed 's/^/       /' "$3"
 } 9>"$NEST_ROOT/print.lock"
 
+# Hyprland reports an error the suite used to ignore in two places, and both hid a
+# real one: a config that threw while parsing is in `hyprctl configerrors` (a
+# missing field aborted the parse halfway and the run stayed green), and a Lua
+# callback that threw while the session ran is an `[ERR] ... error in ... callback`
+# line in its log (a timer that threw every tick, so a pass never ran). Neither is
+# a scenario failure, so they are reported as WARN, once each, with the scenario
+# they first showed up in.
+report_warn() { # NAME TEXT
+  flock 9
+  printf '  %sWARN%s %s: hyprland reported an error\n' "$YELLOW" "$RESET" "$1"
+  printf '%s\n' "$2" | sed 's/^/       /'
+} 9>"$NEST_ROOT/print.lock"
+
+nest_errors() {
+  {
+    # A config that threw while parsing (a missing field aborted the parse halfway
+    # and the run stayed green).
+    nest_ctl configerrors 2>/dev/null
+    # A Lua callback that threw while the session ran -- a timer that fires every
+    # tick, a keybind, an event handler -- which Hyprland logs as
+    # `ERR from <module> ]: [Lua] error in timer callback: ...`. The pattern stays
+    # on Lua and callback lines so the backend's own ERR noise (aquamarine) is not
+    # reported as the pack's fault.
+    grep -ahE '\[Lua\]|error in .*callback' \
+      "$NEST_LOG" "$NEST_RUNTIME"/hypr/*/hyprland.log 2>/dev/null
+  } | sed '/^[[:space:]]*$/d'
+}
+
 # The scenarios come off one queue instead of being split into a list per slot.
 # A slot whose nest will not come up returns without having reached the rest of
 # its scenarios; with the queue they stay where they are and the next worker to
@@ -145,7 +173,23 @@ worker() { # SLOT
     sleep 0.5
     nest_start || return 2
   fi
-  local t name out rc=0
+  local t name out rc=0 errors_seen check_errors
+  # Anything the nest already reports at startup -- the first parse happens before
+  # the plugin exists, so its plugin:* keys are unknown then -- is the baseline:
+  # it is not news, and it is not a scenario's fault.
+  errors_seen="$(mktemp)"
+  nest_errors >> "$errors_seen"
+  check_errors() { # NAME
+    local errs line
+    errs="$(nest_errors)"
+    [ -n "$errs" ] || return 0
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      grep -Fqx -- "$line" "$errors_seen" && continue
+      printf '%s\n' "$line" >> "$errors_seen"
+      report_warn "$1" "$line"
+    done <<<"$errs"
+  }
   while t="$(next_test)"; do
     name="$(name_of "$t")"
     nest_clean
@@ -165,8 +209,10 @@ worker() { # SLOT
         rc=1
       fi
     fi
+    check_errors "$name"
     rm -f "$out"
   done
+  rm -f "$errors_seen"
   dock_stop
   nest_stop
   return "$rc"

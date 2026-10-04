@@ -52,7 +52,7 @@ KEYBOARD_DIR="$TESTS_DIR/keyboard"
 NEST_BAR="${NEST_BAR:-1}"
 nest_paths
 
-RED=$'\033[31m'; GREEN=$'\033[32m'; RESET=$'\033[0m'
+RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RESET=$'\033[0m'
 
 # --- assertions --------------------------------------------------------------
 
@@ -601,9 +601,11 @@ nest_clean() {
   # Settings are written by the panel, and by the tests that drive it. Reset them
   # so a test that fails midway cannot change how the next one lays out windows.
   printf '%s\n' '{"options":{},"apps":{}}' > "$NEST_SETTINGS"
-  # x-mode's on/off file and the one-shot arrange marker: a scenario that turns
-  # X Mode off (or arranges) must not leave the next one off.
-  rm -f "$NEST_STATE/state/enabled" "$NEST_STATE/state/arrange"
+  # x-mode's on/off file, the one-shot arrange marker and the restore points: a
+  # scenario that turns X Mode off (or arranges, or snaps a window) must not
+  # leave the next one off, mid-arrange, or with a box from a window whose
+  # address this scenario's window may be given.
+  rm -f "$NEST_STATE/state/enabled" "$NEST_STATE/state/arrange" "$NEST_STATE/state/restore.txt"
   # The dock's pinned list lives in the dock's HOME, which outlives a single
   # scenario, so it has to be cleared too or the next dock test starts with
   # someone else's icons. Desktop entries written there are cleared for the same
@@ -969,11 +971,17 @@ QML
 dock_stop() {
   [ -f "$NEST_STATE/dock.pid" ] && kill "$(cat "$NEST_STATE/dock.pid")" 2>/dev/null || true
   rm -f "$NEST_STATE/dock.pid"
-  # The pack reads the dock's width off its layer and keeps the last one it saw,
-  # so a dock that has gone still leaves the snap inset at the card width. Put it
-  # back, or the next scenario's right half stops short of where it should.
+  # The pack reads the dock's width off its layer and keeps the last one it saw
+  # (a layer that goes away must not move the zones), so a dock that has gone
+  # still leaves the snap inset at its card width. Put the inset back *and* have
+  # the next scenario start on a fresh parse: the pack remembers the card width
+  # for the parse as well, and without the reload the next `apply_gap_geometry`
+  # -- a dock mapping, a gaps toggle -- publishes the wider card again, which is
+  # how a later scenario got a narrower frame than its own dock (a maximize that
+  # stopped short by the card width).
   if [ -n "$SIG" ]; then
     nest_hyprctl eval "hl.config({ plugin = { hyprbars = { x_mode_dock_inset = 45 } } })" >/dev/null 2>&1 || true
+    [ -n "${NEST_DIRTY:-}" ] && printf 'reload\n' >> "$NEST_DIRTY"
   fi
 }
 

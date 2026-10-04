@@ -31,11 +31,12 @@ namespace Snap {
     int                border();
     int                chromeH(PHLWINDOW w);
 
-    // Make gapOut(), border() and the dock inset report these instead of the
-    // live config, so a window can be matched against the zone it held under a
-    // frame that has since moved (the gaps toggled, the dock card resized).
-    // Pass -1 for all three to read the config again.
-    void               assumeFrame(int gap, int border, int inset);
+    // Make gapOut(), border(), the dock inset and the bar top report these
+    // instead of the live numbers, so a window can be matched against the zone
+    // it held under a frame that has since moved (the gaps toggled, the dock card
+    // resized, the bar gone for a shell restart). Pass -1 for all four to read the
+    // live config again.
+    void               assumeFrame(int gap, int border, int inset, int top = -1);
 
     CBox               monitorBox(PHLMONITOR mon);
     CBox               usable(PHLMONITOR mon);

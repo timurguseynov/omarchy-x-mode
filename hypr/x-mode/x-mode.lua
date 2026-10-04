@@ -380,11 +380,6 @@ local function apply_gap_geometry()
       },
     },
   })
-  -- The frame the zones are built from, as the plugin was told it. layout.lua
-  -- keeps it: a window on a zone was put there by *these* numbers, so a later
-  -- change to them (the dock card moving) is what asks for the window to be put
-  -- there again, matched against the frame it was placed in.
-  layout.observe_frame(GAP_OUT(), BORDER(), DOCK_PULL())
 end
 
 apply_gap_geometry()
@@ -490,6 +485,7 @@ local find_peer
 local ws_id
 local refresh_window
 local consolidate
+local window_by_addr
 
 layout.init({
   plugin = bars,
@@ -497,9 +493,18 @@ layout.init({
   dock_card = function()
     return dock_card
   end,
+  -- The frame numbers the pack publishes. layout.lua asks for them instead of
+  -- keeping a copy: a frame that moved is what asks for a re-apply, so the
+  -- numbers it compares have to be the ones the plugin was actually told.
+  gap_out = GAP_OUT,
+  border = BORDER,
+  dock_pull = DOCK_PULL,
   state_dir = X_MODE_STATE,
   list = function()
     return as_list(hl.get_windows())
+  end,
+  window_at = function(addr)
+    return window_by_addr(addr)
   end,
   class_of = window_class,
   space_of = function(w)
@@ -584,7 +589,7 @@ local function key_stolen(cls, key, shift)
   return settings.key_stolen(apps_cfg, cls, global_steal, supermap.key_id(key, shift))
 end
 
-local function window_by_addr(addr)
+function window_by_addr(addr)
   if addr == nil then
     return nil
   end
@@ -2250,6 +2255,9 @@ hl.on("window.open", function(w)
 end)
 
 hl.on("window.close", function(w)
+  -- The restore point dies with the window: a later window at the same address
+  -- must not inherit its box.
+  layout.forget(w)
   local key = hide_key(w)
   if key == nil then
     return
@@ -2299,12 +2307,17 @@ end
 
 hl.on("monitor.removed", function(_)
   schedule_refit()
+  -- The reserved top (the bar) is per monitor: a monitor coming or going is a
+  -- frame change for the windows that moved with it.
+  layout.frame_changed()
 end)
 hl.on("monitor.added", function(_)
   schedule_refit()
+  layout.frame_changed()
 end)
 hl.on("monitor.layout_changed", function()
   schedule_refit()
+  layout.frame_changed()
 end)
 
 -- hyprbars.drag(active, window): save restore-geometry at press; grouping
@@ -2349,17 +2362,26 @@ bind_drag()
 drag_timer = hl.timer(bind_drag, { timeout = 250, type = "repeat" })
 
 -- The dock's layer maps after this config (and again on every shell restart),
--- which is the moment its real width becomes known. config.reloaded covers a
--- reload where the layer was already mapped and no open event fires.
+-- which is the moment its real width becomes known; the bar's layer is what
+-- reserves the top, and a shell restart takes it away for a moment. Both are
+-- frame changes, and layout.lua re-applies the windows that are on a zone when
+-- the frame moves: this is what brings a window placed while the bar was away
+-- back under the bar when the bar returns.
 hl.on("layer.opened", function(layer)
   if layer ~= nil and layer.namespace == "x-mode-dock" then
     refresh_dock_card()
   end
+  layout.frame_changed()
+end)
+hl.on("layer.closed", function(_)
+  layout.frame_changed()
 end)
 hl.on("config.reloaded", function()
   refresh_dock_card()
+  layout.frame_changed()
 end)
 refresh_dock_card()
+layout.frame_changed()
 
 -- Group every same-app window on a workspace into one group. Runs once after
 -- the config loads: after an install/reload re-floats windows, or when several
@@ -2420,6 +2442,11 @@ end
 -- back before anything else touches opacity. layout.lua owns the fade (and the
 -- switch-over it hides), including the reveal and its deadline.
 layout.clear_fade()
+
+-- The restore points a previous parse wrote (theme switches and installs reload
+-- the config; the windows do not move). Read before anything can ask for a
+-- restore, and after this file's helpers exist, which is why it is here.
+layout.load_restore()
 
 -- The marker is dropped by install.sh before its reload and by the off path when
 -- the desktop is switched back on. layout.lua owns it: it reads the marker,

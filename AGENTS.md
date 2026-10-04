@@ -134,7 +134,10 @@ extension was added.
 Once a run has reported itself (or been reported), the agent may read the log,
 the status file and the run's counts -- that is looking at a finished run, not
 polling a going one. Only the sanctioned invocation counts as evidence, and a
-run counts once its status file says finished. While a run is going, work on
+run counts once its status file says finished **and its `WARN` count is 0**: the
+runner reports Hyprland's own errors -- a config that threw while parsing, a Lua
+callback that threw while the session ran -- as `WARN` lines, and those are real
+(a parse that died halfway used to pass as green). While a run is going, work on
 something that cannot invalidate it: do not edit files a running suite reads, and
 start no second run against the same scenarios. If there is nothing else to do,
 say so and stop: the report is a message that will arrive.

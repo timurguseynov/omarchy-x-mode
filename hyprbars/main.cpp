@@ -248,9 +248,10 @@ static int luaSnap(lua_State* L) {
 }
 
 // The snap zone a window currently fills, or nil. An optional
-// { gap, border, inset } tests the position against the zones that frame would
-// produce, so a window snapped with no gaps, or before the dock card resized,
-// is still recognised after the frame changes.
+// { gap, border, inset, top } tests the position against the zones that frame
+// would produce, so a window snapped with no gaps, before the dock card resized,
+// or while the bar was away for a shell restart is still recognised after the
+// frame changes.
 static int luaZone(lua_State* L) {
     PHLWINDOW w = nullptr;
     if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
@@ -258,7 +259,7 @@ static int luaZone(lua_State* L) {
     if (!w)
         w = Desktop::focusState()->window();
 
-    int gap = -1, border = -1, inset = -1;
+    int gap = -1, border = -1, inset = -1, top = -1;
     if (lua_istable(L, 2)) {
         lua_getfield(L, 2, "gap");
         if (lua_isnumber(L, -1))
@@ -272,11 +273,15 @@ static int luaZone(lua_State* L) {
         if (lua_isnumber(L, -1))
             inset = sc<int>(lua_tonumber(L, -1));
         lua_pop(L, 1);
+        lua_getfield(L, 2, "top");
+        if (lua_isnumber(L, -1))
+            top = sc<int>(lua_tonumber(L, -1));
+        lua_pop(L, 1);
     }
 
-    Snap::assumeFrame(gap, border, inset);
+    Snap::assumeFrame(gap, border, inset, top);
     const auto kind = Snap::kindOf(w);
-    Snap::assumeFrame(-1, -1, -1);
+    Snap::assumeFrame(-1, -1, -1, -1);
 
     if (kind == Snap::eKind::None) {
         lua_pushnil(L);
@@ -308,6 +313,27 @@ static int luaUsable(lua_State* L) {
     }
     lua_pushnil(L);
     return 1;
+}
+
+// The bar top the work frame is built from, and the monitor's own reserved top
+// right now. The two differ while the bar is gone for a moment (the shell
+// restart an install ends with): the first is the number a snap uses -- it
+// remembers the last bar -- and the second says whether the bar is there at all.
+// A pass that places windows has to wait when the second is 0 and there is
+// nothing remembered: the frame would be the whole screen and the windows would
+// land at the top edge.
+static int luaBarTop(lua_State* L) {
+    const char* name = lua_isstring(L, 1) ? lua_tostring(L, 1) : nullptr;
+    for (const auto& m : State::monitorState()->monitors()) {
+        if (!m || (name && m->m_name != name))
+            continue;
+        lua_pushnumber(L, Snap::barTop(m));
+        lua_pushnumber(L, m->m_reservedArea.top());
+        return 2;
+    }
+    lua_pushnil(L);
+    lua_pushnil(L);
+    return 2;
 }
 
 // The height of a window's chrome (titlebar, plus the tabbar when it has one),
@@ -590,6 +616,9 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         makeShared<Config::Values::CBoolValue>("plugin:hyprbars:tab_close_active_only", "Only show and act on the close button of the current tab, and only while the group has focus", false);
     g_pGlobalState->config.xModeDockInset =
         makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_dock_inset", "Right snap inset: dock card plus half of gaps_out (set by x-mode.lua)", 45);
+    g_pGlobalState->config.xModeBarTopMemoryMs = makeShared<Config::Values::CIntValue>(
+        "plugin:hyprbars:x_mode_bar_top_memory_ms",
+        "How long the last seen bar top covers the bar being gone (a shell restart); 0 uses only the live reserved top", 10000);
     g_pGlobalState->config.xModeSnapMargin =
         makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_snap_margin", "Thickness (px) of the screen-edge strip that starts a snap", 12);
     g_pGlobalState->config.xModeSnapCorner =
@@ -630,6 +659,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.tabHeight);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.tabCloseActiveOnly);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeDockInset);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeBarTopMemoryMs);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapMargin);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapCorner);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapShortEdge);
@@ -647,6 +677,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "snap", ::luaSnap);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "zone", ::luaZone);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "usable", ::luaUsable);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "bar_top", ::luaBarTop);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "chrome_height", ::luaChromeHeight);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "cycle", ::luaCycle);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "fit", ::luaFit);

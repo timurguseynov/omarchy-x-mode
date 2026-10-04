@@ -49,6 +49,7 @@ struct SGlobalState {
         SP<Config::Values::CIntValue>        tabHeight;
         SP<Config::Values::CBoolValue>       tabCloseActiveOnly;
         SP<Config::Values::CIntValue>        xModeDockInset;
+        SP<Config::Values::CIntValue>        xModeBarTopMemoryMs;
         SP<Config::Values::CIntValue>        xModeSnapMargin;
         SP<Config::Values::CIntValue>        xModeSnapCorner;
         SP<Config::Values::CIntValue>        xModeSnapShortEdge;
