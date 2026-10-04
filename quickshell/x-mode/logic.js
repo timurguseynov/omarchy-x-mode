@@ -96,6 +96,21 @@ function triFlag(v) {
     return undefined
 }
 
+// The three-state a row carries: "inherit", "on" or "off" from the panel's rows,
+// or true/false from a plain switch -- or from a signal whose parameter was
+// mistyped as a bool, since QML coerces "on" to true on the way through one. One
+// normaliser, because a state that misses every comparison is not a no-op: it
+// *clears* the pin, which is how a row that should pin a flag turned it off
+// instead (the switch blinked, the file was rewritten without the flag, and the
+// panel read it back as off).
+function triState(v) {
+    if (v === true || v === "on")
+        return "on"
+    if (v === false || v === "off")
+        return "off"
+    return "inherit"
+}
+
 // Normalise a window class into a desktop-entry-ish name: drop a leading
 // reverse-DNS vendor and a trailing ".desktop".
 function cleanName(cls) {
@@ -425,7 +440,8 @@ function setKeyFlag(appsCfg, cls, flag, state) {
     if (key === "" || KEY_FLAG_NAMES.indexOf(String(flag)) < 0)
         return null
     var cfg = panelCfgFor(appsCfg, key)
-    cfg[flag] = state === "on" ? true : state === "off" ? false : undefined
+    var s = triState(state)
+    cfg[flag] = s === "on" ? true : s === "off" ? false : undefined
     return mergePanelCfg(appsCfg, key, cfg)
 }
 
@@ -490,9 +506,10 @@ function setOccupiedKey(appsCfg, cls, id, state) {
         next[k] = cfg[k]
     next.ctrlAsSuperKeys = withoutId(cfg.ctrlAsSuperKeys, id)
     next.ctrlAsSuperKeysOff = withoutId(cfg.ctrlAsSuperKeysOff, id)
-    if (state === "on")
+    var s = triState(state)
+    if (s === "on")
         next.ctrlAsSuperKeys.push(id)
-    if (state === "off")
+    if (s === "off")
         next.ctrlAsSuperKeysOff.push(id)
     return mergePanelCfg(appsCfg, cls, next)
 }

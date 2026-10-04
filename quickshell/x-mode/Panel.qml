@@ -483,8 +483,13 @@ Panel {
     property var occupiedKeys: []
     // The theme's own green and red, read by the panel from colors.toml.
     property var accents: ({})
-    signal flagToggled(string flag, bool value)
-    signal keyToggled(string id, bool value)
+    // The value is the row's three-state, a string: "inherit", "on", "off".
+    // Declared a bool it would turn "on" into true before the handler ever sees
+    // it, and a state that matches nothing *clears* the flag instead of pinning
+    // it: the switch blinked, the file was rewritten without the flag, and the
+    // panel read it back as off.
+    signal flagToggled(string flag, string value)
+    signal keyToggled(string id, string value)
 
     width: parent ? parent.width : 0
     spacing: Style.space(4)
@@ -916,13 +921,13 @@ Panel {
           occupiedKeys: root.occupiedKeys
           onFlagToggled: (flag, state) => {
             if (root.openCls === "")
-              root.setGlobalFlag(flag, state === "on")
+              root.setGlobalFlag(flag, Logic.triState(state) === "on")
             else
               root.setKeyFlag(flag, state)
           }
           onKeyToggled: (id, state) => {
             if (root.openCls === "")
-              root.setGlobalSteal(id, state === "on")
+              root.setGlobalSteal(id, Logic.triState(state) === "on")
             else
               root.setOccupiedKey(id, state)
           }

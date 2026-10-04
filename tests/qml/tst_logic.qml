@@ -343,6 +343,32 @@ TestCase {
         compare(Logic.setOccupiedKey({}, "zed", "", "on"), null, "empty id")
     }
 
+    // The rows say a three-state ("inherit"/"on"/"off") and a plain switch says
+    // true/false -- and the QML signal that carries it declared its parameter a
+    // bool, which turns "on" into true before the JS ever sees it. A state that
+    // misses every comparison used to *clear* the pin instead of setting it (the
+    // switch blinked, the file was rewritten without the flag, and the panel read
+    // it back as off). Both spellings have to mean the same thing.
+    function test_keyFlagStatesSpellingsAgree() {
+        var t = Logic.setKeyFlag({}, "zed", "ctrlTabSwitch", true)
+        compare(t.zed.ctrlTabSwitch, true, "a bool true pins the flag on")
+        var f = Logic.setKeyFlag(t, "zed", "ctrlTabSwitch", false)
+        compare(f.zed.ctrlTabSwitch, false, "a bool false pins it off")
+        var i = Logic.setKeyFlag(f, "zed", "ctrlTabSwitch", "inherit")
+        compare(i.zed === undefined, true, "inherit clears the pin")
+        var s = Logic.setKeyFlag({}, "zed", "ctrlTabSwitch", "on")
+        compare(s.zed.ctrlTabSwitch, true, "the string spelling still pins it on")
+    }
+
+    function test_setOccupiedKeySpellings() {
+        var on = Logic.setOccupiedKey({}, "zed", "Q", true)
+        compare(on.zed.ctrlAsSuperKeys.indexOf("Q"), 0, "a bool true steals the key")
+        var off = Logic.setOccupiedKey(on, "zed", "Q", false)
+        compare(off.zed.ctrlAsSuperKeysOff.indexOf("Q"), 0, "a bool false refuses it")
+        var s = Logic.setOccupiedKey({}, "zed", "Q", "on")
+        compare(s.zed.ctrlAsSuperKeys.indexOf("Q"), 0, "the string spelling still steals it")
+    }
+
     function test_themeAccents() {
         var a = Logic.parseThemeAccents('background = "#111111"\ngreen = "#2ecc71"\nred = "#e74c3c"\n')
         compare(a.green, "#2ecc71")

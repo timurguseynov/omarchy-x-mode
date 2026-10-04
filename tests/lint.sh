@@ -25,5 +25,19 @@ for f in "$QMLDIR"/*.qml; do
   fi
 done
 
+# A row's three-state crosses a QML signal as a *string*: "inherit", "on", "off".
+# Declared a bool, the signal coerces the value before the handler sees it -- "on"
+# arrives as true and so does "inherit" (it pins where it meant to clear) -- and a
+# state that matches nothing clears a flag instead of setting it: the switch blinks
+# and stays off, and the file is rewritten without the flag. qmllint does not check
+# signal argument types (a string passed to a bool parameter lints clean), so the
+# contract is checked here.
+for sig in 'signal flagToggled(string flag, string value)' 'signal keyToggled(string id, string value)'; do
+  if ! grep -qF "$sig" "$QMLDIR/Panel.qml"; then
+    echo "  ${RED}FAIL${RESET} Panel.qml: missing '$sig'"
+    fail=1
+  fi
+done
+
 [ "$fail" = 0 ] && echo "  ${GREEN}ok${RESET}   qmllint (missing Quickshell/qs imports warn, they do not fail)"
 exit "$fail"
