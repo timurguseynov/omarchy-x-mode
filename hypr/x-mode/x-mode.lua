@@ -1108,7 +1108,18 @@ end)
 -- longer reach the app as Ctrl+Left/Right (the Super-as-Ctrl plan reads the
 -- live bind table, sees them taken and leaves them alone) and why Omarchy's
 -- window transparency has to move off Cmd+Backspace.
+-- One sequence of chords at a time: the bind repeats while the key is held (see
+-- the bind loop below), and a sequence is longer than the repeat interval -- two
+-- chords and their 80ms gap. A new Shift+Home landing inside the previous pair
+-- (Shift+Home, Shift+Home, Backspace, Backspace) deletes one character where it
+-- meant to delete the line, so a repeat that arrives mid-sequence is dropped and
+-- the next one starts a fresh sequence.
+local chords_busy = false
+
 local function send_chords(list, w)
+  if chords_busy then
+    return
+  end
   -- One chord as its own down/up pair rather than `send_shortcut`, which sends
   -- the press and the release in one call: a *second* chord sent that way right
   -- after the first arrives twice (Shift+End then two Deletes), the same
@@ -1142,6 +1153,12 @@ local function send_chords(list, w)
     end
   end
   step(1)
+  -- Held until the last chord's release: the down goes out now and its up 50ms
+  -- later, one gap per further chord.
+  chords_busy = true
+  hl.timer(function()
+    chords_busy = false
+  end, { timeout = (#list - 1) * 80 + 60, type = "oneshot" })
 end
 
 local function text_chord(id)
@@ -1161,11 +1178,15 @@ local function text_chord(id)
   end
 end
 
+-- `repeating`: a held Option+Backspace keeps deleting words and a held Cmd+Left
+-- keeps jumping, the way a Mac repeats them. The repeat has to be the bind's --
+-- the pack hands the app a whole chord and nothing held, so the app has no key of
+-- its own to repeat with.
 for _, e in ipairs(textkeys.plan()) do
   -- Drop whatever held the key: Omarchy's default (Cmd+Backspace, Cmd+Home) or
   -- a Super-as-Ctrl bind left over from the previous config evaluation.
   hl.unbind(e.keys)
-  pcall(o.bind, e.keys, e.label, text_chord(e.id))
+  pcall(o.bind, e.keys, e.label, text_chord(e.id), { repeating = true })
 end
 
 -- Cmd+Backspace is "delete to the start of the line" on macOS, so Omarchy's
