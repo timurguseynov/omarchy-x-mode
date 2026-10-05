@@ -26,15 +26,15 @@ It is **additive**. The installer only creates files in its own namespace and on
 * **Settings panel.** The top-bar button opens:
   * X Mode on or off. Off ungroups every window and puts it back to the floating or tiled state it had before X Mode was installed
   * Natural (reversed) scrolling, for both mouse and touchpad
-  * No gaps: no space between windows, with a hairline border kept. This is the desktop's only gaps switch: Omarchy's own `⌘⇧⌫` toggle has its key taken away and its saved state retired on every load, with the reload that puts the gaps back, since two switches for one setting fight over the values
+  * No gaps: no space between windows, with a hairline border kept. This is the desktop's only gaps switch: Omarchy's own `⇧⌘⌫` toggle has its key taken away and its saved state retired on every load, with the reload that puts the gaps back, since two switches for one setting fight over the values
   * Per-app titlebar and grouping
   * Always show the tab bar, including the `+` for a single window
-  * Key replacements, one screen for the whole desktop and one per app. The "for every app" screen opens with the desktop's rows:
-    * Workspaces on `Super`+`F1`…`F10`: off, `Super`+`1`…`0` switch workspaces as Omarchy ships them; on, the F keys do, and the ten freed digits follow that app's Key replacements
+  * Shortcuts, one screen for the whole desktop and one per app. The "for every app" screen opens with the desktop's rows:
+    * Workspaces on `Super`+`F1`…`F10`: off, `Super`+`1`…`0` switch workspaces as Omarchy ships them; on, the F keys do, and the ten freed digits follow that app's Shortcuts
     * `⌃⌘Q` locks the screen, the Mac key for it. Omarchy keeps its Calculator there and locks on `⌃⌘L`, so this one takes that key; off hands it back to the Calculator
-    * then the replacements themselves: `Ctrl`+`1`…`0` switching the pack's tabs (off by default, so the keys reach the app), `Super` works as `Ctrl`, `⌘`+`1`…`0` reserved for the pack's tabs, `⌘`+`W` as `Ctrl`+`W`, `⌘`+click as `Ctrl`+click, `Ctrl`+`C` as `Ctrl`+`Shift`+`C`, and every occupied key (`Super`+`Q`, `Super`+Tab, …) with the desktop action it replaces
-  * Every replacement is a switch *and* a per-app three-state: a row in an app's card follows the desktop by default, and clicking it cycles through Always on (a green edge) and Always off (a red one) before going back to following. That is what lets one app disagree with the desktop — `⌘`+`1`…`6` handed to an editor as its own `Ctrl`+`1`…`6` while the pack's tabs keep them everywhere else, and its physical `Ctrl`+`1`…`6` left to it too
-  * macOS capture keys: `⌘⇧3` screenshots the screen, `⌘⇧4` a region you drag, `⌃⇧⌘3`/`⌃⇧⌘4` the same to the clipboard, `⌘⇧5` screen recording, `⌘⇧6` reads text out of a region
+    * then the shortcuts themselves: `⌃`+`1`…`0` switching the pack's tabs (off by default, so the keys reach the app), `Super as Ctrl`, `⌘1`…`0` reserved for the pack's tabs, `⌘`-click as `⌃`-click, `⌃C` as `⌃⇧C`, and every occupied key (`⌘Q`, `⌘W`, `⌘Tab`, …) with the desktop action it replaces
+  * Every shortcut is a switch *and* a per-app three-state: a row in an app's card follows the desktop by default, and clicking it cycles through Always on (a green edge) and Always off (a red one) before going back to following. That is what lets one app disagree with the desktop — `⌘`+`1`…`6` handed to an editor as its own `Ctrl`+`1`…`6` while the pack's tabs keep them everywhere else, and its physical `Ctrl`+`1`…`6` left to it too
+  * macOS capture keys: `⇧⌘3` screenshots the screen, `⇧⌘4` a region you drag, `⌃⇧⌘3`/`⌃⇧⌘4` the same to the clipboard, `⇧⌘5` screen recording, `⇧⌘6` reads text out of a region
   * macOS text chords: `⌘←`/`⌘→` start and end of line, `⌘↑`/`⌘↓` the document, `⌥←`/`⌥→` a word, `⌥⌫`/`⌥⌦` delete a word, `⌘⌫`/`⌘⌦` delete to the start and end of the line, `⌘[`/`⌘]` back and forward — each sent as the chord the focused app understands (a terminal gets readline's, everything else its toolkit's)
   * Per-app: `Ctrl`+`C` as `Ctrl`+`Shift`+`C`, for an app with a terminal inside: the key goes in shifted so the app's own binding can make it the interrupt, while `Super`+`C` still copies
 

@@ -528,12 +528,16 @@ function setKeyFlag(appsCfg, cls, flag, state) {
 
 // Occupied-key rows in the panel. Same ids/labels means the Repeater can keep
 // its delegates (and the flickable its scroll) when the file is rewritten.
-// Panel label for an occupied Super key: "⌘+Q as Ctrl+Q". The description
-// under it is the desktop action that toggle replaces, not this string.
+// Panel label for one occupied Super key: "⌘Q as ⌃Q" -- the key, and what the app
+// gets when the row is on. The handed side is the same chord with Command swapped
+// for Control, and both sides keep the Mac's order (⇧ before ⌘, so "⇧⌘Tab" hands
+// over "⌃⇧Tab").
 function stealToggleLabel(label) {
     var s = String(label || "")
-    if (s.indexOf("⌘+") === 0)
-        return s + " as Ctrl+" + s.substring(2)
+    if (s.indexOf("⇧⌘") === 0)
+        return s + " as ⌃⇧" + s.substring(2)
+    if (s.indexOf("⌘") === 0)
+        return s + " as ⌃" + s.substring(1)
     return s
 }
 
@@ -605,9 +609,9 @@ function withoutId(list, id) {
     return out
 }
 
-// --- keyboard replacements: one screen, two scopes ---------------------------
+// --- keyboard shortcuts: one screen, two scopes ------------------------------
 //
-// Every keyboard replacement can be forced on for every app from the main panel
+// Every keyboard shortcut can be forced on for every app from the main panel
 // (options.keys), and the same rows then serve an app's card in three states:
 // "inherit" follows the desktop, "on" and "off" pin this app against it. That is
 // what lets a desktop-wide setting keep one app that disagrees -- Ctrl+1..6 handed
@@ -781,13 +785,13 @@ function globalKeysSummary(keys) {
         return "Nothing set for every app"
     var parts = []
     if (n)
-        parts.push(n === 1 ? "1 replacement" : n + " replacements")
+        parts.push(n === 1 ? "1 shortcut" : n + " shortcuts")
     if (keysN)
         parts.push(keysN === 1 ? "1 key" : keysN + " keys")
     return parts.join(", ") + " for every app"
 }
 
-// The card's entry row: how many replacements are in force for this app, and how
+// The card's entry row: how many shortcuts are in force for this app, and how
 // many of them are pinned rather than following the desktop.
 function appKeysSummary(cfg, forced) {
     var c = cfg || {}
@@ -805,7 +809,7 @@ function appKeysSummary(cfg, forced) {
     var keysOffN = (c.ctrlAsSuperKeysOff || []).length
     var parts = []
     if (on)
-        parts.push(on === 1 ? "1 replacement" : on + " replacements")
+        parts.push(on === 1 ? "1 shortcut" : on + " shortcuts")
     if (keysN)
         parts.push(keysN === 1 ? "1 key" : keysN + " keys")
     if (pinned || keysOffN)

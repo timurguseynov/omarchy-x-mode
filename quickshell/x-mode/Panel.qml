@@ -65,7 +65,7 @@ Panel {
   // the same room, and they scroll inside the card instead of shrinking it.
   readonly property int cardCap: Style.space(720)
   property var appsCfg: ({})
-  // The keyboard replacements forced on for every app (settings options.keys).
+  // The keyboard shortcuts forced on for every app (settings options.keys).
   // A flag here is the fallback a card's row can pin against, and the colors.toml
   // accents are what a pinned row is painted with.
   property var globalKeys: ({})
@@ -90,6 +90,10 @@ Panel {
   readonly property var filtered: Logic.filterPanelApps(running, query, function(cls) { return root.appName(cls) })
 
   readonly property var openApp: Logic.findPanelApp(running, openCls)
+
+  // The class the panel is showing, under the name its desktop entry gives it
+  // ("Files", not "org.gnome.Nautilus"), upper-cased for a section header.
+  readonly property string openName: root.appName(root.openApp ? root.openApp.cls : root.openCls).toUpperCase()
 
   // Same resolution the dock uses (desktop entry Icon=, web-app URL host,
   // chromium extension manifest, on-disk icon index, then Qt themed lookup).
@@ -125,7 +129,7 @@ Panel {
     writeSettings("hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null")
   }
 
-  // One keyboard replacement set to a state for this app: inherit, Always on, or
+  // One keyboard shortcut set to a state for this app: inherit, Always on, or
   // Always off. A pin is what lets the app disagree with the desktop.
   function setKeyFlag(flag, state) {
     var next = Logic.setKeyFlag(appsCfg, openCls, flag, state)
@@ -390,7 +394,7 @@ Panel {
   }
 
   // A row that opens another screen: a label, a line saying what is behind it, and
-  // a chevron. Used for the keyboard replacements from the main panel and from an
+  // a chevron. Used for the shortcuts entry from the main panel and from an
   // app's card, which is where the scope is decided.
   component LinkRow: CursorSurface {
     id: lrow
@@ -458,7 +462,7 @@ Panel {
     }
   }
 
-  // The keyboard replacements themselves, in one element used by both scopes: with
+  // The keyboard shortcuts themselves, in one element used by both scopes: with
   // `cls` empty it is the "for every app" screen, with a class it is that app's.
   // The two desktop options that used to sit on the main panel (the digits as
   // tabs, the workspaces on the F keys) open each screen; they are global, so
@@ -502,7 +506,7 @@ Panel {
         id: krowsWorkspaceKeysRow
         width: parent.width
         label: "Workspaces on F1..F10"
-        description: "Super+F1..F10 switch workspaces; the freed digits follow Key replacements"
+        description: "⌘F1..F10 switch workspaces; the freed digits follow Shortcuts"
         checked: root.workspacesOnFkeys
         rowEnabled: root.xModeOn
         onToggled: root.setOptions(root.nativeScroll, root.noGaps, !root.workspacesOnFkeys)
@@ -526,10 +530,10 @@ Panel {
 
     readonly property var flagRows: [
       { flag: "ctrlAsSuper", label: "Super as Ctrl", description: "Keys Omarchy does not already use" },
-      { flag: "digitTabs", label: "⌘+1..0 for the pack's tabs", description: krows.workspacesOnFkeys ? "Reserved: no tab of that number means the key does nothing" : "Needs Workspaces on F1..F10, which frees the digits" },
-      { flag: "ctrlTabSwitch", label: "Ctrl+1..0 switches tabs", description: "Jump to a titlebar tab; off, the shortcut goes to the app" },
-      { flag: "ctrlClick", label: "⌘+click as Ctrl+click", description: "Links, multi-select" },
-      { flag: "ctrlCShift", label: "Ctrl+C as Ctrl+Shift+C", description: "Interrupt in a terminal; Super+C still copies" }
+      { flag: "digitTabs", label: "⌘1..0 for the pack's tabs", description: krows.workspacesOnFkeys ? "Reserved: no tab of that number means the key does nothing" : "Needs Workspaces on F1..F10, which frees the digits" },
+      { flag: "ctrlTabSwitch", label: "⌃1..0 switches tabs", description: "Jump to a titlebar tab; off, the shortcut goes to the app" },
+      { flag: "ctrlClick", label: "⌘-click as ⌃-click", description: "Links, multi-select" },
+      { flag: "ctrlCShift", label: "⌃C as ⌃⇧C", description: "Interrupt in a terminal; ⌘C still copies" }
     ]
 
     // Green, red, or nothing: the theme's own colours for the two pinned states, out
@@ -803,7 +807,7 @@ Panel {
         id: keysEntryRow
         width: parent.width
         visible: root.view === "main"
-        label: "Key replacements"
+        label: "Shortcuts"
         description: Logic.globalKeysSummary(root.globalKeys)
         onClicked: root.keysOpen = true
       }
@@ -853,9 +857,14 @@ Panel {
 
       PanelSectionHeader {
         id: sectionHeader
+        // Which screen this is, in the panel's small-caps: the app list, the
+        // shortcuts screen for every app or for one app (by its real name, so the
+        // header says whose card it is), or the app's own card.
         text: root.keysOpen
-          ? (root.openCls === "" ? "FOR EVERY APP" : "KEY REPLACEMENTS")
-          : (root.openCls === "" ? "APPS" : root.appName(root.openApp ? root.openApp.cls : root.openCls).toUpperCase())
+          ? (root.openCls === "" ? "EVERY APP: SHORTCUTS" : root.openName + ": SHORTCUTS")
+          : (root.openCls === "" ? "APPS" : root.openName)
+        width: parent.width
+        elide: Text.ElideRight
         foreground: root.contentForeground
         fontFamily: root.contentFontFamily
       }
@@ -914,7 +923,7 @@ Panel {
 
           LinkRow {
             width: parent.width
-            label: "Key replacements"
+            label: "Shortcuts"
             description: Logic.appKeysSummary(root.cfgFor(root.openCls), root.globalKeys)
             onClicked: root.keysOpen = true
           }

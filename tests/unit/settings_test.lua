@@ -29,7 +29,7 @@ check("opt.defaults3", d.workspaces_fkeys, false)
 local f = settings.parse_options('{"options":{"workspacesOnFkeys":true},"apps":{}}')
 check("opt.workspacesOnFkeys", f.workspaces_fkeys, true)
 
--- The keyboard replacements the main panel forces on for every app. Absent means
+-- The keyboard shortcuts the main panel forces on for every app. Absent means
 -- per app, so every flag has to read as unset when there is no keys block.
 local kopt = settings.parse_options('{"options":{"keys":{"ctrlAsSuper":true,"steal":["q","SHIFT+tab","mouse:272"]}},"apps":{}}')
 check("opt.keys.ctrlAsSuper", kopt.key_flags.ctrl_as_super, true)

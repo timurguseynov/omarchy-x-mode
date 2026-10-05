@@ -301,7 +301,7 @@ local occ = by_id(supermap.occupied_list(occ_raw))
 check("occ.t", occ["T"] ~= nil, true)
 check("occ.t.disp", occ["T"].dispatcher, "exec")
 check("occ.w", occ["W"] ~= nil, true)
-check("occ.w.label", occ["W"].label, "⌘+W")
+check("occ.w.label", occ["W"].label, "⌘W")
 check("occ.w.desc", occ["W"].description, "Close window")
 -- The bind is the pack's own (__lua), so the panel only sees it when the pack
 -- names W as a key it wraps itself -- which is what makes it stealable.
@@ -316,8 +316,8 @@ check("occ.c", occ["C"] ~= nil, true)
 check("occ.b", occ["B"] ~= nil, true)
 check("occ.shift-tab", occ["SHIFT+TAB"] ~= nil, true)
 check("occ.steal-wrap", occ["K"] ~= nil, true)
-check("occ.t.label", occ["T"].label, "⌘+T")
-check("occ.shift-tab.label", occ["SHIFT+TAB"].label, "⌘+⇧+Tab")
+check("occ.t.label", occ["T"].label, "⌘T")
+check("occ.shift-tab.label", occ["SHIFT+TAB"].label, "⇧⌘Tab")
 
 -- Panel row order: every plain Super+key first, then the Shift ones, each in
 -- KEYS order. Interleaving them by key reads as a jumble in the panel whenever
@@ -335,12 +335,12 @@ for _, e in ipairs(supermap.occupied_list(order_raw)) do
   ids[#ids + 1] = e.id
 end
 check("occ.order", table.concat(ids, ","), "F,K,TAB,SHIFT+B,SHIFT+F,SHIFT+TAB")
-check("pretty.comma", supermap.label("comma", false), "⌘+,")
-check("pretty.esc", supermap.label("ESCAPE", false), "⌘+Esc")
-check("pretty.enter", supermap.label("RETURN", false), "⌘+Enter")
-check("pretty.bksp", supermap.label("BACKSPACE", false), "⌘+⌫")
-check("pretty.left", supermap.label("LEFT", false), "⌘+←")
-check("pretty.pgup", supermap.label("PAGE_UP", false), "⌘+PgUp")
+check("pretty.comma", supermap.label("comma", false), "⌘,")
+check("pretty.esc", supermap.label("ESCAPE", false), "⌘Esc")
+check("pretty.enter", supermap.label("RETURN", false), "⌘Enter")
+check("pretty.bksp", supermap.label("BACKSPACE", false), "⌘⌫")
+check("pretty.left", supermap.label("LEFT", false), "⌘←")
+check("pretty.pgup", supermap.label("PAGE_UP", false), "⌘PgUp")
 
 local steal = by_id(supermap.stealable(occ_raw, { Q = true, TAB = true }))
 check("steal.t", steal["T"] ~= nil, true)

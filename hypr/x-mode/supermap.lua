@@ -184,10 +184,12 @@ end
 
 function M.label(key, shift)
   local pretty = pretty_key(tostring(key or ""))
+  -- The Mac's own order for the modifiers, key last, so the panel reads the way a
+  -- Mac shortcut does: ⌃⌘Q (Lock Screen), ⇧⌘Tab, ⌥⌘←.
   if shift then
-    return "⌘+⇧+" .. pretty
+    return "⇧⌘" .. pretty
   end
-  return "⌘+" .. pretty
+  return "⌘" .. pretty
 end
 
 local function json_str(s)

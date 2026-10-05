@@ -119,7 +119,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `snap_test.sh` | halves keep the bar/gap/border inset and do not overlap |
 | `group_test.sh` | a same-app window joins; the tabbar grows the chrome without pushing the visual top |
 | `topbar_test.sh` | with the bar gone (shell restart) a snap still clears where it was |
-| `nogaps_test.sh` | the panel's file + reload zeroes the gaps and re-lays the snapped windows; the pack returns the desktop's own gaps when the option goes off and when x-mode goes off, and Omarchy's own gaps toggle (`⌘⇧⌫`) is not bound |
+| `nogaps_test.sh` | the panel's file + reload zeroes the gaps and re-lays the snapped windows; the pack returns the desktop's own gaps when the option goes off and when x-mode goes off, and Omarchy's own gaps toggle (`⇧⌘⌫`) is not bound |
 | `focus_test.sh` | the focused window ends up topmost, including after a same-app window joins |
 | `pointer_test.sh` | a titlebar drag moves the window through the drag session, and a click does not |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
