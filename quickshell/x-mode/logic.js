@@ -19,6 +19,51 @@ function shellQuote(s) {
     return "'" + String(s).replace(/'/g, "'\\''") + "'"
 }
 
+// The shell command that puts `text` in a file a watcher reads. It writes a
+// sibling temp file and renames it over the target: an in-place `printf > file`
+// truncates the target first, and a watcher that reacts to that event reads a
+// half-written file. `followUp` is chained after the rename, so a command that
+// has to read the file back (`hyprctl reload`) sees the whole thing.
+function stateWriteCommand(path, text, followUp) {
+    var p = String(path || "")
+    var slash = p.lastIndexOf("/")
+    var dir = slash < 0 ? "." : (slash === 0 ? "/" : p.slice(0, slash))
+    var tmp = p + ".tmp"
+    var cmd = "mkdir -p " + shellQuote(dir) +
+        " && printf '%s\\n' " + shellQuote(text) +
+        " > " + shellQuote(tmp) +
+        " && mv -f " + shellQuote(tmp) + " " + shellQuote(p)
+    var tail = String(followUp || "")
+    return tail === "" ? cmd : cmd + " && " + tail
+}
+
+// A watched state file read back into the shell: the parsed value, or null when
+// the read is not an answer. The writers truncate before they write -- the
+// panel's own settings write, the pack's occupied.json, the plugin's
+// omarchy-x-mode.state -- so a watcher can read a half-written file, and
+// JSON.parse then throws. The old code read that as "every flag off" / "no
+// occupied keys": the settings rows flashed their defaults and the keys card
+// shrank for a moment on every toggle. A torn read now keeps what the component
+// is showing until the writer's next event brings the real content; a real `[]`
+// or `{}` still parses and is applied.
+function readJsonAnswer(text) {
+    try {
+        return JSON.parse(String(text === undefined || text === null ? "" : text))
+    } catch (e) {
+        return null
+    }
+}
+
+// The desktop on/off line as an answer: null for a torn read or an unknown word,
+// so the caller leaves the switch alone. parseEnabled answers true for an empty
+// string, which is right for a missing file and wrong for a tear in the middle
+// of a write, where it would flip the whole desktop on for a frame.
+function readEnabledLine(raw) {
+    if (String(raw === undefined || raw === null ? "" : raw).trim() === "")
+        return null
+    return parseEnabled(raw)
+}
+
 // Occupied Super keys stolen for this app, as an array of supermap ids
 // ("Q", "TAB", "SHIFT+TAB"). Empty when the field is missing.
 function copyOccupiedKeys(keys) {

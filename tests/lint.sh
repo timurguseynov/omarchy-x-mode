@@ -39,5 +39,42 @@ for sig in 'signal flagToggled(string flag, string value)' 'signal keyToggled(st
   fi
 done
 
+# The card scrolls in three places -- the app list, an app's card and the keys
+# screen -- and each region is given the room the rows above it leave. Those
+# rows were listed by hand once per region, and the keys screen's list named the
+# back row and the header but not the hero and the separator above them: that
+# region was sized for a card taller than it was in, so it ran past the bottom
+# of the card and its last rows could not be scrolled to. qmllint cannot see
+# geometry, so the shape that cannot forget a row is pinned here: one figure,
+# read off the card's own column, used by all three regions.
+if ! grep -qF 'column.children.length' "$QMLDIR/Panel.qml"; then
+  echo "  ${RED}FAIL${RESET} Panel.qml: fixedAboveHeight no longer reads the card's rows off its column"
+  fail=1
+fi
+uses="$(grep -cF 'root.fixedAboveHeight' "$QMLDIR/Panel.qml")"
+if [ "$uses" != 3 ]; then
+  echo "  ${RED}FAIL${RESET} Panel.qml: fixedAboveHeight feeds $uses scroll regions, expected 3"
+  fail=1
+fi
+
+# A watched state file is written by truncating it first (the panel, the toggle,
+# the plugin and a reload all do), so a read can land in the middle of a write.
+# Reading that as a state is what blanked the settings rows and collapsed the
+# keys card for a moment on every toggle -- and what would flip the desktop on
+# in the middle of a write. The readers go through Logic.readJsonAnswer /
+# readEnabledLine, which answer "nothing" for a torn read; qmllint cannot see
+# which reader has the guard, so the readers are pinned here.
+json_reads="$(grep -cF 'Logic.readJsonAnswer(text())' "$QMLDIR/Panel.qml")"
+if [ "$json_reads" != 2 ]; then
+  echo "  ${RED}FAIL${RESET} Panel.qml: $json_reads of its 2 watched files keep their state on a torn read"
+  fail=1
+fi
+for f in Toggle.qml Dock.qml Switcher.qml SnapPreview.qml; do
+  if ! grep -qF 'Logic.readEnabledLine(' "$QMLDIR/$f"; then
+    echo "  ${RED}FAIL${RESET} $f: reads the on/off line without Logic.readEnabledLine"
+    fail=1
+  fi
+done
+
 [ "$fail" = 0 ] && echo "  ${GREEN}ok${RESET}   qmllint (missing Quickshell/qs imports warn, they do not fail)"
 exit "$fail"

@@ -24,35 +24,30 @@ Panel {
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
-  // Height of every element except the scrolling app list, so the list can be
-  // sized to the space actually left in the capped card. Excludes `listFlick`
-  // itself -- referencing its height here would be circular.
-  readonly property real listFixedHeight: {
-    var items = [hero, sepTop, scrollRow, keysEntryRow, gapsRow, sepMid, backRow, sectionHeader, searchField]
-    var h = 0
-    var n = 0
-    for (var i = 0; i < items.length; i++) {
-      var it = items[i]
-      if (!it || it.visible === false)
-        continue
-      h += it.implicitHeight
-      n++
-    }
-    if (n > 1)
-      h += (n - 1) * column.spacing
-    return h
-  }
+  // The card's three scroll regions: the app list, an app's card, the keys
+  // screen. They are what `fixedAboveHeight` below leaves out -- a region is
+  // sized by the room the rest of the card leaves, so counting the region in
+  // that room would be sizing it against itself.
+  readonly property var scrollRegions: [listFlick, detailFlick, keysFlick]
 
-  // The rows that stay above the keys screen: the back row and its header.
-  readonly property real keysFixedHeight: {
-    var items = [backRow, sectionHeader]
+  // Height of every visible row of the card outside the scroll regions: the
+  // room a region has to leave for what sits above it.
+  // Read off the card's own column rather than a hand-kept list of ids. A list
+  // kept in step by hand is what left the keys screen sized for a card taller
+  // than the one it was in -- it named the back row and the header, but not the
+  // hero and the top separator above them -- so the region ran past the bottom
+  // of the card and its last rows could not be scrolled to. A row added to the
+  // column now costs every region its room on its own. The column lays its
+  // children out by height, so height is what counts here. Excludes the regions
+  // themselves -- referencing a region's height here would be circular.
+  readonly property real fixedAboveHeight: {
     var h = 0
     var n = 0
-    for (var i = 0; i < items.length; i++) {
-      var it = items[i]
-      if (!it || it.visible === false)
+    for (var i = 0; i < column.children.length; i++) {
+      var it = column.children[i]
+      if (it.visible === false || root.scrollRegions.indexOf(it) !== -1)
         continue
-      h += it.implicitHeight
+      h += it.height
       n++
     }
     if (n > 1)
@@ -193,9 +188,11 @@ Panel {
       options: { nativeScroll: root.nativeScroll, noGaps: root.noGaps, workspacesOnFkeys: root.workspacesOnFkeys, lockScreenKey: root.lockKey, keys: root.globalKeys },
       apps: apps
     })
+    // Atomic (see Logic.stateWriteCommand): the panel watches this file, and an
+    // in-place write would have it read its own half-written settings back.
     Quickshell.execDetached([
       "sh", "-c",
-      "mkdir -p \"$HOME/.config/hypr\" && printf '%s\\n' " + Logic.shellQuote(json) + " > \"$HOME/.config/hypr/x-mode.json\" && " + followUp
+      Logic.stateWriteCommand(root.settingsPath, json, followUp)
     ])
   }
 
@@ -249,23 +246,18 @@ Panel {
     printErrors: false
     onFileChanged: reload()
     onLoaded: {
-      try {
-        var d = JSON.parse(text())
-        var o = (d && d.options) || {}
-        root.nativeScroll = !!o.nativeScroll
-        root.noGaps = !!o.noGaps
-        root.workspacesOnFkeys = !!o.workspacesOnFkeys
-        root.globalKeys = (o.keys && typeof o.keys === "object") ? o.keys : ({})
-        root.lockKey = !(o.lockScreenKey === false)
-        root.appsCfg = Logic.parseApps((d && d.apps) || {})
-      } catch (e) {
-        root.nativeScroll = false
-        root.noGaps = false
-        root.workspacesOnFkeys = false
-        root.globalKeys = ({})
-        root.lockKey = true
-        root.appsCfg = {}
-      }
+      // A read that is not an answer is a torn one, not "every flag off": keep
+      // what is showing and let the writer's next event bring the real content.
+      var d = Logic.readJsonAnswer(text())
+      if (d === null)
+        return
+      var o = (d && d.options) || {}
+      root.nativeScroll = !!o.nativeScroll
+      root.noGaps = !!o.noGaps
+      root.workspacesOnFkeys = !!o.workspacesOnFkeys
+      root.globalKeys = (o.keys && typeof o.keys === "object") ? o.keys : ({})
+      root.lockKey = !(o.lockScreenKey === false)
+      root.appsCfg = Logic.parseApps((d && d.apps) || {})
       root.refreshClients()
     }
     onLoadFailed: {
@@ -285,15 +277,15 @@ Panel {
     printErrors: false
     onFileChanged: reload()
     onLoaded: {
-      try {
-        var d = JSON.parse(text())
-        var list = Array.isArray(d) ? d : []
-        if (!Logic.sameOccupiedList(root.occupiedKeys, list))
-          root.occupiedKeys = list
-      } catch (e) {
-        if (root.occupiedKeys.length)
-          root.occupiedKeys = []
-      }
+      // Same rule as the settings file: a torn read must not read as "no
+      // occupied keys", which emptied the keys screen and collapsed the card
+      // mid-write. A real `[]` parses, and clears the list.
+      var d = Logic.readJsonAnswer(text())
+      if (d === null)
+        return
+      var list = Array.isArray(d) ? d : []
+      if (!Logic.sameOccupiedList(root.occupiedKeys, list))
+        root.occupiedKeys = list
     }
     onLoadFailed: if (root.occupiedKeys.length) root.occupiedKeys = []
   }
@@ -851,7 +843,7 @@ Panel {
           var cap = root.cardCap
           var avail = panel.availableCardHeight > 0 ? panel.availableCardHeight : cap
           var cardContent = Math.max(0, Math.min(cap, avail) - panel.verticalContentInset)
-          var room = cardContent - root.listFixedHeight - column.spacing
+          var room = cardContent - root.fixedAboveHeight - column.spacing
           var wanted = Math.max(Style.space(80), detailColumn.implicitHeight)
           return Math.max(Style.space(80), Math.min(wanted, room))
         }
@@ -902,7 +894,7 @@ Panel {
           var cap = root.cardCap
           var avail = panel.availableCardHeight > 0 ? panel.availableCardHeight : cap
           var cardContent = Math.max(0, Math.min(cap, avail) - panel.verticalContentInset)
-          var room = cardContent - root.keysFixedHeight - column.spacing
+          var room = cardContent - root.fixedAboveHeight - column.spacing
           var wanted = Math.max(Style.space(80), keysColumn.implicitHeight)
           return Math.max(Style.space(80), Math.min(wanted, room))
         }
@@ -940,12 +932,12 @@ Panel {
         visible: root.view === "main"
         // Fill only the space left under the fixed content inside the capped
         // card, so a long list scrolls in place instead of spilling past the
-        // popup. `listFixedHeight` excludes this list, so this is not circular.
+        // popup. `fixedAboveHeight` excludes the regions, so this is not circular.
         height: {
           var cap = root.cardCap
           var avail = panel.availableCardHeight > 0 ? panel.availableCardHeight : cap
           var cardContent = Math.max(0, Math.min(cap, avail) - panel.verticalContentInset)
-          var room = cardContent - root.listFixedHeight - column.spacing
+          var room = cardContent - root.fixedAboveHeight - column.spacing
           var wanted = Math.max(Style.space(80), appColumn.implicitHeight)
           return Math.max(Style.space(80), Math.min(wanted, room))
         }

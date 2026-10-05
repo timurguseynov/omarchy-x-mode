@@ -665,7 +665,7 @@ Item {
   Component.onCompleted: root.refreshClients()
 
   function applyXModeLine(raw) {
-    var on = Logic.parseEnabled(raw)
+    var on = Logic.readEnabledLine(raw)
     if (on !== null)
       root.xModeOn = on
   }

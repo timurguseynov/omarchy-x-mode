@@ -26,6 +26,44 @@ TestCase {
         compare(Logic.shellQuote(""), "''")
     }
 
+    // A watched state file is written by truncating it first, so a reader can
+    // land in the middle of a write. Every such read goes through an "answer"
+    // helper: the state, or nothing -- never a default that blanks what the
+    // component is showing.
+    function test_readJsonAnswer() {
+        compare(Logic.readJsonAnswer(""), null, "a torn read is not an answer")
+        compare(Logic.readJsonAnswer("   \n"), null, "whitespace is a torn read too")
+        compare(Logic.readJsonAnswer('{"options":{"keys":'), null, "a half-written object is not an answer")
+        compare(Logic.readJsonAnswer("null"), null, "the word null is not a state")
+        compare(Logic.readJsonAnswer(null), null)
+        verify(Array.isArray(Logic.readJsonAnswer("[]")), "a real empty list is an answer")
+        compare(Logic.readJsonAnswer("[]").length, 0, "and clears the list")
+        compare(Object.keys(Logic.readJsonAnswer('{}')).length, 0, "a real empty object is an answer")
+        compare(Logic.readJsonAnswer('{"options":{"noGaps":true}}').options.noGaps, true)
+    }
+
+    function test_readEnabledLine() {
+        compare(Logic.readEnabledLine(""), null, "a torn read is not a state")
+        compare(Logic.readEnabledLine("  \n"), null)
+        compare(Logic.readEnabledLine(null), null, "an absent read is not one either")
+        compare(Logic.readEnabledLine("on"), true)
+        compare(Logic.readEnabledLine("off"), false)
+        compare(Logic.readEnabledLine("garbage"), null, "unknown still leaves the state alone")
+    }
+
+    function test_stateWriteCommand() {
+        var cmd = Logic.stateWriteCommand("/home/u/.config/hypr/x-mode.json", '{"a":"b"}', "hyprctl reload >/dev/null")
+        verify(cmd.indexOf("mkdir -p '/home/u/.config/hypr'") === 0, "the parent directory is made first")
+        verify(cmd.indexOf("> '/home/u/.config/hypr/x-mode.json.tmp'") >= 0, "the text goes to a sibling temp file")
+        verify(cmd.indexOf("mv -f '/home/u/.config/hypr/x-mode.json.tmp' '/home/u/.config/hypr/x-mode.json'") >= 0,
+               "the target is replaced, never truncated in place")
+        verify(cmd.indexOf("hyprctl reload") > cmd.indexOf("mv -f"), "the follow-up runs after the file is in place")
+        var tricky = Logic.stateWriteCommand("/tmp/x.json", "it's $HOME `id`", "")
+        verify(tricky.indexOf(Logic.shellQuote("it's $HOME `id`")) >= 0, "the text stays one argument")
+        verify(tricky.slice(-4) !== " && ", "no follow-up, no trailing chain")
+        verify(Logic.stateWriteCommand("x.json", "a", "").indexOf("mkdir -p '.'") === 0, "a bare name writes in the cwd")
+    }
+
     function test_parseApps_object() {
         var s = Logic.parseApps('{"Chromium":{"chrome":false,"alwaysTabbar":true,"ctrlW":true,"ctrlAsSuper":true,"ctrlCShift":true,"ctrlClick":true,"digitTabs":true,"ctrlTabSwitch":false,"ctrlAsSuperKeysOff":["F"]},"Zed":{}}')
         compare(s["chromium"].chrome, false)

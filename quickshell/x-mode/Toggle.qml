@@ -25,8 +25,12 @@ BarWidget {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  // Same rule as the panel's files: a torn read (the writers truncate before
+  // they write) is not a state, so a read that is not one leaves the switch
+  // alone -- parseEnabled("") would answer "on" and flip the desktop on for a
+  // frame in the middle of a write.
   function applyLine(raw) {
-    var on = Logic.parseEnabled(raw)
+    var on = Logic.readEnabledLine(raw)
     if (on !== null)
       root.on = on
   }
@@ -35,9 +39,10 @@ BarWidget {
     var next = !!value
     root.on = next
     var line = next ? "on" : "off"
+    // Atomic (see Logic.stateWriteCommand): the bar widget watches this file.
     Quickshell.execDetached([
       "sh", "-c",
-      "mkdir -p \"$HOME/.local/state/omarchy-x-mode\" && printf '%s\\n' '" + line + "' > \"$HOME/.local/state/omarchy-x-mode/enabled\" && hyprctl reload >/dev/null"
+      Logic.stateWriteCommand(root.persistPath, line, "hyprctl reload >/dev/null")
     ])
   }
 

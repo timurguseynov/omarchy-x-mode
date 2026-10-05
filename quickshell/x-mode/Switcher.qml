@@ -35,7 +35,7 @@ Item {
   }
 
   function applyXModeLine(raw) {
-    var on = Logic.parseEnabled(raw)
+    var on = Logic.readEnabledLine(raw)
     if (on === null)
       return
     root.xModeOn = on
