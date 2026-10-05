@@ -290,17 +290,19 @@ function M.occupied_list(raw)
 end
 
 -- Occupied keys the panel can actually steal. A foreign __lua callback cannot
--- be replayed after unbind, so those are dropped unless `lua_ok` names a key
--- the pack wraps itself (Q, Tab), the bind is already our steal wrap, or
--- `exec_ids` has a command we can fire in its place (Omarchy's string binds).
-function M.stealable(raw, lua_ok, exec_ids)
+-- be replayed after unbind, so those are dropped unless `lua_ok` names a key the
+-- pack wraps itself (Q, Tab), the bind is already our steal wrap, or
+-- `replay_ids` says the pack can replay that key's action: the command Omarchy
+-- wrote, read out of her bind files (see parse_omarchy_binds). Keys the pack binds
+-- itself are not in it -- see steal_id_of.
+function M.stealable(raw, lua_ok, replay_ids)
   lua_ok = lua_ok or {}
-  exec_ids = exec_ids or {}
+  replay_ids = replay_ids or {}
   local out = {}
   for _, e in ipairs(M.occupied_list(raw)) do
     local disp = e.dispatcher or ""
     local own = lua_ok[e.key] or lua_ok[e.key:upper()] or lua_ok[e.key:lower()]
-    if disp ~= "__lua" or own or e.wrapped or exec_ids[e.id] then
+    if disp ~= "__lua" or own or e.wrapped or replay_ids[e.id] then
       out[#out + 1] = e
     end
   end
@@ -389,6 +391,33 @@ function M.parse_omarchy_binds(raw)
     end
   end
   return out
+end
+
+-- The id one of the pack's own binds answers to in the steal list, or nil when
+-- the bind is not in the steal scope: Super or Super+Shift and one key. The pack
+-- records its own keys with this, so what Omarchy's files describe -- her focus on
+-- Cmd+Left, her window transparency on Cmd+Backspace -- never claims a key the
+-- pack has taken for a chord of its own: the action to replay on such a key is
+-- the pack's, and a stolen one is offered through `lua_ok` instead.
+function M.steal_id_of(keys)
+  local rest = tostring(keys or ""):match("^SUPER%s*%+%s*(.+)$")
+  if rest == nil then
+    return nil
+  end
+  local shift = false
+  local after = rest:match("^SHIFT%s*%+%s*(.+)$")
+  if after ~= nil then
+    shift = true
+    rest = after
+  end
+  if rest:find("+", 1, true) ~= nil then
+    return nil
+  end
+  local id = M.canonical_id(rest)
+  if id == nil then
+    return nil
+  end
+  return M.key_id(id, shift)
 end
 
 function M.occupied_json(entries)

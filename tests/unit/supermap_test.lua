@@ -395,6 +395,20 @@ check("omarchy.tui", omarchy["SHIFT+D"], "omarchy-launch-tui 'omarchy-launch-doc
 check("omarchy.tui.focus", omarchy["SHIFT+U"], "omarchy-launch-or-focus-tui 'cliamp'")
 check("omarchy.quote", omarchy["SHIFT+Q"], "uwsm-app -- 'tea'\\''s'")
 
+-- The keys the pack binds itself, in the steal list's spelling. Omarchy's files
+-- describe what used to be on those keys (her focus on Cmd+Left) and that is not
+-- what they do here, so a file-derived replay must not claim them.
+check("own.left", supermap.steal_id_of("SUPER + LEFT"), "LEFT")
+check("own.shift-left", supermap.steal_id_of("SUPER + SHIFT + LEFT"), "SHIFT+LEFT")
+check("own.bracket", supermap.steal_id_of("SUPER + bracketleft"), "bracketleft")
+check("own.tab", supermap.steal_id_of("SUPER + TAB"), "TAB")
+check("own.alt-scope", supermap.steal_id_of("ALT + TAB"), nil, "not in the steal scope")
+check("own.super-alt", supermap.steal_id_of("SUPER + ALT + F"), nil)
+check("own.super-ctrl", supermap.steal_id_of("SUPER + CTRL + Q"), nil)
+check("own.code", supermap.steal_id_of("SUPER + code:12"), nil)
+check("own.mouse", supermap.steal_id_of("SUPER + mouse:272"), nil)
+check("own.empty", supermap.steal_id_of(nil), nil)
+
 if failures > 0 then
   os.exit(1)
 end

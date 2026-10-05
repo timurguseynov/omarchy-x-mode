@@ -900,6 +900,18 @@ hl.unbind("SUPER + CTRL + code:21")
 hl.unbind("SUPER + CTRL + SHIFT + code:20")
 hl.unbind("SUPER + CTRL + SHIFT + code:21")
 
+-- [id] = true for every key the pack binds itself, in the steal list's spelling
+-- (Super or Super+Shift + one key). Omarchy's files describe what used to be on
+-- such a key -- her focus on Cmd+Left, window transparency on Cmd+Backspace --
+-- and both are text chords here now, so a file-derived replay must not claim one
+-- of them, or stealing the key would break every app that did not steal it.
+local pack_keys = {}
+local function note_pack_key(keys)
+  local id = supermap.steal_id_of(keys)
+  if id ~= nil then
+    pack_keys[id] = true
+  end
+end
 -- Cmd+W closes the active window (Omarchy's killactive). Just close it: the
 -- patched hyprbars keeps the group focused on the previous tab and raises it
 -- from its single window.close listener, which Cmd+W, the tabbar close button
@@ -987,6 +999,7 @@ o.bind("SUPER + TAB", "Focus on next window", function()
   end
   switcher_step(1)
 end)
+note_pack_key("SUPER + SHIFT + TAB")
 o.bind("SUPER + SHIFT + TAB", "Focus on previous window", function()
   local w = hl.get_active_window()
   if w ~= nil and key_stolen(window_class(w), "TAB", true) then
@@ -1186,6 +1199,7 @@ for _, e in ipairs(textkeys.plan()) do
   -- Drop whatever held the key: Omarchy's default (Cmd+Backspace, Cmd+Home) or
   -- a Super-as-Ctrl bind left over from the previous config evaluation.
   hl.unbind(e.keys)
+  note_pack_key(e.keys)
   pcall(o.bind, e.keys, e.label, text_chord(e.id), { repeating = true })
 end
 
@@ -1251,6 +1265,7 @@ local CAPTURE = {
 }
 
 for _, e in ipairs(CAPTURE) do
+  note_pack_key(e.keys)
   hl.unbind(e.keys)
   if e.code ~= nil then
     hl.unbind(e.code)
@@ -1700,11 +1715,25 @@ end
 -- command we unbind and replay: hyprctl prints those as __lua, so the command is
 -- recovered from Omarchy's bind files.
 local STEAL_OWN = { Q = true, TAB = true, F = true, W = true }
+-- ...and every one of them is a key the pack binds itself (see pack_keys).
+for id in pairs(STEAL_OWN) do
+  pack_keys[id] = true
+end
 -- [id] = { keys, originals, handle } for wraps we installed on Omarchy keys.
 local steal_wraps = {}
+-- What the pack can replay of Omarchy's own binds: the command Omarchy wrote
+-- (`omarchy_menu toggle ...`), read out of her files, since hyprctl prints
+-- `__lua` for anything she bound as a Lua value and the behaviour is in her Lua
+-- state, out of our reach.
+--
+-- The keys the pack bound itself are left out: what her file says used to be on
+-- Cmd+Left (her focus) or Cmd+Backspace (window transparency) is not what the key
+-- does here (a text chord), so a wrap on one of them has to replay the pack's own
+-- chord -- which its handler does, and which is why those keys are offered through
+-- lua_ok below and not through this map.
 local omarchy_exec = nil
 
-local function ensure_omarchy_exec()
+local function ensure_omarchy_replay()
   if omarchy_exec ~= nil then
     return
   end
@@ -1719,7 +1748,9 @@ local function ensure_omarchy_exec()
     local text = slurp(path)
     if text ~= nil then
       for id, cmd in pairs(supermap.parse_omarchy_binds(text)) do
-        omarchy_exec[id] = cmd
+        if omarchy_exec[id] == nil and not pack_keys[id] then
+          omarchy_exec[id] = cmd
+        end
       end
     end
   end
@@ -1856,7 +1887,7 @@ local function bind_super_ctrl(raw, gen)
   if gen ~= super_ctrl_gen then
     return
   end
-  ensure_omarchy_exec()
+  ensure_omarchy_replay()
   write_occupied(raw)
   apply_steal_wraps(raw)
   if not key_flag_any("ctrl_as_super") then
