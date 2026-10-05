@@ -167,9 +167,10 @@ check("plan.junk", #supermap.plan("not a bind table"), 0)
 
 -- Occupied Super keys the panel can steal: in KEYS, Super or Super+Shift, not
 -- a generated super-ctrl bind, not a submap, not the digits (those move to F
--- keys in the main panel), not Super+W (its own toggle). A foreign __lua bind
--- cannot be replayed, so stealable() drops it unless the pack wraps that key
--- itself (Q, Tab).
+-- keys in the main panel). Cmd+W is one of them like Cmd+Q and Cmd+F -- it was
+-- a replacement of its own before, and the panel shows it in the same list now.
+-- A foreign __lua bind cannot be replayed, so stealable() drops it unless the
+-- pack wraps that key itself (Q, Tab, W, F).
 check("id.plain", supermap.key_id("Q", false), "Q")
 check("id.shift", supermap.key_id("TAB", true), "SHIFT+TAB")
 check("canon.q", supermap.canonical_id("q"), "Q")
@@ -299,7 +300,13 @@ end
 local occ = by_id(supermap.occupied_list(occ_raw))
 check("occ.t", occ["T"] ~= nil, true)
 check("occ.t.disp", occ["T"].dispatcher, "exec")
-check("occ.w.skip", occ["W"], nil)
+check("occ.w", occ["W"] ~= nil, true)
+check("occ.w.label", occ["W"].label, "⌘+W")
+check("occ.w.desc", occ["W"].description, "Close window")
+-- The bind is the pack's own (__lua), so the panel only sees it when the pack
+-- names W as a key it wraps itself -- which is what makes it stealable.
+check("occ.w.stealable", supermap.occupied_json(supermap.stealable(occ_raw, { Q = true, W = true })):find('"id":"W"') ~= nil, true)
+check("occ.w.foreign-lua", supermap.occupied_json(supermap.stealable(occ_raw, { Q = true })):find('"id":"W"') == nil, true)
 check("occ.digit.skip", occ["1"], nil)
 check("occ.own-ctrl.skip", occ["L"], nil)
 check("occ.submap.skip", occ["H"], nil)

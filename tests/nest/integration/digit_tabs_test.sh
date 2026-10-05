@@ -7,7 +7,7 @@
 #
 #   * the card's "reserve" switch  -> the pack's tab, and the key is eaten even
 #     when there is no such tab (reserved means the app does not see it);
-#   * else, "Super works as Ctrl"  -> Ctrl+digit to the app;
+#   * else, "Super as Ctrl"  -> Ctrl+digit to the app;
 #   * else                         -> not ours: passed through.
 #
 # Nothing is on by default: a fresh system switches no tab on a digit. Omarchy's
@@ -58,7 +58,7 @@ key super+0
 wait_until 3 '[ "$(active_tab_index foot)" = 9 ]' || fail "Cmd+0 did not switch to the tenth tab"
 assert_eq "$(active_tab_index foot)" 9 "Cmd+0 switches to the tenth tab"
 
-# "Super works as Ctrl" alone: the digit goes to the app as Ctrl+digit, and the
+# "Super as Ctrl" alone: the digit goes to the app as Ctrl+digit, and the
 # tab stays where it is.
 printf '%s\n' '{"options":{"workspacesOnFkeys":true},"apps":{"foot":{"ctrlAsSuper":true}}}' > "$SETTINGS"
 refresh_apps

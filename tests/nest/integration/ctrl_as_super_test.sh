@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# "Super works as Ctrl" is generated from the desktop's own bind table: every
+# "Super as Ctrl" is generated from the desktop's own bind table: every
 # Super+key nothing else uses is rebound to send the app Ctrl+key. The read is
 # out of band (hyprctl writes the table, a timer picks it up), so the check waits
 # for the binds to land. A key another bind already owns is left alone, and an
@@ -49,7 +49,7 @@ nest_ctl eval 'hl.bind("SUPER + SHIFT + code:10", hl.dsp.no_op())' >/dev/null
 
 printf '%s\n' '{"options":{},"apps":{"kitty":{"ctrlAsSuper":true}}}' > "$SETTINGS"
 refresh_apps
-wait_until 5 has_generated || fail "Super works as Ctrl generated no binds"
+wait_until 5 has_generated || fail "Super as Ctrl generated no binds"
 
 assert_eq "$(generated_for L)" 1 "a free key is mapped"
 assert_eq "$(generated_for W)" 0 "the pack's own Super+W is left alone"

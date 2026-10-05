@@ -14,7 +14,7 @@ function M.apps_section(raw)
   return raw:match('"apps"%s*:%s*(%b{})') or raw:match('"apps"%s*:%s*(%b[])') or ""
 end
 
--- { "class": { "chrome": true, "alwaysTabbar": false, "ctrlW": false,
+-- { "class": { "chrome": true, "alwaysTabbar": false,
 --   "ctrlAsSuper": false, "ctrlCShift": false, "ctrlClick": false,
 --   "digitTabs": false, "ctrlAsSuperKeys": [] } }.
 -- Missing chrome means on; the rest missing means off.
@@ -51,20 +51,32 @@ function M.parse_apps(raw)
   for cls, body in raw:gmatch('"([^"]+)"%s*:%s*(%b{})') do
     local chrome = not body:find('"chrome"%s*:%s*false')
     local always = body:find('"alwaysTabbar"%s*:%s*true') ~= nil
+    local keys = parse_steal_keys(body)
+    local keys_off = parse_steal_keys(body, "ctrlAsSuperKeysOff")
+    -- Cmd+W was a replacement of its own (the ctrlW flag) before it became a
+    -- steal like Cmd+Q and Cmd+F: on hands the key to the app (Ctrl+W), off is
+    -- the Always off list that keeps it with the desktop. A file the older panel
+    -- wrote still says ctrlW, so it is folded onto the key it always meant -- the
+    -- flag itself is gone, on both sides.
+    local ctrl_w = tri(body, "ctrlW")
+    if ctrl_w == true then
+      keys["W"] = true
+    elseif ctrl_w == false then
+      keys_off["W"] = true
+    end
     cfg[string.lower(cls)] = {
       chrome = chrome,
       always_tabbar = always,
       -- Three-state, per flag: an explicit true or false is an override that wins
       -- over the desktop's, and absent follows the desktop. One value, so an app
       -- that wants the opposite of the desktop does not need a second field.
-      ctrl_w = tri(body, "ctrlW"),
       ctrl_as_super = tri(body, "ctrlAsSuper"),
       ctrl_c_shift = tri(body, "ctrlCShift"),
       ctrl_click = tri(body, "ctrlClick"),
       digit_tabs = tri(body, "digitTabs"),
       ctrl_tab_switch = tri(body, "ctrlTabSwitch"),
-      ctrl_as_super_keys = parse_steal_keys(body),
-      ctrl_as_super_keys_off = parse_steal_keys(body, "ctrlAsSuperKeysOff"),
+      ctrl_as_super_keys = keys,
+      ctrl_as_super_keys_off = keys_off,
     }
   end
   if next(cfg) == nil then
@@ -72,7 +84,6 @@ function M.parse_apps(raw)
       cfg[string.lower(cls)] = {
         chrome = false,
         always_tabbar = false,
-        ctrl_w = nil,
         ctrl_as_super = nil,
         ctrl_c_shift = nil,
         ctrl_click = nil,
@@ -93,7 +104,6 @@ M.KEY_FLAGS = {
   { "ctrl_as_super", "ctrlAsSuper" },
   { "digit_tabs", "digitTabs" },
   { "ctrl_tab_switch", "ctrlTabSwitch" },
-  { "ctrl_w", "ctrlW" },
   { "ctrl_click", "ctrlClick" },
   { "ctrl_c_shift", "ctrlCShift" },
 }
@@ -152,7 +162,6 @@ end
 local KEY_FLAGS = {
   { "ctrlAsSuper", "ctrl_as_super" },
   { "digitTabs", "digit_tabs" },
-  { "ctrlW", "ctrl_w" },
   { "ctrlClick", "ctrl_click" },
   { "ctrlCShift", "ctrl_c_shift" },
 }
@@ -174,6 +183,12 @@ function M.parse_options(raw)
   if flags.ctrl_tab_switch == nil and raw:find('"ctrlTabSwitch"%s*:%s*true') then
     flags.ctrl_tab_switch = true
   end
+  -- The same for Cmd+W, which was `keys.ctrlW`: it is the W steal the panel writes
+  -- now, and the only thing it ever meant was "hand this key to the app".
+  local global_steal = parse_steal_keys(keys, "steal")
+  if keys:find('"ctrlW"%s*:%s*true') then
+    global_steal["W"] = true
+  end
   return {
     native_scroll = raw:find('"nativeScroll"%s*:%s*true') ~= nil,
     no_gaps = raw:find('"noGaps"%s*:%s*true') ~= nil,
@@ -183,7 +198,7 @@ function M.parse_options(raw)
     -- Absent means on; only an explicit false gives the key back.
     lock_key = opts:find('"lockScreenKey"%s*:%s*false') == nil,
     key_flags = flags,
-    global_steal = parse_steal_keys(keys, "steal"),
+    global_steal = global_steal,
   }
 end
 

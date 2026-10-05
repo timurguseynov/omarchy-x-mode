@@ -65,10 +65,9 @@ TestCase {
     }
 
     function test_parseApps_object() {
-        var s = Logic.parseApps('{"Chromium":{"chrome":false,"alwaysTabbar":true,"ctrlW":true,"ctrlAsSuper":true,"ctrlCShift":true,"ctrlClick":true,"digitTabs":true,"ctrlTabSwitch":false,"ctrlAsSuperKeysOff":["F"]},"Zed":{}}')
+        var s = Logic.parseApps('{"Chromium":{"chrome":false,"alwaysTabbar":true,"ctrlAsSuper":true,"ctrlCShift":true,"ctrlClick":true,"digitTabs":true,"ctrlTabSwitch":false,"ctrlAsSuperKeysOff":["F"]},"Zed":{}}')
         compare(s["chromium"].chrome, false)
         compare(s["chromium"].alwaysTabbar, true)
-        compare(s["chromium"].ctrlW, true)
         compare(s["chromium"].ctrlAsSuper, true)
         compare(s["chromium"].ctrlCShift, true)
         compare(s["chromium"].ctrlClick, true)
@@ -79,7 +78,6 @@ TestCase {
         compare(s["zed"].chrome, true)
         compare(s["zed"].alwaysTabbar, false)
         // Absent is not false: it is "follow the desktop".
-        compare(s["zed"].ctrlW, undefined)
         compare(s["zed"].ctrlAsSuper, undefined)
         compare(s["zed"].ctrlCShift, undefined)
         compare(s["zed"].ctrlClick, undefined)
@@ -91,7 +89,6 @@ TestCase {
     function test_parseApps_accepts_object() {
         var s = Logic.parseApps({ "Foot": { chrome: false } })
         compare(s["foot"].chrome, false)
-        compare(s["foot"].ctrlW, undefined)
         compare(s["foot"].ctrlAsSuper, undefined)
         compare(s["foot"].ctrlCShift, undefined)
         compare(s["foot"].digitTabs, undefined)
@@ -101,7 +98,6 @@ TestCase {
         var s = Logic.parseApps('["Foot","Kitty"]')
         compare(s["foot"].chrome, false)
         compare(s["kitty"].chrome, false)
-        compare(s["kitty"].ctrlW, undefined)
         compare(s["kitty"].ctrlAsSuper, undefined)
         compare(s["kitty"].ctrlCShift, undefined)
         compare(s["kitty"].digitTabs, undefined)
@@ -109,6 +105,38 @@ TestCase {
 
     function test_parseApps_invalid() {
         compare(Object.keys(Logic.parseApps("not json")).length, 0)
+    }
+
+    // Cmd+W was a replacement of its own (the ctrlW flag) before it became a
+    // steal like Cmd+Q and Cmd+F. A file the older panel wrote still carries the
+    // flag, and reading it as the steal it always meant is what keeps the setting:
+    // the panel rewrites the file from its own state, so a flag it does not read
+    // is a flag that disappears on the next click.
+    function test_parseApps_foldsLegacyCtrlW() {
+        var on = Logic.parseApps({ "Chromium": { ctrlW: true } })
+        compare(on["chromium"].ctrlAsSuperKeys.length, 1, "the flag becomes the W steal")
+        compare(on["chromium"].ctrlAsSuperKeys[0], "W")
+        compare(on["chromium"].ctrlW, undefined, "and the flag itself is gone")
+
+        var off = Logic.parseApps({ "Chromium": { ctrlW: false } })
+        compare(off["chromium"].ctrlAsSuperKeysOff.length, 1, "Always off becomes the W off list")
+        compare(off["chromium"].ctrlAsSuperKeysOff[0], "W")
+
+        var both = Logic.parseApps({ "Chromium": { ctrlW: true, ctrlAsSuperKeys: ["Q"] } })
+        compare(both["chromium"].ctrlAsSuperKeys.length, 2, "the flag joins what was already stolen")
+        compare(Logic.panelCfgFor(both, "chromium").ctrlAsSuperKeys.length, 2, "and survives the card's read")
+        compare(Logic.panelCfgFor({ "chromium": { ctrlW: true } }, "chromium").ctrlAsSuperKeys[0], "W")
+    }
+
+    function test_migrateGlobalKeys() {
+        var k = Logic.migrateGlobalKeys({ ctrlW: true, ctrlAsSuper: true })
+        compare(k.steal.length, 1, "the desktop-wide Cmd+W becomes the W steal")
+        compare(k.steal[0], "W")
+        compare(k.ctrlW, undefined, "the flag is not written back")
+        compare(k.ctrlAsSuper, true, "the other flags are kept")
+        compare(Logic.migrateGlobalKeys({}).steal, undefined, "nothing to migrate, nothing added")
+        compare(Logic.migrateGlobalKeys({ steal: ["Q"], ctrlW: true }).steal.length, 2)
+        compare(Logic.migrateGlobalKeys(null).ctrlW, undefined)
     }
 
     function test_cleanName() {
@@ -265,7 +293,7 @@ TestCase {
         var dflt = Logic.panelCfgFor({}, "Zed")
         compare(dflt.chrome, true)
         compare(dflt.alwaysTabbar, false)
-        compare(dflt.ctrlW, undefined)
+        compare(dflt.ctrlClick, undefined)
         compare(dflt.ctrlAsSuper, undefined)
         compare(dflt.ctrlCShift, undefined)
         compare(dflt.ctrlClick, undefined)
@@ -274,22 +302,22 @@ TestCase {
         compare(dflt.ctrlAsSuperKeysOff.length, 0)
         var off = Logic.panelCfgFor({ "zed": { chrome: false } }, "ZED")
         compare(off.chrome, false)
-        compare(Logic.panelCfgFor({ "zed": { ctrlW: true } }, "zed").ctrlW, true)
-        compare(Logic.panelCfgFor({ "zed": { ctrlW: false } }, "zed").ctrlW, false, "Always off survives the read")
+        compare(Logic.panelCfgFor({ "zed": { ctrlClick: true } }, "zed").ctrlClick, true)
+        compare(Logic.panelCfgFor({ "zed": { ctrlClick: false } }, "zed").ctrlClick, false, "Always off survives the read")
         // The merge takes the config object, so an unset flag stays unset.
         compare(Logic.mergePanelCfg({ "a": { chrome: false } }, "b", { chrome: true }).b, undefined, "default is dropped")
         var kept = Logic.mergePanelCfg({}, "b", { chrome: false })
         compare(kept.b.chrome, false)
-        var ctrl = Logic.mergePanelCfg({}, "chrome", { chrome: true, ctrlW: true })
-        compare(ctrl.chrome.ctrlW, true, "a pinned flag keeps the entry")
+        var ctrl = Logic.mergePanelCfg({}, "chrome", { chrome: true, ctrlClick: true })
+        compare(ctrl.chrome.ctrlClick, true, "a pinned flag keeps the entry")
         compare(ctrl.chrome.chrome, true)
         var off2 = Logic.mergePanelCfg({}, "zed", { chrome: true, ctrlAsSuper: false })
         compare(off2.zed.ctrlAsSuper, false, "Always off is written out")
         var inherit = Logic.mergePanelCfg({}, "zed", { chrome: true, ctrlAsSuper: undefined })
         compare(inherit.zed, undefined, "inheriting everything is not an entry")
-        var keys = Logic.mergePanelCfg({}, "foot", { chrome: true, ctrlW: true, ctrlAsSuperKeys: ["Q"] })
+        var keys = Logic.mergePanelCfg({}, "foot", { chrome: true, ctrlClick: true, ctrlAsSuperKeys: ["Q"] })
         compare(keys.foot.ctrlAsSuperKeys.length, 1)
-        compare(keys.foot.ctrlW, true, "flags and keys keep each other")
+        compare(keys.foot.ctrlClick, true, "flags and keys keep each other")
         compare(Logic.mergePanelCfg({}, "", { chrome: true }), null, "empty class")
     }
 
@@ -318,29 +346,29 @@ TestCase {
         compare(cycle.zed.digitTabs, false)
         var none = Logic.setKeyFlag(cycle, "zed", "digitTabs", "inherit")
         compare(none.zed, undefined, "nothing left means no entry")
-        compare(Logic.setKeyFlag({}, "", "ctrlW", "on"), null, "empty class")
+        compare(Logic.setKeyFlag({}, "", "ctrlClick", "on"), null, "empty class")
         compare(Logic.setKeyFlag({}, "zed", "nonsense", "on"), null, "unknown flag")
     }
 
     function test_keyFlagState() {
         // Following the desktop, nothing pinned: the row reads the desktop's answer.
-        var follow = Logic.keyFlagState({}, { ctrlW: true }, "ctrlW")
+        var follow = Logic.keyFlagState({}, { ctrlClick: true }, "ctrlClick")
         compare(follow.state, "inherit")
         compare(follow.checked, true, "an inherited on looks on")
         compare(follow.global, true)
         compare(follow.pinned, false)
-        var followOff = Logic.keyFlagState({}, {}, "ctrlW")
+        var followOff = Logic.keyFlagState({}, {}, "ctrlClick")
         compare(followOff.checked, false)
         // Pinned against the desktop: Always off wins, Always on wins the other way.
-        var pinnedOff = Logic.keyFlagState({ ctrlW: false }, { ctrlW: true }, "ctrlW")
+        var pinnedOff = Logic.keyFlagState({ ctrlClick: false }, { ctrlClick: true }, "ctrlClick")
         compare(pinnedOff.state, "off")
         compare(pinnedOff.checked, false, "Always off beats a global on")
         compare(pinnedOff.pinned, true)
-        var pinnedOn = Logic.keyFlagState({ ctrlW: true }, {}, "ctrlW")
+        var pinnedOn = Logic.keyFlagState({ ctrlClick: true }, {}, "ctrlClick")
         compare(pinnedOn.state, "on")
         compare(pinnedOn.checked, true, "Always on beats a global off")
         compare(pinnedOn.pinned, true)
-        var other = Logic.keyFlagState({}, { ctrlAsSuper: true }, "ctrlW")
+        var other = Logic.keyFlagState({}, { ctrlAsSuper: true }, "ctrlClick")
         compare(other.checked, false, "another flag being forced is not this one")
     }
 
@@ -436,24 +464,24 @@ TestCase {
         // The global scope renders as the same shape the card uses.
         var cfg = Logic.globalScopeCfg({ ctrlAsSuper: true, steal: ["Q", "TAB"] })
         compare(cfg.ctrlAsSuper, true)
-        compare(cfg.ctrlW, false)
+        compare(cfg.ctrlClick, false)
         compare(cfg.ctrlAsSuperKeys.length, 2)
 
-        var one = Logic.setGlobalFlag({}, "ctrlW", true)
-        compare(one.ctrlW, true)
+        var one = Logic.setGlobalFlag({}, "ctrlClick", true)
+        compare(one.ctrlClick, true)
         compare(one.ctrlAsSuper, undefined)
         var both = Logic.setGlobalFlag(one, "digitTabs", true)
-        compare(both.ctrlW, true, "the other flag is kept")
+        compare(both.ctrlClick, true, "the other flag is kept")
         compare(both.digitTabs, true)
-        var cleared = Logic.setGlobalFlag(both, "ctrlW", false)
-        compare(cleared.ctrlW, undefined, "off removes the key rather than storing false")
+        var cleared = Logic.setGlobalFlag(both, "ctrlClick", false)
+        compare(cleared.ctrlClick, undefined, "off removes the key rather than storing false")
         compare(cleared.digitTabs, true)
-        compare(Logic.setGlobalFlag({ ctrlW: true }, "nonsense", true), null, "unknown flag")
+        compare(Logic.setGlobalFlag({ ctrlClick: true }, "nonsense", true), null, "unknown flag")
 
-        var stolen = Logic.setGlobalSteal({ ctrlW: true }, "Q", true)
+        var stolen = Logic.setGlobalSteal({ ctrlClick: true }, "Q", true)
         compare(stolen.steal.length, 1)
         compare(stolen.steal[0], "Q")
-        compare(stolen.ctrlW, true, "stealing keeps the flags")
+        compare(stolen.ctrlClick, true, "stealing keeps the flags")
         var two = Logic.setGlobalSteal(stolen, "TAB", true)
         compare(two.steal.length, 2)
         var back = Logic.setGlobalSteal(two, "Q", false)
@@ -462,19 +490,19 @@ TestCase {
         compare(Logic.setGlobalSteal(back, "TAB", false).steal, undefined, "an empty list is dropped")
 
         compare(Logic.globalKeysSummary({}), "Nothing set for every app")
-        compare(Logic.globalKeysSummary({ ctrlW: true }), "1 replacement for every app")
-        compare(Logic.globalKeysSummary({ ctrlW: true, ctrlAsSuper: true }), "2 replacements for every app")
+        compare(Logic.globalKeysSummary({ ctrlClick: true }), "1 replacement for every app")
+        compare(Logic.globalKeysSummary({ ctrlClick: true, ctrlAsSuper: true }), "2 replacements for every app")
         compare(Logic.globalKeysSummary({ steal: ["Q"] }), "1 key for every app")
-        compare(Logic.globalKeysSummary({ ctrlW: true, steal: ["Q", "TAB"] }), "1 replacement, 2 keys for every app")
+        compare(Logic.globalKeysSummary({ ctrlClick: true, steal: ["Q", "TAB"] }), "1 replacement, 2 keys for every app")
         compare(Logic.hasGlobalSteal({ steal: ["Q"] }, "Q"), true)
         compare(Logic.hasGlobalSteal({ steal: ["Q"] }, "TAB"), false)
         compare(Logic.hasGlobalSteal({}, "Q"), false)
 
         compare(Logic.appKeysSummary({}, {}), "Off: Super keys reach the app as they are")
-        compare(Logic.appKeysSummary({ ctrlW: true }, {}), "1 replacement, pinned here")
-        compare(Logic.appKeysSummary({ ctrlW: true, ctrlAsSuperKeys: ["Q"] }, {}), "1 replacement, 1 key, pinned here")
-        compare(Logic.appKeysSummary({}, { ctrlW: true }), "1 replacement", "inherited from the desktop, so not pinned")
-        compare(Logic.appKeysSummary({ ctrlW: false }, { ctrlW: true }), "Off here: pinned against the desktop")
+        compare(Logic.appKeysSummary({ ctrlClick: true }, {}), "1 replacement, pinned here")
+        compare(Logic.appKeysSummary({ ctrlClick: true, ctrlAsSuperKeys: ["Q"] }, {}), "1 replacement, 1 key, pinned here")
+        compare(Logic.appKeysSummary({}, { ctrlClick: true }), "1 replacement", "inherited from the desktop, so not pinned")
+        compare(Logic.appKeysSummary({ ctrlClick: false }, { ctrlClick: true }), "Off here: pinned against the desktop")
     }
 
     function test_occupiedKeys() {

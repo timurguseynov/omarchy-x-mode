@@ -15,8 +15,12 @@
  * standard XKB keycode only when the client sends the evdev code. The modifier
  * mask comes from an xkb state built on that keymap, so Mod4 really is 64 here.
  *
- * usage: keyboard [-d MS] COMBO...
+ * usage: keyboard [-d MS] [-h MS] COMBO...
  *   COMBO is a '+'-separated chord, e.g. super+alt+left, alt+tab, o.
+ *   -d MS is the gap between the individual key events (15 by default).
+ *   -h MS holds the last key of each chord for that long before releasing it,
+ *   so a test can look at what a key that is *kept down* does -- what the pack
+ *   repeats while it is held, and what the app does with a key it still holds.
  */
 
 #define _GNU_SOURCE
@@ -47,6 +51,7 @@ static struct xkb_keymap  *xkb_map;
 static struct xkb_state   *xkb_st;
 
 static int                 delay_ms = 15;
+static int                 hold_ms  = 0;
 
 static void
 registry_global(void *data, struct wl_registry *reg, uint32_t name, const char *interface, uint32_t version) {
@@ -167,7 +172,8 @@ sym_for(const char *token) {
 }
 
 /* Press the whole chord, then release it in reverse, so the modifier masks go
- * out around the key: Hyprland's bind matching reads them from there. */
+ * out around the key: Hyprland's bind matching reads them from there. `-h` keeps
+ * the last key down before the release, the way a person holds it. */
 static void
 chord(const char *combo) {
     char   buf[256];
@@ -183,6 +189,8 @@ chord(const char *combo) {
     for (size_t i = 0; i + 1 < n; i++)
         key_state(sym_for(tokens[i]), 1);
     key_state(sym_for(tokens[n - 1]), 1);
+    if (hold_ms > 0)
+        sleep_ms(hold_ms);
     key_state(sym_for(tokens[n - 1]), 0);
     for (size_t i = n - 1; i-- > 0;)
         key_state(sym_for(tokens[i]), 0);
@@ -191,13 +199,18 @@ chord(const char *combo) {
 int
 main(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "usage: keyboard [-d MS] COMBO...\n");
+        fprintf(stderr, "usage: keyboard [-d MS] [-h MS] COMBO...\n");
         return 2;
     }
 
     int i = 1;
-    if (strcmp(argv[i], "-d") == 0 && argc > i + 1) {
-        delay_ms = atoi(argv[i + 1]);
+    while (i + 1 < argc && argv[i][0] == '-') {
+        if (strcmp(argv[i], "-d") == 0)
+            delay_ms = atoi(argv[i + 1]);
+        else if (strcmp(argv[i], "-h") == 0)
+            hold_ms = atoi(argv[i + 1]);
+        else
+            break;
         i += 2;
     }
 

@@ -82,7 +82,6 @@ function emptyAppCfg() {
     return {
         chrome: false,
         alwaysTabbar: false,
-        ctrlW: undefined,
         ctrlAsSuper: undefined,
         ctrlCShift: undefined,
         ctrlClick: undefined,
@@ -93,7 +92,40 @@ function emptyAppCfg() {
     }
 }
 
-// The panel's apps map: { "class": { chrome, alwaysTabbar, ctrlW, ctrlAsSuper,
+// Cmd+W was a replacement of its own -- the ctrlW flag -- before it became a
+// steal like Cmd+Q and Cmd+F, and a file the older panel wrote still says ctrlW.
+// Folding it onto the key it always meant is what keeps the setting after this
+// panel writes the file back: on is the steal list, off is the Always off list.
+function foldLegacyCtrlW(e, keys, keysOff) {
+    var w = triFlag(e.ctrlW)
+    if (w === true) {
+        if (keys.indexOf("W") < 0)
+            keys.push("W")
+    } else if (w === false) {
+        if (keysOff.indexOf("W") < 0)
+            keysOff.push("W")
+    }
+}
+
+// The same fold for the desktop-wide map, whose Cmd+W was `keys.ctrlW`: the
+// panel writes it as a steal of W now, and the flag does not go back into the
+// file (the pack reads the steal list).
+function migrateGlobalKeys(keys) {
+    var k = keys && typeof keys === "object" ? keys : ({})
+    var next = {}
+    for (var name in k) {
+        if (name !== "ctrlW" && k[name])
+            next[name] = k[name]
+    }
+    var steal = copyOccupiedKeys(k.steal)
+    if (k.ctrlW === true && steal.indexOf("W") < 0)
+        steal.push("W")
+    if (steal.length)
+        next.steal = steal
+    return next
+}
+
+// The panel's apps map: { "class": { chrome, alwaysTabbar, ctrlAsSuper,
 // ctrlCShift, ctrlClick, digitTabs, ctrlAsSuperKeys } }. Accepts the parsed object
 // (from settings.json) or a raw JSON string (the old apps.json). A legacy array of
 // classes means chrome off.
@@ -107,7 +139,10 @@ function parseApps(raw) {
         } else if (d && typeof d === "object") {
             for (var k in d) {
                 var e = d[k]
-                if (e && typeof e === "object")
+                if (e && typeof e === "object") {
+                    var keys = copyOccupiedKeys(e.ctrlAsSuperKeys)
+                    var keysOff = copyOccupiedKeys(e.ctrlAsSuperKeysOff)
+                    foldLegacyCtrlW(e, keys, keysOff)
                     set[String(k).toLowerCase()] = {
                         chrome: e.chrome !== false,
                         alwaysTabbar: !!e.alwaysTabbar,
@@ -115,16 +150,15 @@ function parseApps(raw) {
                         // and absent follows the desktop. The panel writes only the
                         // pinned ones, so a file that predates this reads as the
                         // desktop's answer where it says nothing.
-                        ctrlW: triFlag(e.ctrlW),
                         ctrlAsSuper: triFlag(e.ctrlAsSuper),
                         ctrlCShift: triFlag(e.ctrlCShift),
                         ctrlClick: triFlag(e.ctrlClick),
                         digitTabs: triFlag(e.digitTabs),
                         ctrlTabSwitch: triFlag(e.ctrlTabSwitch),
-                        ctrlAsSuperKeys: copyOccupiedKeys(e.ctrlAsSuperKeys),
-                        ctrlAsSuperKeysOff: copyOccupiedKeys(e.ctrlAsSuperKeysOff)
+                        ctrlAsSuperKeys: keys,
+                        ctrlAsSuperKeysOff: keysOff
                     }
-                else
+                } else
                     set[String(k).toLowerCase()] = emptyAppCfg()
             }
         }
@@ -415,18 +449,20 @@ function panelCfgFor(appsCfg, cls) {
     var key = String(cls || "").toLowerCase()
     var e = (appsCfg || {})[key]
     if (!e)
-        return { chrome: true, alwaysTabbar: false, ctrlW: undefined, ctrlAsSuper: undefined, ctrlCShift: undefined, ctrlClick: undefined, digitTabs: undefined, ctrlTabSwitch: undefined, ctrlAsSuperKeys: [], ctrlAsSuperKeysOff: [] }
+        return { chrome: true, alwaysTabbar: false, ctrlAsSuper: undefined, ctrlCShift: undefined, ctrlClick: undefined, digitTabs: undefined, ctrlTabSwitch: undefined, ctrlAsSuperKeys: [], ctrlAsSuperKeysOff: [] }
+    var keys = copyOccupiedKeys(e.ctrlAsSuperKeys)
+    var keysOff = copyOccupiedKeys(e.ctrlAsSuperKeysOff)
+    foldLegacyCtrlW(e, keys, keysOff)
     return {
         chrome: e.chrome !== false,
         alwaysTabbar: !!e.alwaysTabbar,
-        ctrlW: triFlag(e.ctrlW),
         ctrlAsSuper: triFlag(e.ctrlAsSuper),
         ctrlCShift: triFlag(e.ctrlCShift),
         ctrlClick: triFlag(e.ctrlClick),
         digitTabs: triFlag(e.digitTabs),
         ctrlTabSwitch: triFlag(e.ctrlTabSwitch),
-        ctrlAsSuperKeys: copyOccupiedKeys(e.ctrlAsSuperKeys),
-        ctrlAsSuperKeysOff: copyOccupiedKeys(e.ctrlAsSuperKeysOff)
+        ctrlAsSuperKeys: keys,
+        ctrlAsSuperKeysOff: keysOff
     }
 }
 
@@ -577,7 +613,7 @@ function withoutId(list, id) {
 // what lets a desktop-wide setting keep one app that disagrees -- Ctrl+1..6 handed
 // to an editor while the desktop keeps them for the pack's tabs.
 
-var KEY_FLAG_NAMES = ["ctrlAsSuper", "digitTabs", "ctrlTabSwitch", "ctrlW", "ctrlClick", "ctrlCShift"]
+var KEY_FLAG_NAMES = ["ctrlAsSuper", "digitTabs", "ctrlTabSwitch", "ctrlClick", "ctrlCShift"]
 
 // The row for one flag in an app's card: the state, whether the switch reads as on
 // (the effective answer, so an inherited on looks on), and where that answer comes

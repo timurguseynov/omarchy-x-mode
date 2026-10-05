@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Super+Tab is the desktop's app switcher for every app. "Super works as Ctrl"
+# Super+Tab is the desktop's app switcher for every app. "Super as Ctrl"
 # only fills in the keys the desktop does not use, so it must not take Cmd+Tab
 # with it: a flagged app gets the switcher too. What a test can see of the
 # switcher is its command file.

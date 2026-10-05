@@ -1,7 +1,7 @@
--- The "Super works as Ctrl" map: every Super+key the desktop does not already
+-- The "Super as Ctrl" map: every Super+key the desktop does not already
 -- bind is re-sent to the focused app as Ctrl+key. Occupied keys stay with the
--- desktop until stolen per app (occupied_list / stealable); those wraps live
--- in x-mode.lua, like Super+W.
+-- desktop until stolen per app (occupied_list / stealable); a key the pack binds
+-- itself is handled in x-mode.lua, which asks the same steal list.
 --
 -- Pure list work: x-mode.lua asks hyprctl for the bind table, hands the text
 -- here, and binds what comes back (tests/unit/supermap_test.lua). The occupied
@@ -221,8 +221,9 @@ local function is_digit(key)
 end
 
 -- Occupied Super / Super+Shift keys in KEYS order. Digits are the workspace
--- keys (main panel). W has its own Super+W toggle. Generated super-ctrl binds
--- are skipped; steal wraps stay, so a replan does not treat them as free.
+-- keys (main panel). Cmd+W is one of these like Cmd+Q and Cmd+F. Generated
+-- super-ctrl binds are skipped; steal wraps stay, so a replan does not treat
+-- them as free.
 function M.occupied_list(raw)
   if not (raw or ""):find("modmask:%s*%d") then
     return {}
@@ -245,8 +246,7 @@ function M.occupied_list(raw)
         and f.catchall ~= "true"
         and (f.submap or "") == ""
         and canon ~= nil
-        and not is_digit(canon)
-        and not (canon:lower() == "w" and not shift) then
+        and not is_digit(canon) then
       local id = M.key_id(canon, shift)
       local wrapped = desc:sub(1, #M.STEAL_PREFIX) == M.STEAL_PREFIX
       local e = by_id[id]

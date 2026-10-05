@@ -255,7 +255,7 @@ Panel {
       root.nativeScroll = !!o.nativeScroll
       root.noGaps = !!o.noGaps
       root.workspacesOnFkeys = !!o.workspacesOnFkeys
-      root.globalKeys = (o.keys && typeof o.keys === "object") ? o.keys : ({})
+      root.globalKeys = Logic.migrateGlobalKeys(o.keys)
       root.lockKey = !(o.lockScreenKey === false)
       root.appsCfg = Logic.parseApps((d && d.apps) || {})
       root.refreshClients()
@@ -525,10 +525,9 @@ Panel {
     }
 
     readonly property var flagRows: [
-      { flag: "ctrlAsSuper", label: "Super works as Ctrl", description: "Keys Omarchy does not already use" },
+      { flag: "ctrlAsSuper", label: "Super as Ctrl", description: "Keys Omarchy does not already use" },
       { flag: "digitTabs", label: "⌘+1..0 for the pack's tabs", description: krows.workspacesOnFkeys ? "Reserved: no tab of that number means the key does nothing" : "Needs Workspaces on F1..F10, which frees the digits" },
       { flag: "ctrlTabSwitch", label: "Ctrl+1..0 switches tabs", description: "Jump to a titlebar tab; off, the shortcut goes to the app" },
-      { flag: "ctrlW", label: "⌘+W as Ctrl+W", description: "Close window" },
       { flag: "ctrlClick", label: "⌘+click as Ctrl+click", description: "Links, multi-select" },
       { flag: "ctrlCShift", label: "Ctrl+C as Ctrl+Shift+C", description: "Interrupt in a terminal; Super+C still copies" }
     ]

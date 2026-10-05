@@ -564,20 +564,26 @@ local ctrl_c_binds = {}
 -- forward-declared so the app refresh can call it.
 local apply_super_ctrl
 
--- Send a chord to a window. The key goes as a keycode, not as a name:
--- `send_shortcut` resolves a name by looking the keysym up in the *active*
--- layout, so on a Cyrillic layout Ctrl+T would not resolve at all. A keycode is
--- what "Cmd+T means the physical T key" wants anyway.
+-- Send a chord to a window as its own down/up pair. `send_shortcut` pairs the
+-- press with the physical key and the release with its release, so the app is
+-- left *holding* a key whose Ctrl is already gone: its own key repeat then types
+-- the bare letter -- holding Cmd+D in an editor selected once and then wrote "d".
+-- The pair is what Omarchy's clipboard and the text chords below send by hand for
+-- the same stuck/repeating synthetic key (hyprland discussion 14099). A key held
+-- down is the bind's business, not the app's: see `repeating` in bind_super_ctrl.
+--
+-- The key goes as a keycode, not as a name: `send_shortcut` resolves a name by
+-- looking the keysym up in the *active* layout, so on a Cyrillic layout Ctrl+T
+-- would not resolve at all. A keycode is what "Cmd+T means the physical T key"
+-- wants anyway.
 local function send_chord(mods, key, w)
   local code = supermap.key_code(key)
   if code == nil then
     return false
   end
-  hl.dispatch(hl.dsp.send_shortcut({
-    mods = mods,
-    key = "code:" .. tostring(code),
-    window = w,
-  }))
+  local k = "code:" .. tostring(code)
+  hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = k, state = "down", window = w }))
+  hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = k, state = "up", window = w }))
   return true
 end
 
@@ -899,16 +905,18 @@ hl.unbind("SUPER + CTRL + SHIFT + code:21")
 -- from its single window.close listener, which Cmd+W, the tabbar close button
 -- and apps closing their own window all share.
 --
--- Apps the panel flagged send Ctrl+W instead, so Cmd+W closes the tab rather
+-- An app that steals W sends Ctrl+W instead, so Cmd+W closes the tab rather
 -- than the whole window (a browser, a terminal). The key goes to the focused
--- window as a real Ctrl+W; the close path above stays out of the way.
+-- window as a real Ctrl+W; the close path above stays out of the way. W used to
+-- be a replacement of its own (the panel's ctrlW flag) -- it is one of the
+-- occupied keys now, with the same toggle as Cmd+Q and Cmd+F.
 hl.unbind("SUPER + W")
 o.bind("SUPER + W", "Close window", function()
   local w = hl.get_active_window()
   if w == nil then
     return
   end
-  if key_flag("ctrl_w", window_class(w)) then
+  if key_stolen(window_class(w), "W", false) then
     send_ctrl("W", false, w)
     return
   end
@@ -1284,19 +1292,20 @@ end
 -- it) and out of the state dir (also removed).
 -- { "options": { "nativeScroll": ..., ... },
 --   "apps": { "class": { "chrome": true, "alwaysTabbar": false,
---                      "ctrlW": false, "ctrlAsSuper": false, "ctrlCShift": false,
+--                      "ctrlAsSuper": false, "ctrlCShift": false,
 --                      "ctrlClick": false, "digitTabs": false,
 --                      "ctrlAsSuperKeys": [] } } }
 -- chrome=false → no titlebar/tabbar/grouping. alwaysTabbar → tab strip even
--- when the window is not grouped. ctrlW → Super+W closes the app's tab (Ctrl+W);
--- ctrlAsSuper → unbound Super+key reaches the app as Ctrl+key; digitTabs → the
+-- when the window is not grouped. ctrlAsSuper → unbound Super+key reaches the
+-- app as Ctrl+key; digitTabs → the
 -- freed Super+1..0 are the pack's own tabs for this class (reserved: the app
 -- never sees the digit); ctrlAsSuperKeys →
--- occupied Super keys stolen for this app (same wrap as Super+W); ctrlClick →
+-- occupied Super keys stolen for this app (Cmd+W, Cmd+Q, Cmd+F, ... all the same
+-- toggle now); ctrlClick →
 -- Super+click is Ctrl+click; ctrlCShift →
 -- Ctrl+C reaches it as Ctrl+Shift+C, so the app's own binding can make it the
 -- interrupt while Super+C stays the copy. Missing entries mean chrome on, flags
--- off.
+-- off. An older file's ctrlW is folded onto the W steal on the way in.
 --
 -- The bar panel is the only writer. The runtime on/off flag stays a separate
 -- plain file (`enabled`): the plugin reads that one with stdio, before any Lua
@@ -1633,7 +1642,7 @@ apply_ctrl_tab_switch = function()
   end
 end
 
--- "Super works as Ctrl": for an app with the flag, every Super+key the
+-- "Super as Ctrl": for an app with the flag, every Super+key the
 -- desktop does not already bind is re-sent to the app as Ctrl+key. Hyprland
 -- dispatches every matching bind, so the bind table has to be read rather than
 -- guessed, and it is not in the Lua API: hyprctl writes it out and a timer picks
@@ -1664,10 +1673,12 @@ local function super_ctrl_key(key, shift)
   send_ctrl(key, shift, w)
 end
 
--- Pack-owned Super binds wrapped at the source (like Super+W). Everything
--- else that is stealable is an Omarchy command we unbind and replay: hyprctl
--- prints those as __lua, so the command is recovered from Omarchy's bind files.
-local STEAL_OWN = { Q = true, TAB = true, F = true }
+-- Pack-owned Super binds (Q, Tab, W, F): their own handler already asks the
+-- steal list, so they need no wrap -- only the key has to count as occupied and
+-- be listed for the panel. Everything else that is stealable is an Omarchy
+-- command we unbind and replay: hyprctl prints those as __lua, so the command is
+-- recovered from Omarchy's bind files.
+local STEAL_OWN = { Q = true, TAB = true, F = true, W = true }
 -- [id] = { keys, originals, handle } for wraps we installed on Omarchy keys.
 local steal_wraps = {}
 local omarchy_exec = nil
@@ -1832,9 +1843,13 @@ local function bind_super_ctrl(raw, gen)
   end
   for _, b in ipairs(supermap.plan(raw)) do
     local keys = b.shift and ("SUPER + SHIFT + " .. b.key) or ("SUPER + " .. b.key)
+    -- `repeating`: a key that stays down keeps sending the chord, the way holding
+    -- Cmd+D on a Mac keeps adding the next occurrence. The repeat has to be the
+    -- bind's: `send_chord` hands over a whole chord and nothing held, so the app
+    -- has no key of its own to repeat (and could only type the bare letter with).
     local ok, kb = pcall(hl.bind, keys, function()
       return super_ctrl_key(b.key, b.shift)
-    end, { description = supermap.PREFIX .. (b.shift and " SHIFT" or "") .. " " .. b.key })
+    end, { description = supermap.PREFIX .. (b.shift and " SHIFT" or "") .. " " .. b.key, repeating = true })
     if ok and kb then
       super_ctrl_binds[#super_ctrl_binds + 1] = kb
     end

@@ -133,14 +133,14 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/arrange_keeps_workspaces_test.sh` | the arrange arranges a window where it already is |
 | `integration/chrome_off_drag_reaches_bar_test.sh` | without chrome the box reaches the bar |
 | `integration/chrome_off_no_group_test.sh` | a chrome-off window is never grouped |
-| `integration/ctrl_as_super_test.sh` | Super works as Ctrl: the free Super+keys are bound, occupied ones and the flag being off are not |
+| `integration/ctrl_as_super_test.sh` | Super as Ctrl: the free Super+keys are bound, occupied ones and the flag being off are not |
 | `integration/ctrl_click_test.sh` | Super+click (left/right/middle) is bound as Ctrl+click |
 | `integration/steal_occupied_test.sh` | an occupied Super key stolen for one app is Ctrl+key there and the original action everywhere else (Super+Q, Super+Tab, Super+F) |
 | `integration/ctrl_c_shift_test.sh` | Ctrl+C goes in shifted for the flagged app and stays plain for the rest |
 | `integration/client_fullscreen_not_pushed_test.sh` | a window the app made fullscreen is not re-clamped below the bar |
 | `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
 | `integration/ctrl_tab_switch_binds_test.sh` | Ctrl+1..9 binds are opt-in |
-| `integration/switcher_keeps_super_tab_test.sh` | Super+Tab is the switcher for an app with Super works as Ctrl too |
+| `integration/switcher_keeps_super_tab_test.sh` | Super+Tab is the switcher for an app with Super as Ctrl too |
 | `integration/dock_appears_test.sh` | the dock is a 40px card, centred, reserving nothing |
 | `integration/dock_click_focuses_app_test.sh` | clicking an icon focuses and raises that app |
 | `integration/dock_click_same_app_no_tab_switch_test.sh` | clicking the focused app's icon does not switch tabs |
@@ -211,7 +211,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/super_q_closes_app_test.sh` | Super+Q closes every tab of the app and nothing else |
 | `integration/super_q_single_window_test.sh` | Super+Q on an ungrouped window closes just it |
 | `integration/super_w_closes_window_test.sh` | Super+W closes the window and keeps the focus in the group |
-| `integration/super_w_ctrl_w_test.sh` | a class flagged in the panel hands Super+W to the app as Ctrl+W |
+| `integration/super_w_ctrl_w_test.sh` | a class that steals Cmd+W gets Ctrl+W instead of the pack closing it, and a file that still carries the older `ctrlW` flag keeps doing the same |
 | `integration/super_w_single_window_test.sh` | and closes an ungrouped window on its own |
 | `integration/switcher_cycles_apps_test.sh` | Super+Tab cycles apps and writes the switcher's command file |
 | `integration/switcher_mru_order_test.sh` | the switcher's next app is the one used before this one |
@@ -233,7 +233,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/global_keys_test.sh` | a keyboard replacement forced on for every app (options.keys) reaches an app with no entry of its own: the generated Super-as-Ctrl binds exist for it, a globally stolen Super+Q arrives as Ctrl+Q, and the app is not closed |
 | `integration/lock_key_test.sh` | Ctrl+Cmd+Q locks the screen (Omarchy's lock command) and takes Omarchy's Calculator key with it; turning the option off gives the Calculator back, turning it on takes it again |
 | `integration/fade_opacity_reset_test.sh` | a reload leaves no window dimmed: the arrange fade runs in 25ms steps and the timers die with the config, so a window stuck at the first step (0.9, seen as a translucent titlebar) has to come back at 1 on the next load |
-| `integration/digit_tabs_test.sh` | with the workspaces on the F keys, the freed Cmd+1..0 follow each app's card: a reserved digit switches the pack's tab (and is eaten even with no such tab), `Super works as Ctrl` alone hands over Ctrl+digit (byte-equal to a physical one), both flags mean the tab, and with neither the digit does nothing |
+| `integration/digit_tabs_test.sh` | with the workspaces on the F keys, the freed Cmd+1..0 follow each app's card: a reserved digit switches the pack's tab (and is eaten even with no such tab), `Super as Ctrl` alone hands over Ctrl+digit (byte-equal to a physical one), both flags mean the tab, and with neither the digit does nothing |
 | `integration/workspaces_on_fkeys_test.sh` | the workspace keys move to Super+F1..F10 and the pack binds the freed digits itself — Cmd+0 as the tenth tab, no generated super-ctrl bind left on them |
 
 `focus_test.sh` relies on `hyprctl clients -j` being in z-order (topmost last),
