@@ -956,6 +956,51 @@ o.bind("SUPER + Q", "Close app", function()
   end
 end)
 
+-- --- Universal clipboard ------------------------------------------------------
+-- Cmd+C/V/X send the app its own copy/paste/cut. Omarchy has her own version of
+-- this, and hers hands the chord over *by name* ("C", "Insert"): Hyprland resolves
+-- a name in the *active* layout, where a Russian group has no Latin C on the C key,
+-- so the dispatch raises "runtime error in lua, send_key_state: key not found" and
+-- the copy never reaches the app -- until the name happens to have been resolved
+-- once and cached, which is why it only bit sometimes. The pack owns the key from
+-- load and sends a keycode, so the chord is the physical key whatever the layout
+-- says.
+--
+-- No window target on purpose: the chord goes to whatever surface has focus, so a
+-- layer-shell panel (the clipboard manager's search field) receives it too, which
+-- is what her version does with the same trick.
+--
+-- The terminal split is hers as well: readline has no clipboard, so a terminal gets
+-- the Insert chords, where Ctrl+C would be the interrupt. Cmd+C/V/X are not offered
+-- in the panel's steal list: the chord they send *is* what a steal would send, so
+-- there is nothing to choose between.
+local CLIPBOARD = {
+  { keys = "SUPER + C", label = "Universal copy", mods = "CTRL", code = "C", terminal_mods = "CTRL", terminal_code = "INSERT" },
+  { keys = "SUPER + V", label = "Universal paste", mods = "CTRL", code = "V", terminal_mods = "SHIFT", terminal_code = "INSERT" },
+  { keys = "SUPER + X", label = "Universal cut", mods = "CTRL", code = "X" },
+}
+
+for _, e in ipairs(CLIPBOARD) do
+  hl.unbind(e.keys)
+  note_pack_key(e.keys)
+  pcall(o.bind, e.keys, e.label, function()
+    local mods, name = e.mods, e.code
+    local w = hl.get_active_window()
+    if e.terminal_code ~= nil and w ~= nil and textkeys.is_terminal(w.tags) then
+      mods, name = e.terminal_mods, e.terminal_code
+    end
+    local code = supermap.key_code(name)
+    if code == nil then
+      return
+    end
+    local key = "code:" .. tostring(code)
+    hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = key, state = "down" }))
+    hl.timer(function()
+      hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = key, state = "up" }))
+    end, { timeout = 50, type = "oneshot" })
+  end)
+end
+
 -- Cmd+F is Omarchy fullscreen: a Lua dispatcher, so hyprctl cannot replay it
 -- after unbind. Wrap it here like Super+Q. A stolen F is Ctrl+F (Find);
 -- otherwise the compositor fullscreen stays.

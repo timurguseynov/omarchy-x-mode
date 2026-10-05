@@ -35,6 +35,9 @@ check("keys.punct", has_key(supermap.KEYS, "comma"), true)
 -- The keycode `send_shortcut` sends for a name, so a Cyrillic layout (where the
 -- name does not resolve) still gets the physical key.
 check("code.W", supermap.key_code("W"), 25)
+-- The clipboard's terminal chord: readline's copy/paste are the Insert keys, which
+-- no bind needs (nothing binds Super+Insert), only the send.
+check("code.insert", supermap.key_code("INSERT"), 118)
 check("code.digit", supermap.key_code("1"), 10)
 check("code.tab", supermap.key_code("TAB"), 23)
 check("code.unknown", supermap.key_code("nope"), nil)

@@ -43,6 +43,8 @@ local CODE = {
   [65] = "SPACE", [110] = "HOME", [115] = "END",
   [112] = "PAGE_UP", [117] = "PAGE_DOWN", [119] = "DELETE",
   [111] = "UP", [116] = "DOWN", [113] = "LEFT", [114] = "RIGHT",
+  -- the clipboard's terminal chord, which readline needs instead of Ctrl+C
+  [118] = "INSERT",
 }
 
 -- name -> Hyprland keycode (the inverse of CODE). `send_shortcut` resolves a
