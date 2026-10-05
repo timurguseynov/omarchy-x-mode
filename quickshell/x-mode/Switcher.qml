@@ -111,9 +111,10 @@ Item {
           color: Util.alpha(Color.background, 0.94)
           border.color: Util.alpha(Color.foreground, 0.14)
           border.width: 1
+          // No fade on the way in: the surface is unmapped the moment Super is
+          // released (`visible`), so an opacity animation only ever showed on the
+          // way in -- and a Cmd+Tab switcher is expected to be there at once.
           opacity: root.shown ? 1 : 0
-
-          Behavior on opacity { NumberAnimation { duration: 90 } }
 
           Row {
             id: row
