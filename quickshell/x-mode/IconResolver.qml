@@ -255,8 +255,12 @@ Item {
     var de = root.desktopIconFor(raw)
     if (de !== "")
       return de
-    var fb = Quickshell.iconPath("application-x-executable", true)
-    return fb && fb.length > 0 ? fb : ""
+    // Nothing matched: "" rather than a generic icon. AppIcon draws the class
+    // initial for an iconless class ("A" for the nest's aquamarine, "Z" for
+    // dev.zed.Zed), and that says which window it is where
+    // `application-x-executable` -- a gear in Yaru, Adwaita and Breeze -- says
+    // nothing and only hides the letter.
+    return ""
   }
 
   Process {
