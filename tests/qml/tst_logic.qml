@@ -355,6 +355,21 @@ TestCase {
         compare(Logic.keyFlagDescription("inherit", false), "Follows the desktop: off")
     }
 
+    // The click's own answer stays under the switch for a moment, and then the
+    // row says what the replacement is for again -- that is what a card is read
+    // for, and the tint already carries the state.
+    function test_appRowDescription() {
+        compare(Logic.appRowDescription("on", false, true, "Close window"), "Always on")
+        compare(Logic.appRowDescription("off", true, true, "Close window"), "Always off")
+        compare(Logic.appRowDescription("inherit", true, true, "Close window"), "Follows the desktop: on")
+        compare(Logic.appRowDescription("on", false, false, "Close window"), "Close window")
+        compare(Logic.appRowDescription("off", false, false, "Links, multi-select"), "Links, multi-select")
+        compare(Logic.appRowDescription("inherit", false, false, "Interrupt in a terminal; Super+C still copies"),
+                "Interrupt in a terminal; Super+C still copies")
+        compare(Logic.appRowDescription("off", false, false, undefined), "", "a row with no meaning says nothing")
+        compare(Logic.appRowDescription("off", false, false, null), "")
+    }
+
     function test_keyStealState() {
         var cfg = { ctrlAsSuperKeys: ["Q"], ctrlAsSuperKeysOff: [] }
         var on = Logic.keyStealState(cfg, {}, "Q")

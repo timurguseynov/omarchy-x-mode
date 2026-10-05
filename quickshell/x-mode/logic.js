@@ -614,6 +614,18 @@ function keyFlagDescription(state, global) {
     return global ? "Follows the desktop: on" : "Follows the desktop: off"
 }
 
+// What one row of an app's card says. A click puts the state's own words under
+// the switch for a moment ("Always on"), and then the row goes back to what the
+// replacement is for -- "Close window", "Links, multi-select" -- because that is
+// what a card is read for. The tint on the row's left edge carries the state the
+// whole time, so the meaning does not have to give way to the click's answer.
+// `meaning` is the row's own description, empty when it has none.
+function appRowDescription(state, global, notice, meaning) {
+    if (notice)
+        return keyFlagDescription(state, global)
+    return String(meaning === undefined || meaning === null ? "" : meaning)
+}
+
 // One occupied key the same way: the app's Always off list, then its steal list,
 // then the desktop's.
 function keyStealState(cfg, forced, id) {

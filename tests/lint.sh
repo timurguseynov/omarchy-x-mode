@@ -76,5 +76,15 @@ for f in Toggle.qml Dock.qml Switcher.qml SnapPreview.qml; do
   fi
 done
 
+# A card's row shows the state's own words only for a moment after the click
+# (Logic.appRowDescription): the tint carries the state, and the row goes back to
+# what the replacement is for. qmllint cannot see the two rows, so they are
+# pinned here -- a row that reads keyFlagDescription directly never goes back.
+app_rows="$(grep -cF 'Logic.appRowDescription(' "$QMLDIR/Panel.qml")"
+if [ "$app_rows" != 2 ]; then
+  echo "  ${RED}FAIL${RESET} Panel.qml: $app_rows of the 2 app-key rows go back to their meaning after the click"
+  fail=1
+fi
+
 [ "$fail" = 0 ] && echo "  ${GREEN}ok${RESET}   qmllint (missing Quickshell/qs imports warn, they do not fail)"
 exit "$fail"

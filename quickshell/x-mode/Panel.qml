@@ -539,6 +539,10 @@ Panel {
     readonly property color onTint: krows.accents.green || Color.accent
     readonly property color offTint: krows.accents.red || Color.urgent
 
+    // How long a click's own answer stays under the switch before the row goes
+    // back to what the replacement is for.
+    readonly property int noticeMs: 2000
+
     function stateColor(state) {
       return state === "on" ? krows.onTint : state === "off" ? krows.offTint : "transparent"
     }
@@ -546,18 +550,36 @@ Panel {
     Repeater {
       model: krows.flagRows
       SwitchRow {
+        id: flagRow
         required property var modelData
         // In a card the row is three-state; on the "for every app" screen it is the
         // desktop's own answer, so a plain switch with no "Always" to say.
         readonly property var st: krows.isApp
           ? Logic.keyFlagState(krows.cfg, krows.forced, modelData.flag)
           : Logic.keyFlagState(krows.cfg, ({}), modelData.flag)
+        // Set by the click, cleared a moment later, so the row shows the state
+        // it was just put into and then its meaning again (appRowDescription).
+        property bool notice: false
         width: krows.width
         label: modelData.label
-        description: krows.isApp ? Logic.keyFlagDescription(st.state, st.global) : modelData.description
+        description: krows.isApp
+          ? Logic.appRowDescription(st.state, st.global, flagRow.notice, modelData.description)
+          : modelData.description
         checked: st.checked
         tint: krows.isApp ? krows.stateColor(st.state) : "transparent"
-        onToggled: krows.flagToggled(modelData.flag, krows.isApp ? Logic.nextKeyFlagState(st.state) : (st.checked ? "off" : "on"))
+        onToggled: {
+          if (krows.isApp) {
+            flagRow.notice = true
+            flagNoticeTimer.restart()
+          }
+          krows.flagToggled(modelData.flag, krows.isApp ? Logic.nextKeyFlagState(st.state) : (st.checked ? "off" : "on"))
+        }
+
+        Timer {
+          id: flagNoticeTimer
+          interval: krows.noticeMs
+          onTriggered: flagRow.notice = false
+        }
       }
     }
 
@@ -570,16 +592,33 @@ Panel {
     Repeater {
       model: krows.occupiedKeys
       SwitchRow {
+        id: stealRow
         required property var modelData
         readonly property var st: krows.isApp
           ? Logic.keyStealState(krows.cfg, krows.forced, modelData.id)
           : ({ state: Logic.hasGlobalSteal(krows.forced, modelData.id) ? "on" : "off", checked: Logic.hasGlobalSteal(krows.forced, modelData.id), global: false, pinned: false })
+        // Same notice as the flag rows above.
+        property bool notice: false
         width: krows.width
         label: Logic.stealToggleLabel(modelData.label || modelData.id)
-        description: krows.isApp ? Logic.keyFlagDescription(st.state, st.global) : String(modelData.description || "")
+        description: krows.isApp
+          ? Logic.appRowDescription(st.state, st.global, stealRow.notice, modelData.description)
+          : String(modelData.description || "")
         checked: st.checked
         tint: krows.isApp ? krows.stateColor(st.state) : "transparent"
-        onToggled: krows.keyToggled(modelData.id, krows.isApp ? Logic.nextKeyFlagState(st.state) : (st.checked ? "off" : "on"))
+        onToggled: {
+          if (krows.isApp) {
+            stealRow.notice = true
+            stealNoticeTimer.restart()
+          }
+          krows.keyToggled(modelData.id, krows.isApp ? Logic.nextKeyFlagState(st.state) : (st.checked ? "off" : "on"))
+        }
+
+        Timer {
+          id: stealNoticeTimer
+          interval: krows.noticeMs
+          onTriggered: stealRow.notice = false
+        }
       }
     }
   }
