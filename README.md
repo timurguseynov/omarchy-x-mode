@@ -16,13 +16,16 @@ https://github.com/user-attachments/assets/0d840197-4fcf-4000-ba25-4ebfc3ff6c65
 
 ## Features
 
-* **Floating windows.** Click to focus. Everything opens floating.
-* **Titlebars and tabs.** Same app on the same workspace becomes tabs of one window. The titlebar close button quits the app; a tab’s ✕ closes that tab. `+` opens another window. Drag a tab to reorder it. Colors follow the Omarchy theme.
-* **Snapping.** Drag the titlebar to an edge: corners are quarters, the top edge maximizes, the sides are left and right halves. `Super+Alt+←/→` cycles `½ → ⅔ → ⅓`.
-* **Dock.** Right edge, pinned and running apps, one icon per app. Click to focus or launch. Right-click for a new window, the window list, pin, or quit. Drag pins to reorder.
-* **App switcher.** Hold Super and tap Tab — Command-Tab on a Mac. A row of running apps, most recently used first. Click an icon or release Super to switch.
-* **Mac shortcuts.** Copy, paste, cut, screenshots, lock, fullscreen, jump by line or word, delete a word or a line, back and forward — the same keys as on a Mac.
-* **Settings.** The top-bar button. Shortcuts are configurable: a default for every app, and any one app can disagree. Settings survive uninstall.
+The Mac habits that keep you fast — on Omarchy.
+
+* **Floating windows.** Everything opens floating.
+* **Titlebars like a Mac.** A window moves by the titlebar, closes with the button.
+* **Tabs in every app.** Like native tabs on a Mac, but for every app you choose: two windows of the same app on a workspace become tabs of one window.
+* **Snaps.** Rectangle-like snapping from the titlebar: drag to a side for a half, a corner for a quarter, the top edge to maximize. `Super+Alt+←/→` cycles `½ → ⅔ → ⅓`.
+* **The Dock.** The familiar column of pinned and running apps, on the right edge. Click to focus or launch, right-click for a new window, the window list, pin or quit, drag pins to reorder.
+* **Command-Tab.** Hold Super and tap Tab — the app switcher you use all day, most recently used first. Click an icon or release Super to switch.
+* **The rest of the Mac keys.** Copy, paste and cut Omarchy already does. X Mode adds `Super+←`/`→` by line, `Super+↑`/`↓` by document, `Alt+←`/`→` by word, deleting by word or line, `Super+[`/`]` back and forward, `Super+Shift+3…5` screenshots and `Super+Ctrl+Q` lock. Shortcuts are configurable app by app, so the Mac experience stays seamless even where one app disagrees.
+* **The settings panel.** Open it from the top-bar button: X Mode on or off, per-app titlebars and grouping, and the shortcuts. Settings survive uninstall.
 
 ---
 
