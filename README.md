@@ -1,10 +1,8 @@
 # X Mode — a Mac-like desktop for Omarchy
 
-A Mac-like desktop for [Omarchy](https://omarchy.org): floating windows, a Mac titlebar with same-app tabs, Rectangle-style snapping, a right-edge dock, Command-Tab, and the shortcuts you already use on a Mac. For people coming from a Mac, or already tiling on Omarchy, who want Linux and Omarchy without giving up the way they work.
+Floating windows, a Mac titlebar with same-app tabs, Rectangle-style snapping, a right-edge dock, Command-Tab, and the shortcuts you already use on a Mac — on [Omarchy](https://omarchy.org). Coming from a Mac, or already tiling: Linux and Omarchy stay, and so does the way you work.
 
 https://github.com/user-attachments/assets/0d840197-4fcf-4000-ba25-4ebfc3ff6c65
-
-It is **additive**. The installer only creates files in its own namespace and one marked block in `~/.config/hypr/hyprland.lua`. Uninstall removes exactly what it installed.
 
 
 
@@ -12,9 +10,7 @@ It is **additive**. The installer only creates files in its own namespace and on
 
 **Floating windows · Mac titlebars · App tabs · Window snapping · Dock · App switcher · Mac shortcuts**
 
-> Optional. Omarchy tiling stays the default. Turn X Mode on when you want that desktop; turn it off from the top-bar button. Nothing to reinstall.
-
-On Linux, Super is Command. The panel writes `⌘`; the tables below use `Super`.
+> Optional. Omarchy tiling stays the default. The top-bar button turns X Mode off; nothing to reinstall.
 
 ---
 
@@ -26,11 +22,13 @@ On Linux, Super is Command. The panel writes `⌘`; the tables below use `Super`
 * **Dock.** Right edge, pinned and running apps, one icon per app. Click to focus or launch. Right-click for a new window, the window list, pin, or quit. Drag pins to reorder.
 * **App switcher.** Hold Super and tap Tab — Command-Tab on a Mac. A row of running apps, most recently used first. Click an icon or release Super to switch.
 * **Mac shortcuts.** Copy, paste, cut, screenshots, lock, fullscreen, jump by line or word, delete a word or a line, back and forward — the same keys as on a Mac.
-* **Settings.** The top-bar button. Turn X Mode off to go back to Omarchy tiling. Shortcuts are configurable: a default for every app, and any one app can disagree. Settings survive uninstall.
+* **Settings.** The top-bar button. Shortcuts are configurable: a default for every app, and any one app can disagree. Settings survive uninstall.
 
 ---
 
 ## Installation
+
+The installer only creates files in its own namespace and one marked block in `~/.config/hypr/hyprland.lua`. Uninstall removes exactly that.
 
 If Hyprland’s plugin headers are missing or stale, refresh them first, as your own user — not with `sudo`. `hyprpm` asks for your password itself when it needs to write `/var/cache/hyprpm`.
 
@@ -55,8 +53,6 @@ If the shell was not running, finish with `omarchy-restart-shell`.
 ```
 
 Removes what the installer created. Your Hyprland and Omarchy config is left alone, and so are the panel settings in `~/.config/hypr/x-mode.json`.
-
-To turn the desktop off without uninstalling, use the switch in the top-bar panel.
 
 ---
 
@@ -97,6 +93,8 @@ Then the same rows in both lists:
 ---
 
 ## Keyboard shortcuts
+
+Super is Command (`⌘` in the panel).
 
 ### Windows and tabs
 
