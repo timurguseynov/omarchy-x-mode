@@ -1,6 +1,6 @@
-# X Mode for Omarchy
+# X Mode — a Mac-like desktop for Omarchy
 
-A macOS-like desktop for [Omarchy](https://omarchy.org): floating windows, a Mac titlebar with same-app tabs, Rectangle-style snapping, a right-edge dock, an app switcher, and the shortcuts you already use on a Mac.
+A Mac-like desktop for [Omarchy](https://omarchy.org): floating windows, a Mac titlebar with same-app tabs, Rectangle-style snapping, a right-edge dock, Command-Tab, and the shortcuts you already use on a Mac. For people coming from a Mac, or already tiling on Omarchy, who want Linux and Omarchy without giving up the way they work.
 
 https://github.com/user-attachments/assets/0d840197-4fcf-4000-ba25-4ebfc3ff6c65
 
@@ -12,7 +12,7 @@ It is **additive**. The installer only creates files in its own namespace and on
 
 **Floating windows · Mac titlebars · App tabs · Window snapping · Dock · App switcher · Mac shortcuts**
 
-> Optional. Omarchy tiling stays the default until you turn X Mode on. The top-bar button turns it off again without uninstalling.
+> Optional. Omarchy tiling stays the default. Turn X Mode on when you want that desktop; turn it off from the top-bar button. Nothing to reinstall.
 
 On Linux, Super is Command. The panel writes `⌘`; the tables below use `Super`.
 
