@@ -1,16 +1,16 @@
-# X Mode — a Mac-like desktop for Omarchy
+# A Mac-like desktop for Omarchy
 
-Floating windows, a Mac titlebar with same-app tabs, Rectangle-style snapping, a right-edge dock, Command-Tab, and the shortcuts you already use on a Mac — on [Omarchy](https://omarchy.org). Coming from a Mac, or already tiling: Linux and Omarchy stay, and so does the way you work.
+**X Mode** — floating windows, a Mac titlebar with same-app tabs, Rectangle-style snapping, a right-edge dock, Command-Tab, and the shortcuts you already use on macOS — on [Omarchy](https://omarchy.org). Coming from a Mac, or already tiling: Linux and Omarchy stay, and so does the way you work.
+
+See it in a minute:
 
 https://github.com/user-attachments/assets/0d840197-4fcf-4000-ba25-4ebfc3ff6c65
-
-
-
-
 
 **Floating windows · Mac titlebars · App tabs · Window snapping · Dock · App switcher · Mac shortcuts**
 
 > Optional. Omarchy tiling stays the default. The top-bar button turns X Mode off; nothing to reinstall.
+
+[Features](#features) · [Installation](#installation) · [Uninstallation](#uninstallation) · [Settings](#settings) · [Keyboard shortcuts](#keyboard-shortcuts) · [License](#license)
 
 ---
 
@@ -24,14 +24,16 @@ The Mac habits that keep you fast — on Omarchy.
 * **Snaps.** Rectangle-like snapping from the titlebar: drag to a side for a half, a corner for a quarter, the top edge to maximize. `Super+Alt+←/→` cycles `½ → ⅔ → ⅓`.
 * **The Dock.** The familiar column of pinned and running apps, on the right edge. Click to focus or launch, right-click for a new window, the window list, pin or quit, drag pins to reorder.
 * **Command-Tab.** Hold Super and tap Tab — the app switcher you use all day, most recently used first. Click an icon or release Super to switch.
-* **The rest of the Mac keys.** Copy, paste and cut Omarchy already does. X Mode adds `Super+←`/`→` by line, `Super+↑`/`↓` by document, `Alt+←`/`→` by word, deleting by word or line, `Super+[`/`]` back and forward, `Super+Shift+3…5` screenshots and `Super+Ctrl+Q` lock. Shortcuts are configurable app by app, so the Mac experience stays seamless even where one app disagrees.
+* **The rest of the Mac keys.** Copy, paste and cut Omarchy already does. X Mode adds `Super+←`/`→` by line, `Super+↑`/`↓` by document, `Alt+←`/`→` by word, deleting a word, or to the start and end of the line, `Super+[`/`]` back and forward, `Super+Shift+3…5` screenshots and `Super+Ctrl+Q` lock. Shortcuts are configurable app by app, so the Mac experience stays seamless even where one app disagrees.
 * **The settings panel.** Open it from the top-bar button: X Mode on or off, per-app titlebars and grouping, and the shortcuts. Settings survive uninstall.
 
 ---
 
 ## Installation
 
-The installer only creates files in its own namespace and one marked block in `~/.config/hypr/hyprland.lua`. Uninstall removes exactly that.
+Needs Omarchy v4 or newer.
+
+The installer is additive: it only creates files in its own namespace and one marked block in `~/.config/hypr/hyprland.lua`. A stock Hyprland hyprbars, if you have one, is turned off while X Mode's patched build runs.
 
 If Hyprland’s plugin headers are missing or stale, refresh them first, as your own user — not with `sudo`. `hyprpm` asks for your password itself when it needs to write `/var/cache/hyprpm`.
 
@@ -55,7 +57,7 @@ If the shell was not running, finish with `omarchy-restart-shell`.
 ~/omarchy-x-mode/uninstall.sh
 ```
 
-Removes what the installer created. Your Hyprland and Omarchy config is left alone, and so are the panel settings in `~/.config/hypr/x-mode.json`.
+Removes what the installer created, and turns a stock hyprbars back on if it was disabled. Your Hyprland and Omarchy config is left alone, and so are the panel settings in `~/.config/hypr/x-mode.json`.
 
 ---
 
@@ -64,7 +66,7 @@ Removes what the installer created. Your Hyprland and Omarchy config is left alo
 The main card:
 
 * **X Mode** on or off
-* **Native scroll** — natural (reversed) scrolling
+* **Native scroll** — natural (reversed) touchpad scrolling
 * **No gaps** — windows sit flush
 * **Shortcuts** — the default for every app
 * **Apps** — open one to change its titlebar and shortcuts
@@ -164,7 +166,7 @@ Super is Command (`⌘` in the panel).
 | --- | --- |
 | Drag the titlebar to an edge | Snap |
 | Drag the titlebar to the top | Maximize |
-| Click `+` | New window of that app |
+| Click `+` on the tabbar | New window of that app |
 | Drag a tab | Reorder tabs |
 | Left-click a dock icon | Focus or launch |
 | Right-click a dock icon | New window, window list, pin, quit |

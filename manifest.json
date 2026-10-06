@@ -3,7 +3,7 @@
   "id": "omarchy-x-mode",
   "name": "X Mode",
   "version": "0.1.0",
-  "description": "A macOS-like desktop layer for Omarchy: floating windows, a Mac titlebar with per-tab close buttons (patched hyprbars), Rectangle-style edge snapping with a snap preview, and a right-edge app dock.",
+  "description": "A Mac-like desktop on Omarchy: floating windows, a Mac titlebar with same-app tabs, Rectangle-style snapping, a right-edge dock, Command-Tab, and the shortcuts from a Mac.",
   "license": "MIT",
   "author": "Timur Guseynov",
   "requires": {
