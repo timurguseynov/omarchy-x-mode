@@ -31,10 +31,12 @@ namespace Snap {
     int                border();
     int                chromeH(PHLWINDOW w);
 
-    // Make gapOut() and border() report these instead of the live config, so a
-    // window can be matched against the zone it held under different gaps.
-    // Pass -1 to read the config again.
-    void               assumeGaps(int gap, int border);
+    // Make gapOut(), border(), the dock inset and the bar top report these
+    // instead of the live numbers, so a window can be matched against the zone
+    // it held under a frame that has since moved (the gaps toggled, the dock card
+    // resized, the bar gone for a shell restart). Pass -1 for all four to read the
+    // live config again.
+    void               assumeFrame(int gap, int border, int inset, int top = -1);
 
     CBox               monitorBox(PHLMONITOR mon);
     CBox               usable(PHLMONITOR mon);
@@ -95,6 +97,21 @@ namespace Snap {
     // The decoration positioner's reserved top is the wrong number here: it adds
     // the border decoration on top of the bar, and it still reports a titlebar
     // until that decoration has hidden itself.
-    void               clampToWorkArea(PHLWINDOW w);
+    //
+    // `force` fits a box that already fits the frame, which the normal call
+    // deliberately leaves where it is. That is what a window needs after its
+    // monitor is unplugged: Hyprland hands the workspace to the remaining
+    // monitor and moves the window by the monitor offset only. A window that
+    // lands a whole number of screens off this one (a left half and a right
+    // half on the monitor that was to the left) comes back to that same
+    // offset. A window on the right of a wider screen, still overlapping this
+    // one, keeps its right edge. The forced pass also warps the animation
+    // (goal and current, plus the layout target so the titlebar cache matches),
+    // configures the client (a page shift does not resize), re-enters the
+    // surface on this monitor, and unhides a window the floating algorithm
+    // hid for sitting off-screen. It does not raise. A group is fitted once,
+    // from the current tab. Lua runs this for every window on monitor.removed
+    // and monitor.added (hyprbars.fit / fit_all).
+    void               clampToWorkArea(PHLWINDOW w, bool force = false);
 
 }

@@ -65,10 +65,12 @@ const char* Snap::kindToString(eKind k) {
     return "";
 }
 
-// Overridden while naming the zone a window occupied before the gaps
+// Overridden while naming the zone a window occupied before the frame
 // changed. Null means read the live config.
 static int s_gapOverride    = -1;
 static int s_borderOverride = -1;
+static int s_insetOverride  = -1;
+static int s_topOverride    = -1;
 
 int Snap::gapOut() {
     if (s_gapOverride >= 0)
@@ -87,9 +89,18 @@ int Snap::border() {
     return sc<int>(*PBORDER);
 }
 
-void Snap::assumeGaps(int gap, int border) {
+void Snap::assumeFrame(int gap, int border, int inset, int top) {
     s_gapOverride    = gap;
     s_borderOverride = border;
+    s_insetOverride  = inset;
+    s_topOverride    = top;
+}
+
+// The dock inset usable() takes off the frame's right edge.
+static double frameInset() {
+    if (s_insetOverride >= 0)
+        return s_insetOverride;
+    return sc<double>(g_pGlobalState->config.xModeDockInset->value());
 }
 
 int Snap::chromeH(PHLWINDOW w) {
@@ -122,14 +133,23 @@ CBox Snap::monitorBox(PHLMONITOR mon) {
 static std::unordered_map<std::string, std::pair<double, Time::steady_tp>> s_lastBarTop;
 
 static double resolvedTop(PHLMONITOR mon) {
+    // The bar top a window was placed under, while it is being matched against
+    // the frame it held: a window placed with no bar (a shell restart) sits at
+    // the top edge, and that is the frame its zone has to be read in.
+    if (s_topOverride >= 0)
+        return s_topOverride;
     const double top = mon->m_reservedArea.top();
     if (top > 0) {
         s_lastBarTop[mon->m_name] = {top, Time::steadyNow()};
         return top;
     }
     const auto it = s_lastBarTop.find(mon->m_name);
-    if (it != s_lastBarTop.end() &&
-        std::chrono::duration_cast<std::chrono::seconds>(Time::steadyNow() - it->second.second).count() < 10)
+    // How long the remembered bar covers a bar that is gone: enough for a shell
+    // restart, not so long that a bar the user really removed keeps applying.
+    // 0 means the live top only, which a test uses to pin "no bar here now".
+    const int memoryMs = g_pGlobalState ? sc<int>(g_pGlobalState->config.xModeBarTopMemoryMs->value()) : 10000;
+    if (memoryMs > 0 && it != s_lastBarTop.end() &&
+        std::chrono::duration_cast<std::chrono::milliseconds>(Time::steadyNow() - it->second.second).count() < memoryMs)
         return it->second.first;
     return top;
 }
@@ -146,7 +166,7 @@ CBox Snap::usable(PHLMONITOR mon) {
     // x-mode.lua publishes the dock card plus half of gaps_out. Rectangle's
     // visibleFrame excludes a right-edge dock before any fraction is taken, so
     // a left half and a right half split this narrower frame and never overlap.
-    const double right  = mon->m_reservedArea.right() + sc<double>(g_pGlobalState->config.xModeDockInset->value());
+    const double right  = mon->m_reservedArea.right() + frameInset();
     const double bottom = mon->m_reservedArea.bottom();
     const CBox   box    = monitorBox(mon);
     return {box.x + left, box.y + top, box.w - left - right, box.h - top - bottom};
@@ -523,13 +543,27 @@ static bool anyFullscreen(PHLWINDOW w) {
     return modes.internal != Fullscreen::FSMODE_NONE || modes.client != Fullscreen::FSMODE_NONE;
 }
 
-void Snap::clampToWorkArea(PHLWINDOW w) {
-    if (!xModeEnabled() || !w || !w->m_isFloating || !w->m_isMapped || w->isHidden() || anyFullscreen(w))
+void Snap::clampToWorkArea(PHLWINDOW w, bool force) {
+    if (!xModeEnabled() || !w || !w->m_isFloating || !w->m_isMapped || anyFullscreen(w))
+        return;
+    // The ordinary pass leaves a hidden window alone (a group tab, a swallow).
+    // The forced pass is the unplug restore: Hyprland's floating algorithm can
+    // mark an off-screen window hidden, and skipping it would leave it there.
+    if (!force && w->isHidden())
         return;
     // A drag clamps itself and is allowed to hang off an edge; refitting it here
     // would pull it back on every mouse move.
     if (g_pDragSession && g_pDragSession->owns(w))
         return;
+
+    // A group shares one layout target. Hyprland translates that target once
+    // per member, and fitting each member would page the same box again. The
+    // current tab carries the chrome; its pass covers the group.
+    if (force && w->m_group) {
+        const auto cur = w->m_group->current();
+        if (cur && cur != w)
+            return;
+    }
 
     // setPositionGlobal below calls back into the bar's updateWindow, which is
     // what calls this. The box is already written by then, so the inner pass has
@@ -631,6 +665,42 @@ void Snap::clampToWorkArea(PHLWINDOW w) {
         }
     }
 
+    // The forced pass from monitor removal. A window can sit past any edge,
+    // and its box still fits by size, so the block above skipped it.
+    //
+    // One that is completely off the left (or the top) is a whole number of
+    // screens away: Hyprland translates a float by the monitor origin only,
+    // and moving the surviving monitor applies that delta again, so a left
+    // half and a right half keep their offset inside a screen but land on
+    // the wrong one. Step back by whole monitor sizes first. Pinning both to
+    // the near edge would stack them. A window that still overlaps this
+    // monitor is not on another screen — the right side of a wider one hangs
+    // off this edge — and the clamp below pulls that overhang in. Size is
+    // left alone (a window too wide for the narrower monitor was already
+    // shrunk above). A window wider than the frame keeps its right edge:
+    // pulling it in would walk a left snap off the left edge.
+    if (force) {
+        if (mon.w > 1 && box.x + box.w <= mon.x) {
+            const double pages = std::floor((box.x - mon.x) / mon.w);
+            box.x -= pages * mon.w;
+        }
+        if (mon.h > 1 && box.y + box.h <= mon.y) {
+            const double pages = std::floor((box.y - mon.y) / mon.h);
+            box.y -= pages * mon.h;
+        }
+
+        const double maxBottom = frame.y + frame.h - edge;
+        if (box.h <= maxBottom - minTop && box.y + box.h > maxBottom)
+            box.y = maxBottom - box.h;
+
+        const double minLeft  = frame.x + edge;
+        const double maxRight = frame.x + frame.w - edge;
+        if (box.x < minLeft)
+            box.x = minLeft;
+        else if (box.w <= maxRight - minLeft && box.x + box.w > maxRight)
+            box.x = maxRight - box.w;
+    }
+
     const CBox got     = TARGET->position();
     const bool moved   = std::abs(got.x - box.x) >= 1 || std::abs(got.y - box.y) >= 1;
     const bool resized = std::abs(got.w - box.w) >= 1 || std::abs(got.h - box.h) >= 1;
@@ -641,20 +711,36 @@ void Snap::clampToWorkArea(PHLWINDOW w) {
     // into updateWindow, and the bar calls this from there. Windows do not animate
     // (x-mode disables windowsMove), so warping the current value is invisible.
     // setPositionGlobal would also configure the client; a move must not, and a
-    // shrink reports the size once.
+    // shrink reports the size once. The forced pass is the exception: a page
+    // shift leaves size alone, so the client (X11 especially) keeps the old
+    // coordinates until sendWindowSize. updateToplevel re-enters the surface on
+    // the monitor the window sits on now. Neither raises: a click does that.
     box.round();
     TARGET->setPositionGlobal(box, Layout::TARGET_UPDATE_NO_CLIENT_CONFIGURE);
-    w->positionAnimation()->setValueAndWarp(box.pos());
-    w->sizeAnimation()->setValueAndWarp(box.size());
-    if (w->m_group) {
-        for (const auto& m : w->m_group->windows()) {
-            if (const auto member = m.lock()) {
-                member->positionAnimation()->setValueAndWarp(box.pos());
-                member->sizeAnimation()->setValueAndWarp(box.size());
-            }
+
+    const auto sync = [&](PHLWINDOW win) {
+        if (!win)
+            return;
+        win->positionAnimation()->setValueAndWarp(box.pos());
+        win->sizeAnimation()->setValueAndWarp(box.size());
+        if (force) {
+            if (win->isHidden())
+                win->setHidden(false);
+            win->sendWindowSize(true);
+            win->updateToplevel();
         }
-    }
-    if (resized)
+    };
+    if (w->m_group) {
+        for (const auto& m : w->m_group->windows())
+            sync(m.lock());
+    } else
+        sync(w);
+    // Hit-test uses GEOMETRIC_CURRENT plus the decoration cache. Warp the
+    // target so the titlebar sits on the paged box this frame; a click can
+    // then raise without us raising here.
+    if (force)
+        TARGET->warpPositionSize();
+    if (!force && resized)
         w->sendWindowSize(true);
 }
 

@@ -40,15 +40,19 @@ nest_paths() {
   DOCK_CFG="$NEST_STATE/dock"
   DOCK_LOG="$NEST_STATE/dock.log"
   NEST_DIRTY="$NEST_STATE/config-dirty"
+  # The panel's settings live in the user's config dir (the pack's own directory
+  # and the state dir are both removed on uninstall), so the nest writes them
+  # into its throwaway HOME.
+  NEST_SETTINGS="$NEST_STATE/home/.config/hypr/x-mode.json"
 }
-NEST_LUA="$REPO_DIR/hypr/x-mode.lua"
+NEST_LUA="$REPO_DIR/hypr/x-mode/x-mode.lua"
 PLUGIN_SO="$REPO_DIR/hyprbars/hyprbars.so"
 POINTER_DIR="$TESTS_DIR/pointer"
 KEYBOARD_DIR="$TESTS_DIR/keyboard"
 NEST_BAR="${NEST_BAR:-1}"
 nest_paths
 
-RED=$'\033[31m'; GREEN=$'\033[32m'; RESET=$'\033[0m'
+RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RESET=$'\033[0m'
 
 # --- assertions --------------------------------------------------------------
 
@@ -285,7 +289,7 @@ nest_start() {
   # Start from a clean state dir: a run that fails midway can leave settings.json
   # behind, and the next run would inherit it.
   rm -rf "$NEST_STATE/state" "$NEST_STATE/home"
-  mkdir -p "$NEST_STATE/state" "$NEST_STATE/home"
+  mkdir -p "$NEST_STATE/state" "$NEST_STATE/home" "$(dirname "$NEST_SETTINGS")"
 
   # setsid makes this pid the process-group leader, so nest_stop can kill the
   # nest without the pattern match that would also kill every other slot.
@@ -344,16 +348,22 @@ raise SystemExit(1)' && [ "$(bar_top 2>/dev/null)" = 24 ]
 # The output shows up after the wayland socket. A bar started before that
 # binds no screen and never maps, and the reserved top stays whatever the
 # output reported on the way up.
-nest_output_ready() {
+#
+# The size, and not "wide enough": the backend offers 1280x720 first, the host
+# rejects that mode, and until its own configure lands hyprctl still reports that
+# wide monitor -- which a width threshold accepts. What is waited for is a size
+# that stops changing instead; see nest_bar_spawn.
+nest_output_size() {
   nest_ctl monitors -j 2>/dev/null | python3 -c '
 import json, sys
 try:
     mons = json.load(sys.stdin) or []
 except Exception:
     raise SystemExit(1)
-# A 0x0 configure leaves the output up with no usable mode. Width stays
-# tiny, and the bar then reserves nothing. The real nest is 450 wide.
-raise SystemExit(0 if any(int(m.get("width") or 0) >= 400 for m in mons) else 1)
+if not mons:
+    raise SystemExit(1)
+m = mons[0]
+print("%dx%d" % (int(m.get("width") or 0), int(m.get("height") or 0)))
 '
 }
 
@@ -369,18 +379,22 @@ nest_bar_spawn() {
   [ -S "$disp" ] || return 1
   # The first configure is 0x0. The backend answers with 1280x720, the host
   # rejects that mode, and for a moment hyprctl still reports a wide monitor.
-  # qs started on that blip binds no real screen. Wait until the width holds.
-  local ready=0 streak=0
+  # qs started on that blip binds no real screen, and "wide enough" is true of
+  # the rejected mode as well -- so what is waited for is one non-zero size that
+  # holds. Eighth tenths of a second is a configure cycle on a loaded host.
+  local ready=0 streak=0 size="" held=""
   for i in $(seq 1 100); do
-    if nest_output_ready; then
+    size="$(nest_output_size 2>/dev/null || true)"
+    if [ -n "$size" ] && [ "$size" != "0x0" ] && [ "$size" = "$held" ]; then
       streak=$((streak + 1))
-      if [ "$streak" -ge 3 ]; then
+      if [ "$streak" -ge 8 ]; then
         ready=1
         break
       fi
     else
       streak=0
     fi
+    held="$size"
     sleep 0.1
   done
   [ "$ready" = 1 ] || return 1
@@ -399,7 +413,7 @@ nest_bar_start() {
   # the host drops that wayland client while several nests are mapping.
   # A later try has the output, and a shell that already bound a placeholder
   # is thrown away rather than waited on.
-  for attempt in 1 2 3; do
+  for attempt in 1 2 3 4; do
     nest_bar_spawn || {
       sleep 0.3
       continue
@@ -412,7 +426,11 @@ nest_bar_start() {
   done
   # return, do not exit. fail() ends the worker, so the caller's
   # "start the nest again" never runs and one missed bar drops the slot.
-  echo "bar reserved '$(bar_top 2>/dev/null)'" >&2
+  # The output is printed with it: an empty reserved top says the nest has no
+  # output at all, '0' that it has one and the bar reserved nothing on it, and
+  # a width that is not the settled one says the bar bound the mode the host
+  # had not accepted yet.
+  echo "bar reserved '$(bar_top 2>/dev/null)' with the output '$(nest_output_size 2>/dev/null || echo none)'" >&2
   sed 's/^/       /' "$NEST_STATE/bar.log" >&2
   echo "the nest bar did not reserve the top" >&2
   return 1
@@ -582,10 +600,12 @@ nest_clean() {
   done
   # Settings are written by the panel, and by the tests that drive it. Reset them
   # so a test that fails midway cannot change how the next one lays out windows.
-  printf '%s\n' '{"options":{},"apps":{}}' > "$NEST_STATE/state/settings.json"
-  # x-mode's on/off file and the one-shot arrange marker: a scenario that turns
-  # X Mode off (or arranges) must not leave the next one off.
-  rm -f "$NEST_STATE/state/enabled" "$NEST_STATE/state/arrange"
+  printf '%s\n' '{"options":{},"apps":{}}' > "$NEST_SETTINGS"
+  # x-mode's on/off file, the one-shot arrange marker and the restore points: a
+  # scenario that turns X Mode off (or arranges, or snaps a window) must not
+  # leave the next one off, mid-arrange, or with a box from a window whose
+  # address this scenario's window may be given.
+  rm -f "$NEST_STATE/state/enabled" "$NEST_STATE/state/arrange" "$NEST_STATE/state/restore.txt"
   # The dock's pinned list lives in the dock's HOME, which outlives a single
   # scenario, so it has to be cleared too or the next dock test starts with
   # someone else's icons. Desktop entries written there are cleared for the same
@@ -593,6 +613,10 @@ nest_clean() {
   # class it names, which shifts the rows the menu tests click on.
   rm -f "$NEST_STATE/home/.config/omarchy/x-mode-dock.json"
   rm -rf "$NEST_STATE/home/.local/share/applications"
+  # Omarchy's permanent toggles are files it sources on every load, so one a
+  # scenario plants (the gaps toggle, to watch the pack retire it) would decide the
+  # next scenario's gaps before it opens a window.
+  rm -rf "$NEST_STATE/home/.local/state/omarchy/toggles"
   # Back to the first workspace: a scenario that switches away (the dock menu one
   # does) would otherwise decide where the next one opens its windows, and two
   # same-app windows that land on one space group instead of staying apart.
@@ -615,6 +639,14 @@ nest_clean() {
   # reset. refresh_apps_off drops them from the empty file, so a scenario that
   # turned chrome off does not leave that rule for the next one, and a reload
   # is not required to do it.
+  #
+  # The option block needs its own reset, and more of it than the chrome rules:
+  # a scenario that drove the panel (or called refresh_options itself) has the
+  # pack holding the options it read then -- the global keyboard replacements
+  # among them, and global_keys_test steals Super+Q for every app, which decides
+  # what the next scenario's Super+Q does. refresh_apps_off does not re-read the
+  # file, so the pack has to be pointed at the empty one it was just given.
+  nest_hyprctl eval 'if x_mode and x_mode.refresh_options then x_mode.refresh_options() end' >/dev/null 2>&1 || true
   nest_hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null 2>&1 || true
 }
 
@@ -625,14 +657,20 @@ refresh_apps() {
   nest_ctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null
 }
 
-# Poll until a command succeeds. The command is the condition the next assert
-# checks, so the wait ends when the compositor has landed instead of after a
-# fixed pause.
-wait_until() { # SECONDS COMMAND...
+# Poll until a condition holds. The condition is text, evaluated on every poll,
+# not a command the caller already expanded: `wait_until 5 [ "$(f)" = 1 ]` runs
+# that substitution once, before the first check, so it waits for nothing and a
+# step that took a moment longer reads as a flake. Quote it to keep it late:
+#   wait_until 5 '[ "$(f)" = 1 ]'
+# A function name is the same thing and the shorter spelling for a condition a
+# scenario asks about twice; its arguments, if any, come along in the text. A
+# value the text compares against has to be captured in a local first -- after the
+# shift below, `$1` inside the text is not the caller's argument any more.
+wait_until() { # SECONDS CONDITION...
   local secs="$1" i
   shift
   for i in $(seq 1 $((secs * 20))); do
-    "$@" && return 0
+    eval "$*" && return 0
     sleep 0.05
   done
   return 1
@@ -843,6 +881,17 @@ print(sum(1 for b in json.load(sys.stdin)
           if text in (b.get('description') or '').lower() and int(b.get('modmask') or 0) == mods))"
 }
 
+# The whole description, not a substring of it: "Start of line" is inside
+# "Delete to start of line" and "B" is inside "BACKSPACE", so a scenario that
+# counts a label has to say which one it means.
+bind_count_desc_exact() { # TEXT MODMASK
+  nest_ctl binds -j | python3 -c "
+import json, sys
+text, mods = '$1'.lower(), int('$2')
+print(sum(1 for b in json.load(sys.stdin)
+          if (b.get('description') or '').lower() == text and int(b.get('modmask') or 0) == mods))"
+}
+
 # Switch a group to tab INDEX (1-based), the dispatcher the pack's Ctrl+N uses.
 group_tab() { # INDEX CLASS
   nest_ctl dispatch "hl.dsp.group.active({ index = $1, window = 'class:$2' })" >/dev/null
@@ -922,16 +971,42 @@ QML
 dock_stop() {
   [ -f "$NEST_STATE/dock.pid" ] && kill "$(cat "$NEST_STATE/dock.pid")" 2>/dev/null || true
   rm -f "$NEST_STATE/dock.pid"
-  # The pack reads the dock's width off its layer and keeps the last one it saw,
-  # so a dock that has gone still leaves the snap inset at the card width. Put it
-  # back, or the next scenario's right half stops short of where it should.
+  # The pack reads the dock's width off its layer and keeps the last one it saw
+  # (a layer that goes away must not move the zones), so a dock that has gone
+  # still leaves the snap inset at its card width. Put the inset back *and* have
+  # the next scenario start on a fresh parse: the pack remembers the card width
+  # for the parse as well, and without the reload the next `apply_gap_geometry`
+  # -- a dock mapping, a gaps toggle -- publishes the wider card again, which is
+  # how a later scenario got a narrower frame than its own dock (a maximize that
+  # stopped short by the card width).
   if [ -n "$SIG" ]; then
     nest_hyprctl eval "hl.config({ plugin = { hyprbars = { x_mode_dock_inset = 45 } } })" >/dev/null 2>&1 || true
+    [ -n "${NEST_DIRTY:-}" ] && printf 'reload\n' >> "$NEST_DIRTY"
   fi
 }
 
 dock_box() { # "X Y W H" of the dock's layer surface
   dock_layer_box x-mode-dock
+}
+
+# The order the card is actually showing: one class per line in the file the
+# dock writes when its published list changes, as one line for assertions.
+dock_order() {
+  local f="$DOCK_RUNTIME/omarchy-x-mode.dock-order"
+  # No file yet is not an error: the dock writes it when its list first changes.
+  [ -f "$f" ] || return 0
+  tr '\n' ' ' < "$f" | sed 's/ *$//'
+}
+
+# Wait for the card to show this order. The box says how many icons there are
+# and not which, so a pin of an app that is already running leaves it alone and
+# the order is the only thing that moves.
+dock_wait_order() { # "class class ..."
+  # Captured before the wait: the condition text is eval'd, and after wait_until
+  # shifts its own $1 the positional parameters inside the text are not the
+  # caller's any more.
+  local want="$1"
+  wait_until 5 '[ "$(dock_order)" = "$want" ]'
 }
 
 dock_layer_box() { # NAMESPACE
@@ -1041,11 +1116,14 @@ dock_settle() {
 # the file, so no restart is needed.
 dock_pinned_file() { printf '%s/.config/omarchy/x-mode-dock.json' "$NEST_STATE/home"; }
 dock_pin() {
-  local before="" cur i
+  local before="" before_order="" cur cur_order i
   # A dock that is not running reads the file at startup, so there is nothing
   # to wait for. One that is running rebuilds when the file changes; the card
-  # changing is that rebuild.
+  # changing is that rebuild -- and the card's *order* counts as changing too,
+  # because pinning an app that is already running leaves the number of icons
+  # and so the height alone.
   before="$(dock_box 2>/dev/null || true)"
+  before_order="$(dock_order)"
   mkdir -p "$(dirname "$(dock_pinned_file)")"
   printf '%s\n' "$1" > "$(dock_pinned_file)"
   [ -n "$before" ] || return 0
@@ -1053,7 +1131,11 @@ dock_pin() {
   # trying to commit the new card. The slower gap is the same wait.
   for i in $(seq 1 16); do
     cur="$(dock_box 2>/dev/null || true)"
-    [ -n "$cur" ] && [ "$cur" != "$before" ] && { dock_settle; return 0; }
+    cur_order="$(dock_order)"
+    if [ -n "$cur" ] && { [ "$cur" != "$before" ] || [ "$cur_order" != "$before_order" ]; }; then
+      dock_settle
+      return 0
+    fi
     sleep 0.25
   done
   dock_settle

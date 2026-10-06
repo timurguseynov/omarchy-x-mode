@@ -4,7 +4,7 @@
 # titlebar stops a further 28px down.
 . "$(dirname "$0")/../../lib.sh"
 
-SETTINGS="$NEST_STATE/state/settings.json"
+SETTINGS="$NEST_SETTINGS"
 
 extent="$(pointer_extent)"
 mw="${extent%x*}"

@@ -2,26 +2,45 @@
 --
 -- Loaded from a sentinel block at the end of ~/.config/hypr/hyprland.lua:
 --   -- >>> omarchy-x-mode >>>
---   dofile((os.getenv("HOME") or "") .. "/.config/hypr/x-mode.lua")
+--   dofile((os.getenv("HOME") or "") .. "/.config/hypr/x-mode/x-mode.lua")
 --   -- <<< omarchy-x-mode <<<
 --
 -- This file holds the pack: the floating desktop, the Mac titlebar/tabbar
--- (patched hyprbars), and the Rectangle-style snap + same-app grouping engine.
--- Geometry is not here: the plugin owns it (hyprbars/snap.cpp -- zones, the snap
--- cycle, the work frame, the chrome), and this config asks it. Pure parsing is
--- still next to it in x-mode/ so it can be tested on its own (tests/unit).
--- Personal look'n'feel (input, monitors, decoration, native snap, ...) lives in
--- a separate file the pack does not own -- see omarchy-x-vm/taste.lua -- so
--- uninstalling the pack never removes it.
+-- (patched hyprbars), the key/mouse bindings, and the state that comes from
+-- events (groups, focus, the switcher). Everything that puts a *window on a
+-- zone* -- snap, restore, the re-apply a load or a moved frame needs, the
+-- one-shot arrange -- is layout.lua next to this file, so there is one place to
+-- read when a window is not where it should be. Geometry is not in either: the
+-- plugin owns it (hyprbars/snap.cpp -- zones, the snap cycle, the work frame,
+-- the chrome) and both only ask for it. Pure parsing lives in the same directory
+-- so it can be tested on its own (tests/unit). Personal look'n'feel (input, monitors, decoration, native snap,
+-- ...) lives in a separate file the pack does not own -- see
+-- omarchy-x-vm/taste.lua -- so uninstalling the pack never removes it.
 
--- Resolve this chunk's directory so the sibling module is found both installed
--- (~/.config/hypr/x-mode.lua) and straight from the repo (the tests load this
--- file out of hypr/).
+-- Resolve this file's directory so the sibling modules are found both installed
+-- (~/.config/hypr/x-mode/) and straight from the repo (the tests load this file
+-- out of hypr/x-mode/).
 local X_MODE_DIR = (debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "./"
-local settings = dofile(X_MODE_DIR .. "x-mode/settings.lua")
-local theme = dofile(X_MODE_DIR .. "x-mode/theme.lua")
-local mru = dofile(X_MODE_DIR .. "x-mode/mru.lua")
-local group = dofile(X_MODE_DIR .. "x-mode/group.lua")
+local settings = dofile(X_MODE_DIR .. "settings.lua")
+local theme = dofile(X_MODE_DIR .. "theme.lua")
+local mru = dofile(X_MODE_DIR .. "mru.lua")
+local group = dofile(X_MODE_DIR .. "group.lua")
+local supermap = dofile(X_MODE_DIR .. "supermap.lua")
+local textkeys = dofile(X_MODE_DIR .. "textkeys.lua")
+local layout = dofile(X_MODE_DIR .. "layout.lua")
+
+-- A list out of a query result. Omarchy's keybindings scan
+-- (`omarchy-menu-keybindings`) dofiles hyprland.lua with a stub `hl` whose every
+-- field is a callable proxy that answers any index, so a query returns that
+-- proxy instead of a list and `ipairs` walks it forever -- that is what left
+-- three `lua` processes pinned at 100%. The proxy has no __len, so `#` reads 0
+-- and the list comes back empty; in Hyprland the result is a plain array.
+local function as_list(v)
+  if type(v) ~= "table" or #v == 0 then
+    return {}
+  end
+  return v
+end
 
 
 -- ---------------------------------------------------------------------------
@@ -47,7 +66,7 @@ end
 local function restore_desktop()
   -- Same idea as install.sh uninstall: ungroup everything, restore windows
   -- that were floating before the pack, tile the rest.
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if w.group ~= nil then
       pcall(function()
         hl.dispatch(hl.dsp.window.move({ out_of_group = true, window = w }))
@@ -73,7 +92,7 @@ local function restore_desktop()
         end
       end
     end
-    for _, w in ipairs(hl.get_windows() or {}) do
+    for _, w in ipairs(as_list(hl.get_windows())) do
       local snap = prior[tostring(w.address or "")]
       local want_float = snap and snap.floating or false
       if want_float then
@@ -91,10 +110,35 @@ local function restore_desktop()
   end, { timeout = 150, type = "oneshot" })
 end
 
+-- The pack owns the gaps -- the panel's "No gaps" is the switch -- so Omarchy's
+-- own gaps toggle is kept off. Its state is a file Omarchy sources on every load,
+-- so a desktop that ever pressed its key has gaps_out, gaps_in and the border
+-- zeroed for good: no reload brings the values back, and every titlebar sits at
+-- gap 0. Removing the file is exactly what that toggle's own "off" does (see
+-- omarchy-hyprland-toggle), which is why it is done here instead of by running the
+-- script: the script ends with a reload, and a reload cannot start inside a config
+-- load. The reload that puts the values back is scheduled instead -- and only when
+-- there was a file to remove, so it cannot loop. Runs on both paths: switching
+-- x-mode on from the panel reloads, and that load has to do it too.
+local function retire_omarchy_gaps_toggle()
+  local path = (os.getenv("HOME") or "") .. "/.local/state/omarchy/toggles/hypr/window-no-gaps.lua"
+  local file = io.open(path, "r")
+  if file == nil then
+    return
+  end
+  file:close()
+  os.remove(path)
+  hl.timer(function()
+    hl.exec_cmd("hyprctl reload >/dev/null")
+  end, { timeout = 1200, type = "oneshot" })
+end
+
+retire_omarchy_gaps_toggle()
+
 if not x_mode_wanted() then
   -- Remember that the desktop was switched off, so the next time it comes on
-  -- (the bar panel writes "on" and reloads) the windows get spread across the
-  -- halves again, the same as a fresh install. Only the off path writes it:
+  -- (the bar panel writes "on" and reloads) the windows get dealt out again,
+  -- the same as a fresh install. Only the off path writes it:
   -- the on path consumes it, so a reload while already on does nothing.
   pcall(function()
     local marker = io.open(X_MODE_STATE .. "/arrange", "w")
@@ -347,10 +391,10 @@ apply_gap_geometry()
 -- that maps before its first arrange reports no width; that one is skipped.
 local function dock_card_now()
   local ok, layers = pcall(hl.get_layers, { namespace = "x-mode-dock" })
-  if not ok or type(layers) ~= "table" then
+  if not ok then
     return nil
   end
-  for _, layer in ipairs(layers) do
+  for _, layer in ipairs(as_list(layers)) do
     local w = tonumber(layer.w)
     if w ~= nil and w > 0 then
       return math.floor(w)
@@ -366,6 +410,9 @@ local function refresh_dock_card()
   end
   dock_card = w
   apply_gap_geometry()
+  -- The zones moved with the card; put the windows that were on one back on it,
+  -- matched against the frame they were placed in (layout.lua keeps it).
+  layout.frame_changed()
 end
 
 -- Load hyprpm-managed plugins, then the patched x-mode hyprbars on login
@@ -380,10 +427,10 @@ o.exec_on_start("sh -c 'hyprctl plugin unload \"$HOME/.local/share/hyprbars/hypr
 
 -- Rectangle-style snap for floating windows.
 -- Titlebar drag-to-edge lives in the patched hyprbars (CDragSession): it moves
--- the window, draws the preview, and applies the snap. Lua keeps restore +
--- Super+Alt hotkeys, and defers same-app grouping while a drag is in progress.
+-- the window, draws the preview, and applies the snap. The zones, the restore
+-- and the Super+Alt hotkeys are layout.lua's; this file binds them, unbinds what
+-- Omarchy had on the same keys, and defers same-app grouping during a drag.
 
-local saved = {}
 -- Same-app windows that arrived during a drag; joined after the drag ends.
 local pending_join = {}
 local flush_pending_joins = function() end
@@ -416,21 +463,6 @@ local function vec(value)
 end
 
 -- The top the bar reserves. It is a layer-shell surface and is gone for a
-local function usable(monitor)
-  -- The plugin's frame: the monitor minus its reserved area and the dock inset,
-  -- with the same bar-height memory across a shell restart a snap uses. It is
-  -- the frame a left and a right half split, so a clamp or a restore default
-  -- taken from it can never disagree with the zones.
-  local p = bars()
-  if p == nil or p.usable == nil or monitor == nil then
-    return nil
-  end
-  local ok, box = pcall(p.usable, monitor.name)
-  if not ok or type(box) ~= "table" then
-    return nil
-  end
-  return box.x, box.y, box.w, box.h
-end
 
 local function window_class(w)
   if w == nil then
@@ -439,19 +471,55 @@ local function window_class(w)
   return string.lower(tostring(w.initial_class or w.class or ""))
 end
 
-local function chrome_h(window)
-  -- The plugin's number, including its no_bar check (Snap::chromeH): a window
-  -- with its titlebar off has no chrome to keep free above its content.
-  local p = bars()
-  if p == nil or p.chrome_height == nil then
-    return 0
-  end
-  local ok, h = pcall(p.chrome_height, window)
-  if not ok or type(h) ~= "number" then
-    return 0
-  end
-  return h
-end
+-- layout.lua owns everything that puts a window on a zone: the snap, the
+-- restore, the re-apply a load or a moved frame needs, and the one-shot arrange.
+-- It asks the plugin for geometry and remembers the frame it asked with; this
+-- file gives it the pieces of the pack it cannot reach -- the plugin handle, the
+-- drag, the dock card, the window queries and the grouping -- and the state dir
+-- the arrange marker lives in.
+--
+-- ws_id, refresh_window and consolidate are defined further down (they need
+-- helpers from the grouping section); forward-declared here so the closures
+-- below see the real functions rather than a global that never exists.
+local find_peer
+local ws_id
+local refresh_window
+local consolidate
+local window_by_addr
+
+layout.init({
+  plugin = bars,
+  dragging = dragging,
+  dock_card = function()
+    return dock_card
+  end,
+  -- The frame numbers the pack publishes. layout.lua asks for them instead of
+  -- keeping a copy: a frame that moved is what asks for a re-apply, so the
+  -- numbers it compares have to be the ones the plugin was actually told.
+  gap_out = GAP_OUT,
+  border = BORDER,
+  dock_pull = DOCK_PULL,
+  state_dir = X_MODE_STATE,
+  list = function()
+    return as_list(hl.get_windows())
+  end,
+  window_at = function(addr)
+    return window_by_addr(addr)
+  end,
+  class_of = window_class,
+  space_of = function(w)
+    return ws_id(w)
+  end,
+  refresh = function(w)
+    return refresh_window(w)
+  end,
+  find_peer = function(w)
+    return find_peer(w)
+  end,
+  consolidate = function()
+    consolidate()
+  end,
+})
 
 local function ensure_tab_group(window)
   if window == nil or window.group ~= nil then
@@ -462,13 +530,72 @@ local function ensure_tab_group(window)
   end)
 end
 
--- Defined later (need window_class/ws_id/... helpers); forward-declared so
--- snap() can join an existing same-app group before creating a new one.
-local find_peer
+-- join_same_app is defined with the rest of the grouping below.
 local join_same_app
 local apps_off = {}
+-- Keyboard replacements the main panel forces on for every class, keyed by the
+-- same name the parsed apps use (options.keys). This is the fallback: a class with
+-- its own three-state setting wins over it, so a card can say Always off where the
+-- desktop says on (settings.key_flag is where the two meet).
+local key_flags = {}
+-- Occupied Super keys stolen for every class (options.keys.steal), the same kind of
+-- fallback for the per-key lists.
+local global_steal = {}
+-- Whether the pack takes Ctrl+Cmd+Q for the lock (options.lockScreenKey, on
+-- unless the file says false). Declared here because the lock bind is applied
+-- with the capture keys, above the options block that reads it.
+local lock_key = true
 
-local function window_by_addr(addr)
+-- One keyboard flag for a class: the app's own three-state setting (true is Always
+-- on, false is Always off) or, when it has none, the desktop's forced one. Nothing
+-- is pre-built into sets here, so a card that says Always off wins over a global on
+-- without a second source of truth.
+local function key_flag(name, cls)
+  return settings.key_flag(apps_cfg, cls, key_flags, name)
+end
+
+-- Whether anything has the flag on at all. The generated binds exist only then, so
+-- one card's Always on is enough to put them in place.
+local function key_flag_any(name)
+  return settings.key_flag_any(apps_cfg, key_flags, name)
+end
+local ctrl_c_binds = {}
+-- Defined with the other option appliers (it reads the bind table out of band),
+-- forward-declared so the app refresh can call it.
+local apply_super_ctrl
+
+-- Send a chord to a window as its own down/up pair. `send_shortcut` pairs the
+-- press with the physical key and the release with its release, so the app is
+-- left *holding* a key whose Ctrl is already gone: its own key repeat then types
+-- the bare letter -- holding Cmd+D in an editor selected once and then wrote "d".
+-- The pair is what Omarchy's clipboard and the text chords below send by hand for
+-- the same stuck/repeating synthetic key (hyprland discussion 14099). A key held
+-- down is the bind's business, not the app's: see `repeating` in bind_super_ctrl.
+--
+-- The key goes as a keycode, not as a name: `send_shortcut` resolves a name by
+-- looking the keysym up in the *active* layout, so on a Cyrillic layout Ctrl+T
+-- would not resolve at all. A keycode is what "Cmd+T means the physical T key"
+-- wants anyway.
+local function send_chord(mods, key, w)
+  local code = supermap.key_code(key)
+  if code == nil then
+    return false
+  end
+  local k = "code:" .. tostring(code)
+  hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = k, state = "down", window = w }))
+  hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = k, state = "up", window = w }))
+  return true
+end
+
+local function send_ctrl(key, shift, w)
+  return send_chord(shift and "CTRL SHIFT" or "CTRL", key, w)
+end
+
+local function key_stolen(cls, key, shift)
+  return settings.key_stolen(apps_cfg, cls, global_steal, supermap.key_id(key, shift))
+end
+
+function window_by_addr(addr)
   if addr == nil then
     return nil
   end
@@ -479,122 +606,55 @@ local function window_by_addr(addr)
   return hl.get_window(a)
 end
 
-local function save(window)
-  if window == nil then
-    return
-  end
-  local x, y = vec(window.at)
-  local w, h = vec(window.size)
-  saved[window.address] = { x = x, y = y, w = w, h = h }
-end
-
-local function place(x, y, w, h, window)
-  window = window or hl.get_active_window()
-  if window == nil then
-    return
-  end
-
-  if window.fullscreen and window.fullscreen ~= 0 then
-    hl.dispatch(hl.dsp.window.fullscreen({ action = "unset", window = window }))
-  end
-  if not window.floating then
-    hl.dispatch(hl.dsp.window.float({ action = "enable", window = window }))
-  end
-
-  hl.dispatch(hl.dsp.window.resize({ x = w, y = h, relative = false, window = window }))
-  hl.dispatch(hl.dsp.window.move({ x = x, y = y, relative = false, window = window }))
-end
-
-local function snap(kind, window)
-  window = window or hl.get_active_window()
-  if window == nil then
-    return
-  end
-
-  if kind ~= "restore" then
-    save(window)
-  end
-
-  if kind == "restore" then
-    local monitor = window.monitor or hl.get_monitor_at_cursor() or hl.get_active_monitor()
-    if monitor == nil then
-      return
-    end
-    local x, y, w, h = usable(monitor)
-    if x == nil then
-      return
-    end
-    local prev = saved[window.address]
-    if prev then
-      place(prev.x, prev.y, prev.w, prev.h, window)
-    else
-      place(x + math.floor(w * 0.15), y + math.floor(h * 0.12), math.floor(w * 0.7), math.floor(h * 0.76), window)
-    end
-    return
-  end
-
-  -- Join an existing same-app group first; only create a fresh group if there
-  -- is no group to join (otherwise snapping would spawn a second group). Join
-  -- directly (no keep_pos) so the snapped position is not undone afterwards.
-  if window.group == nil and find_peer ~= nil then
-    local peer = find_peer(window)
-    if peer ~= nil and peer.group ~= nil then
-      pcall(function()
-        peer.group:add(window)
-      end)
-    end
-  end
-  -- The zone geometry (and the client minimum a zone grows to) is the plugin's
-  -- (Snap::applyKind / contentBox). Without the plugin there is no snap: the
-  -- pack is its plugin, and a second implementation in here is exactly the
-  -- drift the old fallback caused.
-  local p = bars()
-  if p ~= nil and p.snap ~= nil then
-    pcall(function()
-      p.snap({ kind = kind, window = window })
-    end)
-  end
-end
-
--- Super+Alt+Left/Right step the window through the cycle sizes on that side
--- (half, two thirds, a third) and snap it to the side's zone when it is not on
--- one of them yet. Both the sizes and the matching live in the plugin
--- (Snap::cycle): they are the same frame, chrome, client minimum and insets a
--- zone is built from, so there is no second copy to keep in step.
-local function snap_or_expand(side)
-  local window = hl.get_active_window()
-  local monitor = hl.get_monitor_at_cursor() or hl.get_active_monitor()
-  if window == nil or monitor == nil then
-    return
-  end
-
-  local p = bars()
-  if p ~= nil and p.cycle ~= nil then
-    local ok, stepped = pcall(p.cycle, window, side)
-    if ok and stepped then
-      return
-    end
-  end
-  snap(side, window)
-end
-
--- Super+LMB window dragging is disabled in x-mode. Titlebar drag-to-edge
--- lives in hyprbars (CDragSession).
+-- Super+LMB was window drag, Super+RMB was resize. Titlebar drag-to-edge
+-- lives in hyprbars (CDragSession); Super+click is Ctrl+click for apps with
+-- the panel flag, and otherwise reaches the app as Super+click.
 hl.unbind("SUPER + mouse:272")
+hl.unbind("SUPER + mouse:273")
+local function window_at_cursor()
+  local pos = hl.get_cursor_pos()
+  if pos == nil then
+    return nil
+  end
+  local x, y = vec(pos)
+  local hit = nil
+  for _, w in ipairs(as_list(hl.get_windows())) do
+    if w.mapped and not w.hidden then
+      local ax, ay = vec(w.at)
+      local ww, hh = vec(w.size)
+      if x >= ax and y >= ay and x < ax + ww and y < ay + hh then
+        hit = w
+      end
+    end
+  end
+  return hit
+end
+local function super_ctrl_click(button)
+  return function()
+    -- Titlebar / empty space: let the click through (hyprbars, focus).
+    -- The window under the cursor, not the focused one: Cmd+click a link in
+    -- a background window should still be Ctrl+click there.
+    local w = window_at_cursor()
+    if w == nil or not key_flag("ctrl_click", window_class(w)) then
+      return { pass_event = true }
+    end
+    hl.dispatch(hl.dsp.send_shortcut({
+      mods = "CTRL",
+      key = "mouse:" .. tostring(button),
+      window = w,
+    }))
+  end
+end
+o.bind("SUPER + mouse:272", "Ctrl+click", super_ctrl_click(272), { mouse = true })
+o.bind("SUPER + mouse:273", "Ctrl+click", super_ctrl_click(273), { mouse = true })
+o.bind("SUPER + mouse:274", "Ctrl+click", super_ctrl_click(274), { mouse = true })
 
 -- Hyprland tracks two fullscreen flags: the compositor's own (internal) and the
 -- client's xdg request. Either one means the window is not a normal floating
 -- window, and the pack must not move, resize or re-fit it. Checking only
 -- `fullscreen` left a client-fullscreen window (a video player, a game, or an
--- app that stayed fullscreen after the compositor's flag was cleared) to be
--- pushed below the top bar and off the bottom of the screen by the next clamp.
-local function is_fullscreen(w)
-  if w == nil then
-    return false
-  end
-  return (w.fullscreen ~= nil and w.fullscreen ~= 0) or (w.fullscreen_client ~= nil and w.fullscreen_client ~= 0)
-end
-
+-- The fullscreen check a zone re-apply needs is layout.lua's (is_fullscreen
+-- there); what is left here is the comment about keeping a window below the bar.
 -- Keeping a window below the bar is the plugin's job: CHyprBar::updateWindow
 -- runs on every move and resize (updateWindowDecos calls it) and
 -- Snap::clampToWorkArea fits the box with the same gap, border and chromeH the
@@ -665,7 +725,7 @@ end
 -- app first. The same app stays fullscreen: the key did not select anything
 -- else.
 local function leave_fullscreen_for(cls)
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if w.fullscreen and w.fullscreen ~= 0 and tostring(w.class or "") ~= cls then
       hl.dispatch(hl.dsp.window.fullscreen({ action = "unset", window = w }))
     end
@@ -676,7 +736,7 @@ local function switcher_focus(cls)
   leave_fullscreen_for(cls)
   local best = nil
   local best_focus = nil
-  for _, w in ipairs(hl.get_windows()) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if tostring(w.class or "") == cls then
       local f = tonumber(w.focus_history_id) or 999999
       if best == nil or f < best_focus then
@@ -702,7 +762,7 @@ local function switcher_step(step)
     -- (smallest focus_history_id): a class can have several windows, and taking
     -- the first one in hl.get_windows() order would sort it by the wrong window.
     local by_class = {}
-    for _, w in ipairs(hl.get_windows()) do
+    for _, w in ipairs(as_list(hl.get_windows())) do
       local cls = tostring(w.class or "")
       if cls ~= "" then
         local f = tonumber(w.focus_history_id) or 999999
@@ -822,6 +882,11 @@ hl.unbind("SUPER + L") -- workspace layout picker (dwindle/scrolling)
 hl.unbind("SUPER + O") -- pop out: float + pin
 hl.unbind("SUPER + J") -- togglesplit
 hl.unbind("SUPER + P") -- pseudo (dwindle stretch)
+-- Omarchy's own gaps toggle. The pack owns the gaps -- the panel's "No gaps" is
+-- the switch, and it is the only thing that can put them back -- so this key is
+-- free. Both spellings, since Omarchy may write it by keycode.
+hl.unbind("SUPER + SHIFT + BACKSPACE")
+hl.unbind("SUPER + SHIFT + code:22")
 hl.unbind("SUPER + CTRL + F") -- tiled fullscreen
 hl.unbind("SUPER + Home") -- restore saved tiled width
 hl.unbind("SUPER + ALT + Home") -- save tiled width
@@ -835,14 +900,36 @@ hl.unbind("SUPER + CTRL + code:21")
 hl.unbind("SUPER + CTRL + SHIFT + code:20")
 hl.unbind("SUPER + CTRL + SHIFT + code:21")
 
+-- [id] = true for every key the pack binds itself, in the steal list's spelling
+-- (Super or Super+Shift + one key). Omarchy's files describe what used to be on
+-- such a key -- her focus on Cmd+Left, window transparency on Cmd+Backspace --
+-- and both are text chords here now, so a file-derived replay must not claim one
+-- of them, or stealing the key would break every app that did not steal it.
+local pack_keys = {}
+local function note_pack_key(keys)
+  local id = supermap.steal_id_of(keys)
+  if id ~= nil then
+    pack_keys[id] = true
+  end
+end
 -- Cmd+W closes the active window (Omarchy's killactive). Just close it: the
 -- patched hyprbars keeps the group focused on the previous tab and raises it
 -- from its single window.close listener, which Cmd+W, the tabbar close button
 -- and apps closing their own window all share.
+--
+-- An app that steals W sends Ctrl+W instead, so Cmd+W closes the tab rather
+-- than the whole window (a browser, a terminal). The key goes to the focused
+-- window as a real Ctrl+W; the close path above stays out of the way. W used to
+-- be a replacement of its own (the panel's ctrlW flag) -- it is one of the
+-- occupied keys now, with the same toggle as Cmd+Q and Cmd+F.
 hl.unbind("SUPER + W")
 o.bind("SUPER + W", "Close window", function()
   local w = hl.get_active_window()
   if w == nil then
+    return
+  end
+  if key_stolen(window_class(w), "W", false) then
+    send_ctrl("W", false, w)
     return
   end
   hl.dispatch(hl.dsp.window.close({ window = w }))
@@ -856,6 +943,10 @@ o.bind("SUPER + Q", "Close app", function()
   if w == nil then
     return
   end
+  if key_stolen(window_class(w), "Q", false) then
+    send_ctrl("Q", false, w)
+    return
+  end
   if w.group ~= nil then
     for _, m in ipairs(w.group.members) do
       hl.dispatch(hl.dsp.window.close({ window = m }))
@@ -865,14 +956,101 @@ o.bind("SUPER + Q", "Close app", function()
   end
 end)
 
+-- --- Universal clipboard ------------------------------------------------------
+-- Cmd+C/V/X send the app its own copy/paste/cut. Omarchy has her own version of
+-- this, and hers hands the chord over *by name* ("C", "Insert"): Hyprland resolves
+-- a name in the *active* layout, where a Russian group has no Latin C on the C key,
+-- so the dispatch raises "runtime error in lua, send_key_state: key not found" and
+-- the copy never reaches the app -- until the name happens to have been resolved
+-- once and cached, which is why it only bit sometimes. The pack owns the key from
+-- load and sends a keycode, so the chord is the physical key whatever the layout
+-- says.
+--
+-- No window target on purpose: the chord goes to whatever surface has focus, so a
+-- layer-shell panel (the clipboard manager's search field) receives it too, which
+-- is what her version does with the same trick.
+--
+-- The terminal split is hers as well: readline has no clipboard, so a terminal gets
+-- the Insert chords, where Ctrl+C would be the interrupt. Cmd+C/V/X are not offered
+-- in the panel's steal list: the chord they send *is* what a steal would send, so
+-- there is nothing to choose between.
+local CLIPBOARD = {
+  { keys = "SUPER + C", label = "Universal copy", mods = "CTRL", code = "C", terminal_mods = "CTRL", terminal_code = "INSERT" },
+  { keys = "SUPER + V", label = "Universal paste", mods = "CTRL", code = "V", terminal_mods = "SHIFT", terminal_code = "INSERT" },
+  { keys = "SUPER + X", label = "Universal cut", mods = "CTRL", code = "X" },
+}
+
+for _, e in ipairs(CLIPBOARD) do
+  hl.unbind(e.keys)
+  note_pack_key(e.keys)
+  pcall(o.bind, e.keys, e.label, function()
+    local mods, name = e.mods, e.code
+    local w = hl.get_active_window()
+    if e.terminal_code ~= nil and w ~= nil and textkeys.is_terminal(w.tags) then
+      mods, name = e.terminal_mods, e.terminal_code
+    end
+    local code = supermap.key_code(name)
+    if code == nil then
+      return
+    end
+    local key = "code:" .. tostring(code)
+    hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = key, state = "down" }))
+    hl.timer(function()
+      hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = key, state = "up" }))
+    end, { timeout = 50, type = "oneshot" })
+  end)
+end
+
+-- Cmd+F is Omarchy fullscreen: a Lua dispatcher, so hyprctl cannot replay it
+-- after unbind. Wrap it here like Super+Q. A stolen F is Ctrl+F (Find);
+-- otherwise the compositor fullscreen stays.
+--
+-- Ctrl+Cmd+F is fullscreen on macOS, and it is what is left when the app has
+-- taken Cmd+F for Find -- so it never looks at the steal. Omarchy's own
+-- Ctrl+Cmd+F (tiled fullscreen) is dropped with the other tiling keys above.
+hl.unbind("SUPER + F")
+local function toggle_fullscreen()
+  local w = hl.get_active_window()
+  if w == nil then
+    return
+  end
+  hl.dispatch(hl.dsp.window.fullscreen({ mode = "fullscreen" }))
+end
+o.bind("SUPER + F", "Full screen", function()
+  local w = hl.get_active_window()
+  if w == nil then
+    return
+  end
+  if key_stolen(window_class(w), "F", false) then
+    send_ctrl("F", false, w)
+    return
+  end
+  toggle_fullscreen()
+end)
+hl.unbind("SUPER + CTRL + F")
+o.bind("SUPER + CTRL + F", "Full screen", toggle_fullscreen)
+
 -- Cmd+Tab cycles through windows (like an app switcher) instead of Omarchy's
--- next/previous workspace; Cmd+Shift+Tab goes the other way.
+-- next/previous workspace; Cmd+Shift+Tab goes the other way. The generated
+-- Super-as-Ctrl map never takes it, so a flagged app still gets the switcher
+-- unless the panel steals Tab for that app (then it is Ctrl+Tab, like Super+W).
 hl.unbind("SUPER + TAB")
 hl.unbind("SUPER + SHIFT + TAB")
 o.bind("SUPER + TAB", "Focus on next window", function()
+  local w = hl.get_active_window()
+  if w ~= nil and key_stolen(window_class(w), "TAB", false) then
+    send_ctrl("TAB", false, w)
+    return
+  end
   switcher_step(1)
 end)
+note_pack_key("SUPER + SHIFT + TAB")
 o.bind("SUPER + SHIFT + TAB", "Focus on previous window", function()
+  local w = hl.get_active_window()
+  if w ~= nil and key_stolen(window_class(w), "TAB", true) then
+    send_ctrl("TAB", true, w)
+    return
+  end
   switcher_step(-1)
 end)
 
@@ -927,10 +1105,10 @@ hl.unbind("SUPER + SHIFT + DOWN")
 hl.unbind("SUPER + ALT + LEFT")
 hl.unbind("SUPER + ALT + RIGHT")
 o.bind("SUPER + ALT + LEFT", "Snap or expand window left", function()
-  snap_or_expand("left")
+  layout.cycle("left")
 end)
 o.bind("SUPER + ALT + RIGHT", "Snap or expand window right", function()
-  snap_or_expand("right")
+  layout.cycle("right")
 end)
 
 -- Super+Alt+Up/Down were "move window to group on top/bottom". We never want
@@ -951,32 +1129,227 @@ hl.unbind("SUPER + ALT + S")
 -- Super+Alt+F was Hyprland "full width" (maximized). Match drag-to-top-center instead.
 hl.unbind("SUPER + ALT + F")
 o.bind("SUPER + ALT + F", "Maximize window", function()
-  snap("maximize")
+  layout.snap("maximize")
 end)
 hl.unbind("SUPER + ALT + A")
 o.bind("SUPER + ALT + A", "Almost maximize window", function()
-  snap("almost-maximize")
+  layout.snap("almost-maximize")
 end)
 o.bind("CTRL + ALT + UP", "Maximize window", function()
-  snap("maximize")
+  layout.snap("maximize")
 end)
 o.bind("CTRL + ALT + DOWN", "Restore window size", function()
-  snap("restore")
+  layout.snap("restore")
 end)
 o.bind("CTRL + ALT + U", "Snap window top-left", function()
-  snap("top-left")
+  layout.snap("top-left")
 end)
 o.bind("CTRL + ALT + I", "Snap window top-right", function()
-  snap("top-right")
+  layout.snap("top-right")
 end)
 o.bind("CTRL + ALT + J", "Snap window bottom-left", function()
-  snap("bottom-left")
+  layout.snap("bottom-left")
 end)
 o.bind("CTRL + ALT + K", "Snap window bottom-right", function()
-  snap("bottom-right")
+  layout.snap("bottom-right")
 end)
 
-local function ws_id(w)
+-- --- macOS text chords ------------------------------------------------------
+-- On a Mac the text system is the OS's, so Cmd+Left is the start of the line
+-- and Option+Backspace deletes a word in *every* app. On Linux no such layer
+-- exists: each toolkit invented its own chords, and the terminal invented
+-- readline's. textkeys.lua holds what to send where (a terminal and a GUI need
+-- different chords for the same function), and this binds it. The context
+-- comes from Omarchy's "terminal" tag, so a terminal answers for itself.
+--
+-- These keys are the desktop's from here on, which is why Super+Left/Right no
+-- longer reach the app as Ctrl+Left/Right (the Super-as-Ctrl plan reads the
+-- live bind table, sees them taken and leaves them alone) and why Omarchy's
+-- window transparency has to move off Cmd+Backspace.
+-- One sequence of chords at a time: the bind repeats while the key is held (see
+-- the bind loop below), and a sequence is longer than the repeat interval -- two
+-- chords and their 80ms gap. A new Shift+Home landing inside the previous pair
+-- (Shift+Home, Shift+Home, Backspace, Backspace) deletes one character where it
+-- meant to delete the line, so a repeat that arrives mid-sequence is dropped and
+-- the next one starts a fresh sequence.
+local chords_busy = false
+
+local function send_chords(list, w)
+  if chords_busy then
+    return
+  end
+  -- One chord as its own down/up pair rather than `send_shortcut`, which sends
+  -- the press and the release in one call: a *second* chord sent that way right
+  -- after the first arrives twice (Shift+End then two Deletes), the same
+  -- stuck/repeating synthetic key Omarchy's clipboard sends key state by hand
+  -- to avoid (hyprland discussion 14099). Sending it by hand also keeps a
+  -- synthetic Shift from being left held for the next keystroke.
+  local function send(c)
+    local code = supermap.key_code(c.key)
+    if code == nil then
+      return
+    end
+    local key = "code:" .. tostring(code)
+    hl.dispatch(hl.dsp.send_key_state({ mods = c.mods, key = key, state = "down", window = w }))
+    hl.timer(function()
+      hl.dispatch(hl.dsp.send_key_state({ mods = c.mods, key = key, state = "up", window = w }))
+    end, { timeout = 50, type = "oneshot" })
+  end
+
+  local function step(i)
+    local c = list[i]
+    if c == nil then
+      return
+    end
+    send(c)
+    if list[i + 1] ~= nil then
+      -- The next chord waits for this one's release: in the GUI pair the
+      -- selection has to exist before the delete lands.
+      hl.timer(function()
+        step(i + 1)
+      end, { timeout = 80, type = "oneshot" })
+    end
+  end
+  step(1)
+  -- Held until the last chord's release: the down goes out now and its up 50ms
+  -- later, one gap per further chord.
+  chords_busy = true
+  hl.timer(function()
+    chords_busy = false
+  end, { timeout = (#list - 1) * 80 + 60, type = "oneshot" })
+end
+
+local function text_chord(id)
+  return function()
+    local w = hl.get_active_window()
+    if w == nil then
+      return { pass_event = true }
+    end
+    local chords = textkeys.chords(id, textkeys.is_terminal(w.tags))
+    if chords == nil or #chords == 0 then
+      -- Nothing to send in this context (readline has no selection to
+      -- extend), so the key stays the app's rather than being swallowed.
+      return { pass_event = true }
+    end
+    send_chords(chords, w)
+    return { pass_event = false }
+  end
+end
+
+-- `repeating`: a held Option+Backspace keeps deleting words and a held Cmd+Left
+-- keeps jumping, the way a Mac repeats them. The repeat has to be the bind's --
+-- the pack hands the app a whole chord and nothing held, so the app has no key of
+-- its own to repeat with.
+for _, e in ipairs(textkeys.plan()) do
+  -- Drop whatever held the key: Omarchy's default (Cmd+Backspace, Cmd+Home) or
+  -- a Super-as-Ctrl bind left over from the previous config evaluation.
+  hl.unbind(e.keys)
+  note_pack_key(e.keys)
+  pcall(o.bind, e.keys, e.label, text_chord(e.id), { repeating = true })
+end
+
+-- Cmd+Backspace is "delete to the start of the line" on macOS, so Omarchy's
+-- window transparency keeps a key on the one Backspace chord the pack does not
+-- take (Cmd+Shift+Backspace is window gaps, Cmd+Ctrl+Backspace square aspect).
+hl.unbind("SUPER + ALT + BACKSPACE")
+o.bind("SUPER + ALT + BACKSPACE", "Toggle window transparency", "omarchy-hyprland-window-transparency-toggle")
+
+-- --- macOS capture keys -----------------------------------------------------
+-- Cmd+Shift+3/4 and Ctrl+Shift+Cmd+3/4 are the screenshot keys on a Mac, and
+-- Omarchy's capture command has the modes to match: `fullscreen` is the whole
+-- monitor and `region` is the drag, while the second argument picks what happens
+-- to the shot -- unset is their default (the file, the clipboard and the
+-- notification with its "edit with Tensaku" action), `copy` is the clipboard on
+-- its own. The plain keys take the default and the Control ones only copy, which
+-- is the macOS split: on a Mac Cmd+Shift+3 does not overwrite the clipboard
+-- either, and only the plain keys announce themselves.
+--
+-- Cmd+Shift+4 is a plain region and not Omarchy's `smart`, which also offers the
+-- window under the cursor: `smart` feeds slurp a candidate list built from
+-- `hyprctl clients -j` with no z-order in it, and slurp highlights the smallest
+-- rectangle containing the pointer -- so hovering highlights a window that is
+-- actually covered, and a click or a tiny drag snaps to the first rectangle in
+-- the list, which is the monitor. A drag of your own has none of that.
+--
+-- Cmd+Shift+5 is the recording key and Cmd+Shift+6 the Touch Bar shot on a Mac
+-- -- which does not exist here, so that slot carries the OCR region read.
+--
+-- Cmd+Shift+3..6 are also Omarchy's "move window to workspace 3..6", written by
+-- keycode (code:12 is the 3 key). Both spellings are dropped: a bind matches on
+-- its own spelling, so the keycode one left behind would move the window as
+-- well. With workspaces on F1..F10 the moves live on Shift+F1..F10, so nothing
+-- is lost; on Omarchy's own digits, Cmd+Shift+3..6 are the pack's now.
+local CAPTURE = {
+  {
+    keys = "SUPER + SHIFT + 3", code = "SUPER + SHIFT + code:12",
+    label = "Screenshot the screen", cmd = "omarchy-capture-screenshot fullscreen",
+  },
+  {
+    keys = "SUPER + CTRL + SHIFT + 3", code = "SUPER + CTRL + SHIFT + code:12",
+    label = "Screenshot the screen to clipboard", cmd = "omarchy-capture-screenshot fullscreen copy",
+  },
+  {
+    keys = "SUPER + SHIFT + 4", code = "SUPER + SHIFT + code:13",
+    label = "Screenshot a region", cmd = "omarchy-capture-screenshot region",
+  },
+  {
+    keys = "SUPER + CTRL + SHIFT + 4", code = "SUPER + CTRL + SHIFT + code:13",
+    label = "Screenshot a region to clipboard", cmd = "omarchy-capture-screenshot region copy",
+  },
+  {
+    keys = "SUPER + SHIFT + 5", code = "SUPER + SHIFT + code:14",
+    -- Omarchy's own recording key: stop a running recording, otherwise offer
+    -- the options -- which is what Cmd+Shift+5 opens on a Mac too.
+    label = "Screen recording",
+    cmd = "omarchy-capture-screenrecording --stop-recording || omarchy-menu toggle trigger.capture.screenrecord",
+  },
+  {
+    keys = "SUPER + SHIFT + 6", code = "SUPER + SHIFT + code:15",
+    label = "Capture text from a region", cmd = "omarchy-capture-text",
+  },
+}
+
+for _, e in ipairs(CAPTURE) do
+  note_pack_key(e.keys)
+  hl.unbind(e.keys)
+  if e.code ~= nil then
+    hl.unbind(e.code)
+  end
+  pcall(o.bind, e.keys, e.label, e.cmd)
+end
+
+-- The macOS lock key. Omarchy locks on Ctrl+Cmd+L and keeps its Calculator on
+-- Ctrl+Cmd+Q; macOS puts Lock Screen on Ctrl+Cmd+Q, so the pack takes that one
+-- key -- both spellings, since Omarchy may write it by keycode -- and binds
+-- Omarchy's own lock command to it. Unlike the capture keys this takes a key a
+-- user may want, so it is an option: with it off nothing is unbound, and the
+-- reload that applies an option brings Omarchy's Calculator back. It is applied
+-- at the bottom with the other option appliers, not inline here: the option is
+-- read from the settings file further down, and binding before that would take
+-- the key whatever the file says.
+local LOCK_KEYS = "SUPER + CTRL + Q"
+local LOCK_CODE = "SUPER + CTRL + code:24"
+local lock_binds = {}
+
+local function apply_lock_key()
+  for _, kb in ipairs(lock_binds) do
+    pcall(function()
+      kb:unbind()
+    end)
+  end
+  lock_binds = {}
+  if not lock_key then
+    return
+  end
+  hl.unbind(LOCK_KEYS)
+  hl.unbind(LOCK_CODE)
+  local ok, kb = pcall(o.bind, LOCK_KEYS, "Lock the screen", "omarchy-system-lock")
+  if ok and kb then
+    lock_binds[#lock_binds + 1] = kb
+  end
+end
+
+function ws_id(w)
   local ws = w and w.workspace
   if ws == nil then
     return nil
@@ -994,17 +1367,34 @@ local function ws_id(w)
 end
 
 -- The panel's settings, options and per-app chrome in one file:
--- ~/.local/state/omarchy-x-mode/settings.json
+-- ~/.config/hypr/x-mode.json -- user config, next to the pack's own directory,
+-- so it survives an uninstall and comes back on the next install. Kept out of
+-- ~/.config/hypr/x-mode/ (the pack owns that directory and uninstall removes
+-- it) and out of the state dir (also removed).
 -- { "options": { "nativeScroll": ..., ... },
---   "apps": { "class": { "chrome": true, "alwaysTabbar": false } } }
+--   "apps": { "class": { "chrome": true, "alwaysTabbar": false,
+--                      "ctrlAsSuper": false, "ctrlCShift": false,
+--                      "ctrlClick": false, "digitTabs": false,
+--                      "ctrlAsSuperKeys": [] } } }
 -- chrome=false → no titlebar/tabbar/grouping. alwaysTabbar → tab strip even
--- when the window is not grouped. Missing entries mean chrome on.
+-- when the window is not grouped. ctrlAsSuper → unbound Super+key reaches the
+-- app as Ctrl+key; digitTabs → the
+-- freed Super+1..0 are the pack's own tabs for this class (reserved: the app
+-- never sees the digit); ctrlAsSuperKeys →
+-- occupied Super keys stolen for this app (Cmd+W, Cmd+Q, Cmd+F, ... all the same
+-- toggle now); ctrlClick →
+-- Super+click is Ctrl+click; ctrlCShift →
+-- Ctrl+C reaches it as Ctrl+Shift+C, so the app's own binding can make it the
+-- interrupt while Super+C stays the copy. Missing entries mean chrome on, flags
+-- off. An older file's ctrlW is folded onto the W steal on the way in.
 --
 -- The bar panel is the only writer. The runtime on/off flag stays a separate
 -- plain file (`enabled`): the plugin reads that one with stdio, before any Lua
 -- runs, and a broken settings file must not decide whether x-mode loads.
-local SETTINGS_PATH = X_MODE_STATE .. "/settings.json"
--- Folded into settings.json; read once to migrate, never written again.
+local SETTINGS_PATH = (os.getenv("HOME") or "") .. "/.config/hypr/x-mode.json"
+-- Older installs kept the settings in the state dir; read one those once and
+-- write the new file. options.json/apps.json predate even that.
+local LEGACY_SETTINGS_PATH = X_MODE_STATE .. "/settings.json"
 local LEGACY_OPTIONS_PATH = X_MODE_STATE .. "/options.json"
 local LEGACY_APPS_PATH = X_MODE_STATE .. "/apps.json"
 
@@ -1021,10 +1411,11 @@ local function slurp(path)
   return raw
 end
 
--- The whole settings file, migrating the two old files into it on first run.
--- A present-but-empty file is returned as it is, not rebuilt: the panel writes
--- by truncating first, so rebuilding here would turn a write that is still in
--- flight into lost settings.
+-- The whole settings file. Older installs kept it in the state dir, and before
+-- that as options.json/apps.json: fold whichever of those exists into the new
+-- file once. A present-but-empty file is returned as it is, not rebuilt: the
+-- panel writes by truncating first, so rebuilding here would turn a write that
+-- is still in flight into lost settings.
 local function read_settings()
   local file = io.open(SETTINGS_PATH, "r")
   if file ~= nil then
@@ -1032,7 +1423,7 @@ local function read_settings()
     file:close()
     return raw
   end
-  local raw = settings.merge(slurp(LEGACY_OPTIONS_PATH), slurp(LEGACY_APPS_PATH))
+  local raw = slurp(LEGACY_SETTINGS_PATH) or settings.merge(slurp(LEGACY_OPTIONS_PATH), slurp(LEGACY_APPS_PATH))
   local out = io.open(SETTINGS_PATH, "w")
   if out then
     out:write(raw, "\n")
@@ -1070,6 +1461,35 @@ local function sync_apps_off()
 end
 sync_apps_off()
 
+-- The flags themselves are not collected into sets any more: settings.key_flag
+-- answers for one class and one flag on the spot, from the app's three-state
+-- setting and the desktop's fallback.
+
+-- Ctrl+C for an app that hosts a terminal. Ctrl+C is the shell's interrupt and
+-- the app cannot tell it apart from the copy chord a desktop sends (Super+C
+-- arrives through Omarchy's universal clipboard as Ctrl+C). For an app with this
+-- flag the physical Ctrl+C goes in shifted instead, so the app's own
+-- Ctrl+Shift+C binding decides what it means -- in Zed that is the interrupt --
+-- while Super+C keeps arriving as Ctrl+C and copies.
+--
+-- Only the physical key is caught: a chord the desktop sends goes straight to
+-- the client and never through the bind table, so this cannot loop.
+local function apply_ctrl_c_shift()
+  if #ctrl_c_binds > 0 or not key_flag_any("ctrl_c_shift") then
+    return
+  end
+  local ok, kb = pcall(hl.bind, "CTRL + C", function()
+    local w = hl.get_active_window()
+    if w == nil or not key_flag("ctrl_c_shift", window_class(w)) then
+      return { pass_event = true }
+    end
+    send_chord("CTRL SHIFT", "C", w)
+  end, { description = "Shift Ctrl+C for the app" })
+  if ok and kb then
+    ctrl_c_binds[#ctrl_c_binds + 1] = kb
+  end
+end
+
 local nobar_applied = {}
 local always_applied = {}
 
@@ -1092,6 +1512,7 @@ end
 local function apply_apps()
   apps_cfg = load_apps()
   sync_apps_off()
+  apply_ctrl_c_shift()
   local wanted_nobar, wanted_always = settings.desired_rules(apps_cfg)
   local add_nobar, drop_nobar = settings.rule_diff(wanted_nobar, nobar_applied)
   local add_always, drop_always = settings.rule_diff(wanted_always, always_applied)
@@ -1112,7 +1533,7 @@ local function apply_apps()
 end
 
 local function ungroup_where(pred)
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if pred(window_class(w)) and w.group ~= nil then
       pcall(function()
         hl.dispatch(hl.dsp.window.move({ out_of_group = true, window = w }))
@@ -1137,7 +1558,7 @@ local function ungroup_never()
 end
 
 local function regroup_chrome_on()
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     if chrome_on(window_class(w)) then
       join_same_app(w)
     end
@@ -1151,29 +1572,53 @@ hl.timer(function()
 end, { timeout = 250, type = "oneshot" })
 
 x_mode = x_mode or {}
+-- Defined with the other per-app key appliers further down; forward-declared
+-- because this is the call the panel makes after writing an app's flag, and the
+-- Ctrl+1..0 binds are planned only there.
+local apply_ctrl_tab_switch
+
+-- What the panel's "for one app" rows run after they write the settings file
+-- (the rows that change a desktop option reload instead). Everything a per-app
+-- flag decides has to be re-planned here, whether it went on or off:
+--   apply_apps        re-reads the file (apps_cfg = load_apps()) and applies the
+--                     window rules, the grouping, and apply_ctrl_c_shift -- the
+--                     Ctrl+C bind hangs off a flag being on anywhere;
+--   apply_super_ctrl  the Super-as-Ctrl map, which apply_apps does not touch;
+--   apply_ctrl_tab_switch  the Ctrl+1..0 binds. Missing here is why pinning
+--                     "Ctrl+1..0 switches tabs" for one app wrote the file and
+--                     did nothing until some other click happened to reload.
 function x_mode.refresh_apps_off()
   apply_apps()
+  apply_super_ctrl()
+  apply_ctrl_tab_switch()
   ungroup_chrome_off()
   ungroup_never()
   regroup_chrome_on()
 end
 
--- Desktop options (native scroll, Ctrl+1..9 tab switching, no gaps), read
--- from settings.json. Ctrl+1..9 switches group tabs when the focused app has
--- chrome/titlebar on; otherwise the key is passed through to the app. Off by
--- default, so those shortcuts reach the app. Cmd+1..9 stay as Omarchy
--- workspace binds either way. No gaps zeroes the outer and inner gaps and
--- keeps a hairline border.
+-- Desktop options (native scroll, Ctrl+1..0 tab switching, no gaps, workspaces
+-- on F1..F10), read from settings.json. Ctrl+1..0 switches group tabs when the
+-- focused app has chrome/titlebar on; otherwise the key is passed through to the
+-- app. Off by default, so those shortcuts reach the app. No gaps zeroes the
+-- outer and inner gaps and keeps a hairline border. Workspaces on F1..F10 is
+-- what gives the pack the Super+1..0 digits (see apply_workspace_keys) -- where
+-- they are reserved, handed over or left alone per app; off is Omarchy's layout,
+-- Cmd+1..0 on the workspaces.
 local native_scroll = false
-local ctrl_tab_switch = false
 local ctrl_tab_binds = {}
 local no_gaps = false
+-- Workspace switching on Super+F1..F10 instead of Super+1..0.
+local workspaces_fkeys = false
+local workspace_key_binds = {}
 
 local function load_options()
   local o = settings.parse_options(read_settings())
   native_scroll = o.native_scroll
-  ctrl_tab_switch = o.ctrl_tab_switch
   no_gaps = o.no_gaps
+  workspaces_fkeys = o.workspaces_fkeys
+  lock_key = o.lock_key
+  key_flags = o.key_flags
+  global_steal = o.global_steal
 end
 
 -- gaps_* only schedule a layout refresh, and `hyprctl eval` returns before
@@ -1186,57 +1631,13 @@ local function flush_layout()
   end)
 end
 
--- A window can be sitting in one of two layouts: the one the live gaps make,
--- or the one "No gaps" leaves behind. Only the second is known from the option:
--- a reload starts Lua over, and the config above this file has already put the
--- normal gaps back while the windows are still where the previous option left
--- them. So each window is matched twice, once against the live gaps and, for
--- whatever is left, against the no-gap layout. Only a window in the *other*
--- layout is returned; one already in the target layout is left alone, as is a
--- window that fills no zone at all (moved by hand).
---
--- The dock inset follows gaps_out, so the no-gap pass has to push the inset
--- that layout used as well; the plugin's own gap override only covers the gap
--- and border, and without this a right-edge window misses by half a gap.
-local function zoned_hits(target)
-  local hits = {}
-  local p = bars()
-  if p == nil or p.snap == nil or p.zone == nil then
-    return hits
-  end
-
-  local rest = {}
-  for _, w in ipairs(hl.get_windows() or {}) do
-    if w.floating and not w.pinned and not w.hidden then
-      local ok, kind = pcall(p.zone, w)
-      if ok and type(kind) == "string" and kind ~= "" then
-        if target ~= "live" then
-          hits[#hits + 1] = { window = w, kind = kind }
-        end
-      else
-        rest[#rest + 1] = w
-      end
-    end
-  end
-
-  if #rest > 0 then
-    -- No gaps means gaps_out is 0, so the inset is the dock card alone.
-    hl.config({ plugin = { hyprbars = { x_mode_dock_inset = dock_card } } })
-    for _, w in ipairs(rest) do
-      local ok, kind = pcall(p.zone, w, { gap = 0, border = 1 })
-      if ok and type(kind) == "string" and kind ~= "" and target ~= "no-gap" then
-        hits[#hits + 1] = { window = w, kind = kind }
-      end
-    end
-  end
-
-  return hits
-end
-
+-- The two-layout match a gaps change needs is layout.zoned_hits: it returns
+-- the windows in the *other* layout (matched against the live gaps, then, for
+-- whatever is left, against the no-gap layout), and the pass below applies them.
 local function apply_no_gaps()
   -- Name the zones while the windows are still in the layout they were snapped
   -- in: change the gaps first and there is nothing left to compare against.
-  local hits = zoned_hits(no_gaps and "no-gap" or "live")
+  local hits = layout.zoned_hits(no_gaps and "no-gap" or "live")
 
   if no_gaps then
     pcall(function()
@@ -1255,52 +1656,7 @@ local function apply_no_gaps()
   -- the dock inset back after the no-gap pass above moved it.
   apply_gap_geometry()
   flush_layout()
-
-  local p = bars()
-  if p == nil or p.snap == nil then
-    return
-  end
-  for _, hit in ipairs(hits) do
-    pcall(function()
-      p.snap({ kind = hit.kind, window = hit.window })
-    end)
-  end
-end
-
--- Put the windows that are still shaped like a zone back on that zone, with the
--- live gaps. A window snapped and then nudged a little (or left a titlebar lower
--- while its client settled) is still that zone -- the plugin's zone match reads a
--- full-height zone by x and size, not by an exact y -- so a load re-applies the
--- zone box instead of leaving it out of line with the gaps around it.
---
--- This is a *load-time* pass on purpose. The same re-apply used to fall out of
--- Snap::clampToWorkArea, which runs from the bar's updateRules, and Hyprland
--- re-evaluates every window's rules whenever *any* window opens: a snapped
--- window dragged a little down flew back into its snap when another window
--- opened, with nothing in sight to explain it. A window moved out of the zone's
--- shape (another x or width) is free and is left alone, as is one being dragged
--- right now.
-local function resnap_zoned()
-  local p = bars()
-  if p == nil or p.snap == nil or p.zone == nil then
-    return
-  end
-  if p.dragging ~= nil then
-    local ok, dragging = pcall(p.dragging)
-    if ok and dragging then
-      return
-    end
-  end
-  for _, w in ipairs(hl.get_windows() or {}) do
-    if w.floating and not w.pinned and not w.hidden then
-      local ok, kind = pcall(p.zone, w)
-      if ok and type(kind) == "string" and kind ~= "" then
-        pcall(function()
-          p.snap({ kind = kind, window = w })
-        end)
-      end
-    end
-  end
+  layout.apply_hits(hits)
 end
 
 local function apply_native_scroll()
@@ -1315,30 +1671,42 @@ local function apply_native_scroll()
   end)
 end
 
-local function focus_group_tab(index)
+local function focus_group_tab(index, reserve)
   local w = hl.get_active_window()
+  -- Without `reserve` (the Ctrl+1..0 option) a window with no chrome of ours, no
+  -- group, or no such tab passes the key through -- the app's own binding is what
+  -- it should be. With `reserve` (a digit the card claimed for the pack's tabs)
+  -- the key is eaten either way: a dead Cmd+3 is what reserved promises, a key
+  -- that leaks to the app is not.
   if w == nil or w.group == nil or not chrome_on(window_class(w)) then
-    return { pass_event = true }
+    return { pass_event = not reserve }
   end
   local members = w.group.members
   if index < 1 or index > #members then
-    return { pass_event = true }
+    return { pass_event = not reserve }
   end
   -- group.active focuses the tab; the raise is the focus handler's.
   hl.dispatch(hl.dsp.group.active({ index = index, window = w }))
   return { pass_event = false }
 end
 
--- Bind or release Ctrl+1..9. The handles are kept so turning the option off
+-- Bind or release Ctrl+1..0. The handles are kept so turning the option off
 -- removes exactly these binds (hl.unbind would also drop any the user set on
 -- the same keys). A removed bind lets the key fall through to the app.
-local function apply_ctrl_tab_switch()
-  if ctrl_tab_switch then
+apply_ctrl_tab_switch = function()
+  if key_flag_any("ctrl_tab_switch") then
     if #ctrl_tab_binds > 0 then
       return
     end
-    for i = 1, 9 do
+    for i = 1, 10 do
       local ok, kb = pcall(o.bind, "CTRL + code:" .. tostring(i + 9), "Switch to tab " .. i, function()
+        -- The bind is global, the class decides: a card can turn this off for one
+        -- app (Always off) while the desktop has it on, and then the key has to
+        -- reach that app untouched. Same shape as the Super+1..0 digits.
+        local w = hl.get_active_window()
+        if w == nil or not key_flag("ctrl_tab_switch", window_class(w)) then
+          return { pass_event = true }
+        end
         return focus_group_tab(i)
       end)
       if ok and kb then
@@ -1355,17 +1723,366 @@ local function apply_ctrl_tab_switch()
   end
 end
 
+-- "Super as Ctrl": for an app with the flag, every Super+key the
+-- desktop does not already bind is re-sent to the app as Ctrl+key. Hyprland
+-- dispatches every matching bind, so the bind table has to be read rather than
+-- guessed, and it is not in the Lua API: hyprctl writes it out and a timer picks
+-- it up. Reading it inline would block the parse on the compositor's own IPC.
+-- The text form is read, not -j: a keycode bind (Omarchy's workspaces) has no
+-- name there for the JSON to print.
+local super_ctrl_binds = {}
+-- Bumped on every replan so a read that lands late cannot bind a stale table
+-- over a newer one.
+local super_ctrl_gen = 0
+
+local function drop_super_ctrl()
+  for _, kb in ipairs(super_ctrl_binds) do
+    pcall(function()
+      kb:unbind()
+    end)
+  end
+  super_ctrl_binds = {}
+end
+
+-- Hand the key to the app as Ctrl+key and consume it; any other app gets the
+-- key exactly as before.
+local function super_ctrl_key(key, shift)
+  local w = hl.get_active_window()
+  if w == nil or not key_flag("ctrl_as_super", window_class(w)) then
+    return { pass_event = true }
+  end
+  send_ctrl(key, shift, w)
+end
+
+-- Pack-owned Super binds (Q, Tab, W, F): their own handler already asks the
+-- steal list, so they need no wrap -- only the key has to count as occupied and
+-- be listed for the panel. Everything else that is stealable is an Omarchy
+-- command we unbind and replay: hyprctl prints those as __lua, so the command is
+-- recovered from Omarchy's bind files.
+local STEAL_OWN = { Q = true, TAB = true, F = true, W = true }
+-- ...and every one of them is a key the pack binds itself (see pack_keys).
+for id in pairs(STEAL_OWN) do
+  pack_keys[id] = true
+end
+-- [id] = { keys, originals, handle } for wraps we installed on Omarchy keys.
+local steal_wraps = {}
+-- What the pack can replay of Omarchy's own binds: the command Omarchy wrote
+-- (`omarchy_menu toggle ...`), read out of her files, since hyprctl prints
+-- `__lua` for anything she bound as a Lua value and the behaviour is in her Lua
+-- state, out of our reach.
+--
+-- The keys the pack bound itself are left out: what her file says used to be on
+-- Cmd+Left (her focus) or Cmd+Backspace (window transparency) is not what the key
+-- does here (a text chord), so a wrap on one of them has to replay the pack's own
+-- chord -- which its handler does, and which is why those keys are offered through
+-- lua_ok below and not through this map.
+local omarchy_exec = nil
+
+local function ensure_omarchy_replay()
+  if omarchy_exec ~= nil then
+    return
+  end
+  omarchy_exec = {}
+  local p = io.popen("ls /usr/share/omarchy/default/hypr/bindings/*.lua 2>/dev/null")
+  if p == nil then
+    return
+  end
+  local listing = p:read("*a") or ""
+  p:close()
+  for path in listing:gmatch("[^\n]+") do
+    local text = slurp(path)
+    if text ~= nil then
+      for id, cmd in pairs(supermap.parse_omarchy_binds(text)) do
+        if omarchy_exec[id] == nil and not pack_keys[id] then
+          omarchy_exec[id] = cmd
+        end
+      end
+    end
+  end
+end
+
+local function steal_bind_string(key, shift)
+  if shift then
+    return "SUPER + SHIFT + " .. key
+  end
+  return "SUPER + " .. key
+end
+
+local function replay_orig(orig)
+  local d = orig.dispatcher or ""
+  if d == "exec" or d == "exec_cmd" then
+    hl.exec_cmd(orig.arg or "")
+    return
+  end
+  if d ~= "" and d ~= "__lua" then
+    hl.exec_cmd("hyprctl dispatch " .. d .. " " .. (orig.arg or ""))
+  end
+end
+
+local function restore_orig(keys, orig)
+  local d = orig.dispatcher or ""
+  if d == "exec" or d == "exec_cmd" then
+    pcall(o.bind, keys, orig.description, orig.arg)
+    return
+  end
+  if d ~= "" and d ~= "__lua" then
+    pcall(function()
+      hl.bind(keys, function()
+        replay_orig(orig)
+      end, { description = orig.description })
+    end)
+  end
+end
+
+local function drop_steal_wrap(id)
+  local wrap = steal_wraps[id]
+  if wrap == nil then
+    return
+  end
+  pcall(function()
+    wrap.handle:unbind()
+  end)
+  for _, orig in ipairs(wrap.originals) do
+    restore_orig(wrap.keys, orig)
+  end
+  steal_wraps[id] = nil
+end
+
+-- Ids that need an Omarchy-key wrap: stolen somewhere, and not a pack bind
+-- already wrapped at the source (Q, Tab, W, F). "Somewhere" is the desktop's list
+-- plus every app's own Always on list -- an Always off list only takes a key away
+-- from an app, and a key nothing steals needs no wrap. Iterated on every replan, so
+-- the union is built here rather than kept in a set.
+local function needed_steals()
+  local set = {}
+  local function add(id)
+    if id ~= "Q" and id ~= "TAB" and id ~= "SHIFT+TAB" and id ~= "W" and id ~= "F" then
+      set[id] = true
+    end
+  end
+  for id in pairs(global_steal) do
+    add(id)
+  end
+  for _, e in pairs(apps_cfg) do
+    for id in pairs(e.ctrl_as_super_keys or {}) do
+      add(id)
+    end
+  end
+  return set
+end
+
+local function apply_steal_wraps(raw)
+  local needed = needed_steals()
+  for id in pairs(steal_wraps) do
+    if not needed[id] then
+      drop_steal_wrap(id)
+    end
+  end
+  if next(needed) == nil then
+    return
+  end
+  local by_id = {}
+  for _, e in ipairs(supermap.stealable(raw, STEAL_OWN, omarchy_exec)) do
+    by_id[e.id] = e
+  end
+  for id in pairs(needed) do
+    if steal_wraps[id] == nil then
+      local e = by_id[id]
+      if e ~= nil and not e.wrapped then
+        local keys = steal_bind_string(e.key, e.shift)
+        local originals = e.binds
+        if omarchy_exec[id] then
+          originals = { { dispatcher = "exec", arg = omarchy_exec[id], description = e.description } }
+        end
+        hl.unbind(keys)
+        local code = supermap.key_code(e.key)
+        if code ~= nil then
+          local ck = e.shift and ("SUPER + SHIFT + code:" .. tostring(code)) or ("SUPER + code:" .. tostring(code))
+          hl.unbind(ck)
+        end
+        local key, shift = e.key, e.shift
+        local ok, kb = pcall(hl.bind, keys, function()
+          local w = hl.get_active_window()
+          if w ~= nil and key_stolen(window_class(w), key, shift) then
+            send_ctrl(key, shift, w)
+            return
+          end
+          for _, orig in ipairs(originals) do
+            replay_orig(orig)
+          end
+        end, { description = supermap.steal_desc(id, e.description) })
+        if ok and kb then
+          steal_wraps[id] = { keys = keys, originals = originals, handle = kb }
+        end
+      end
+    end
+  end
+end
+
+local function write_occupied(raw)
+  local file = io.open(X_MODE_STATE .. "/occupied.json", "w")
+  if file == nil then
+    return
+  end
+  file:write(supermap.occupied_json(supermap.stealable(raw, STEAL_OWN, omarchy_exec)), "\n")
+  file:close()
+end
+
+local function bind_super_ctrl(raw, gen)
+  if gen ~= super_ctrl_gen then
+    return
+  end
+  ensure_omarchy_replay()
+  write_occupied(raw)
+  apply_steal_wraps(raw)
+  if not key_flag_any("ctrl_as_super") then
+    return
+  end
+  for _, b in ipairs(supermap.plan(raw)) do
+    local keys = b.shift and ("SUPER + SHIFT + " .. b.key) or ("SUPER + " .. b.key)
+    -- `repeating`: a key that stays down keeps sending the chord, the way holding
+    -- Cmd+D on a Mac keeps adding the next occurrence. The repeat has to be the
+    -- bind's: `send_chord` hands over a whole chord and nothing held, so the app
+    -- has no key of its own to repeat (and could only type the bare letter with).
+    local ok, kb = pcall(hl.bind, keys, function()
+      return super_ctrl_key(b.key, b.shift)
+    end, { description = supermap.PREFIX .. (b.shift and " SHIFT" or "") .. " " .. b.key, repeating = true })
+    if ok and kb then
+      super_ctrl_binds[#super_ctrl_binds + 1] = kb
+    end
+  end
+end
+
+-- Poll for the file: the exec that writes it has not landed when the timer is
+-- set, and a missing file must not read as "nothing is bound".
+local function super_ctrl_read(path, tries, gen)
+  hl.timer(function()
+    if gen ~= super_ctrl_gen then
+      return
+    end
+    local raw = slurp(path)
+    if raw ~= nil then
+      bind_super_ctrl(raw, gen)
+      return
+    end
+    if tries > 0 then
+      super_ctrl_read(path, tries - 1, gen)
+    end
+  end, { timeout = 200, type = "oneshot" })
+end
+
+apply_super_ctrl = function()
+  drop_super_ctrl()
+  super_ctrl_gen = super_ctrl_gen + 1
+  -- Always re-read: the occupied list feeds the panel even when no app has
+  -- Super-as-Ctrl on, and steal wraps can exist without that flag.
+  local path = X_MODE_STATE .. "/binds.txt"
+  os.remove(path)
+  hl.exec_cmd("sh -c 'hyprctl binds > \"" .. path .. "\" 2>/dev/null'")
+  super_ctrl_read(path, 10, super_ctrl_gen)
+end
+
+apply_super_ctrl()
+
+-- Workspace switching on F1..F10 instead of Super+1..0. Off is Omarchy's layout:
+-- the pack does nothing. On, the digit binds (Omarchy writes them as
+-- `SUPER + code:10..19`) are released and the pack takes the ten digits itself,
+-- because the class of the focused window is what decides what a digit does (see
+-- digit_key); the F keys switch the desktop's workspaces. Turning it back off
+-- goes through a reload, which re-creates the Omarchy binds, so only the pack's
+-- own binds have to go.
+local function drop_workspace_keys()
+  for _, kb in ipairs(workspace_key_binds) do
+    pcall(function()
+      kb:unbind()
+    end)
+  end
+  workspace_key_binds = {}
+end
+
+local function add_workspace_key(keys, description, dispatcher)
+  local ok, kb = pcall(hl.bind, keys, dispatcher, { description = description })
+  if ok and kb then
+    workspace_key_binds[#workspace_key_binds + 1] = kb
+  end
+end
+
+-- The digit with the workspaces on the F keys. The pack binds it itself, because
+-- the answer is per class and can change while the pack runs: the card's reserve
+-- switch claims the digit for the pack's own tab and eats it; else "Super works as
+-- Ctrl" hands it over as Ctrl+digit; else the key is not ours and is passed
+-- through. Nothing is claimed by default, so a fresh pack switches no tab. The
+-- generated Super-as-Ctrl binds cannot carry the reserved half either: they exist
+-- only while some app has that flag.
+local function digit_name(index)
+  if index == 10 then
+    return "0"
+  end
+  return tostring(index)
+end
+
+local function digit_key(index)
+  return function()
+    local w = hl.get_active_window()
+    local cls = w ~= nil and window_class(w) or nil
+    if cls ~= nil and key_flag("digit_tabs", cls) then
+      return focus_group_tab(index, true)
+    end
+    if cls ~= nil and key_flag("ctrl_as_super", cls) then
+      send_ctrl(digit_name(index), false, w)
+      return
+    end
+    return { pass_event = true }
+  end
+end
+
+local function apply_workspace_keys()
+  drop_workspace_keys()
+  if not workspaces_fkeys then
+    return
+  end
+  for i = 1, 10 do
+    local code = tostring(i + 9)
+    hl.unbind("SUPER + code:" .. code)
+    hl.unbind("SUPER + SHIFT + code:" .. code)
+    hl.unbind("SUPER + SHIFT + ALT + code:" .. code)
+    local fkey = "F" .. tostring(i)
+    local ws = tostring(i)
+    -- Tabs, not workspaces: the tenth digit is the 0 key, and the class of the
+    -- focused window decides at press time what the digit does (digit_key).
+    local digit = digit_name(i)
+    add_workspace_key("SUPER + " .. digit, "Tab " .. i .. ", or Ctrl+" .. digit .. " for an app that asked", digit_key(i))
+    add_workspace_key("SUPER + " .. fkey, "Switch to workspace " .. ws, function()
+      hl.dispatch(hl.dsp.focus({ workspace = ws }))
+    end)
+    add_workspace_key("SUPER + SHIFT + " .. fkey, "Move window to workspace " .. ws, function()
+      hl.dispatch(hl.dsp.window.move({ workspace = ws }))
+    end)
+    add_workspace_key("SUPER + SHIFT + ALT + " .. fkey, "Move window silently to workspace " .. ws, function()
+      hl.dispatch(hl.dsp.window.move({ workspace = ws, follow = false }))
+    end)
+  end
+end
+
 function x_mode.refresh_options()
   load_options()
   apply_native_scroll()
   apply_ctrl_tab_switch()
   apply_no_gaps()
+  apply_workspace_keys()
+  apply_lock_key()
+  -- The digits this took are occupied now, and the ones it gave back are free:
+  -- the Super-as-Ctrl plan has to be read again or it would keep binding a key
+  -- the pack has taken, and one press would run both.
+  apply_super_ctrl()
 end
 
 load_options()
 apply_native_scroll()
 apply_ctrl_tab_switch()
 apply_no_gaps()
+apply_workspace_keys()
+apply_lock_key()
 
 local function skip_group(w)
   if w == nil or w.pinned or w.hidden then
@@ -1411,7 +2128,7 @@ local function addr_sel(w)
   return "address:" .. a
 end
 
-local function refresh_window(w)
+function refresh_window(w)
   if w == nil or w.address == nil then
     return w
   end
@@ -1444,13 +2161,13 @@ local function absorb_chrome_growth(w, old_x, old_y, old_w, old_h, old_chrome)
   if mon == nil then
     return
   end
-  local _, uy, _, uh = usable(mon)
+  local _, uy, _, uh = layout.usable(mon)
   if uy == nil then
     return
   end
   local x, y = vec(w.at)
   local ww, wh = vec(w.size)
-  local new_chrome = chrome_h(w)
+  local new_chrome = layout.chrome_h(w)
   local grow = math.max(new_chrome - (old_chrome or 0), 0)
   local edge = GAP_OUT() + BORDER()
   local ny = old_y + grow
@@ -1490,7 +2207,7 @@ find_peer = function(w)
   end
   local class = window_class(w)
   local wid = ws_id(w)
-  local windows = hl.get_windows()
+  local windows = as_list(hl.get_windows())
   if type(windows) ~= "table" then
     return nil
   end
@@ -1536,7 +2253,7 @@ join_same_app = function(w)
   end
   local px, py = vec(peer.at)
   local pw, ph = vec(peer.size)
-  local old_chrome = chrome_h(peer)
+  local old_chrome = layout.chrome_h(peer)
   pcall(function()
     if peer.group == nil then
       hl.dispatch(hl.dsp.group.toggle({ window = peer }))
@@ -1633,7 +2350,7 @@ local function release_hypr_maximize(w)
     return
   end
   hl.dispatch(hl.dsp.window.fullscreen({ action = "unset", window = w }))
-  snap("maximize", w)
+  layout.snap("maximize", w)
 end
 
 hl.on("window.fullscreen", function(w)
@@ -1666,12 +2383,69 @@ hl.on("window.open", function(w)
 end)
 
 hl.on("window.close", function(w)
+  -- The restore point dies with the window: a later window at the same address
+  -- must not inherit its box.
+  layout.forget(w)
   local key = hide_key(w)
   if key == nil then
     return
   end
   pending_join[key] = nil
   hidden_for_join[key] = nil
+end)
+
+-- Hyprland gives a removed monitor's workspaces to the one that is left and
+-- moves each floating window there by the monitor offset only. A window that
+-- was snapped on the monitor to the left keeps that snap shifted by whole
+-- screen widths, and one on the right of a wider screen keeps coordinates
+-- past the right edge of the narrower one.
+--
+-- Powering the only monitor off has no backup: monitor.removed runs before
+-- the windows have moved. The throw is on monitor.added (the virtual FALLBACK
+-- output, then the real one returning) and on a later arrange that translates
+-- floats again. Fit now, and once more after that arrange. The plugin pages a
+-- window that is a whole screen away back onto the same half, configures the
+-- client, and does not raise, so a click brings it to the front. Windows
+-- already inside stay put.
+local function refit_floats()
+  local p = bars()
+  if p == nil then
+    return
+  end
+  if p.fit_all ~= nil then
+    pcall(p.fit_all)
+    return
+  end
+  if p.fit == nil then
+    return
+  end
+  for _, w in ipairs(as_list(hl.get_windows())) do
+    pcall(function()
+      p.fit(w)
+    end)
+  end
+end
+
+local function schedule_refit()
+  refit_floats()
+  -- Arrange (CMonitor::moveTo) is scheduled after monitor.added/removed, so
+  -- the first pass can run against the old origin. Fit again once that lands.
+  hl.timer(refit_floats, { timeout = 200, type = "oneshot" })
+end
+
+hl.on("monitor.removed", function(_)
+  schedule_refit()
+  -- The reserved top (the bar) is per monitor: a monitor coming or going is a
+  -- frame change for the windows that moved with it.
+  layout.frame_changed()
+end)
+hl.on("monitor.added", function(_)
+  schedule_refit()
+  layout.frame_changed()
+end)
+hl.on("monitor.layout_changed", function()
+  schedule_refit()
+  layout.frame_changed()
 end)
 
 -- hyprbars.drag(active, window): save restore-geometry at press; grouping
@@ -1697,9 +2471,12 @@ local function bind_drag()
       -- Remember where the window was, so a later restore snaps back to it. The
       -- drag clamps itself in C++ and may hang off an edge; the work-area clamp
       -- skips a window the drag owns, so nothing pulls it back mid-gesture.
-      save(w)
+      layout.save(w)
     else
       flush_pending_joins()
+      -- A pass held back by the drag (re-applying a zone would fight the
+      -- gesture) runs now rather than at the next tick.
+      layout.flush()
     end
   end)
   if ok and sub ~= nil then
@@ -1713,25 +2490,34 @@ bind_drag()
 drag_timer = hl.timer(bind_drag, { timeout = 250, type = "repeat" })
 
 -- The dock's layer maps after this config (and again on every shell restart),
--- which is the moment its real width becomes known. config.reloaded covers a
--- reload where the layer was already mapped and no open event fires.
+-- which is the moment its real width becomes known; the bar's layer is what
+-- reserves the top, and a shell restart takes it away for a moment. Both are
+-- frame changes, and layout.lua re-applies the windows that are on a zone when
+-- the frame moves: this is what brings a window placed while the bar was away
+-- back under the bar when the bar returns.
 hl.on("layer.opened", function(layer)
   if layer ~= nil and layer.namespace == "x-mode-dock" then
     refresh_dock_card()
   end
+  layout.frame_changed()
+end)
+hl.on("layer.closed", function(_)
+  layout.frame_changed()
 end)
 hl.on("config.reloaded", function()
   refresh_dock_card()
+  layout.frame_changed()
 end)
 refresh_dock_card()
+layout.frame_changed()
 
 -- Group every same-app window on a workspace into one group. Runs once after
 -- the config loads: after an install/reload re-floats windows, or when several
 -- same-app windows were opened while the config was reloading, they can end up
 -- spread across separate groups. Pick a grouped window as the leader when there
 -- is one, so the group keeps its position.
-local function consolidate()
-  local windows = hl.get_windows()
+function consolidate()
+  local windows = as_list(hl.get_windows())
   if type(windows) ~= "table" then
     return
   end
@@ -1771,159 +2557,37 @@ local function consolidate()
   end
 end
 
--- The marker comes from install.sh (a fresh install) or from the off path
--- above (the desktop was just switched back on from the bar panel). Spread
--- the windows that were already open across the left and right halves, one
--- side per app, alternating in a shuffled order so the two sides come out
--- roughly even. Per workspace: each space is shuffled and split on its own,
--- and a window is never moved to another space. The marker is removed on
--- sight, so the second reload and every reload while already on leave windows
--- where the user put them. One window per class, because consolidate() has
--- already folded same-app windows into a single group.
-local ARRANGE_MARKER = X_MODE_STATE .. "/arrange"
-
-local function take_arrange_marker()
-  local file = io.open(ARRANGE_MARKER, "r")
-  if file == nil then
-    return false
-  end
-  file:close()
-  os.remove(ARRANGE_MARKER)
-  return true
+-- The arrange and its marker are layout.lua's now: the marker is read, not
+-- taken, and removed only once the deal has actually happened. Kept as a name
+-- on x_mode so `hyprctl eval` can still ask for one deal by hand.
+function x_mode.arrange()
+  layout.arrange()
 end
 
-function x_mode.arrange_halves()
-  local windows = hl.get_windows()
-  if type(windows) ~= "table" then
-    return
-  end
-  local seen = {}
-  local by_space = {}
-  for _, w in ipairs(windows) do
-    w = refresh_window(w) or w
-    if w.mapped and not w.hidden and not is_fullscreen(w) and w.monitor ~= nil then
-      local cls = window_class(w)
-      local wid = tostring(ws_id(w) or "")
-      local key = cls .. "@" .. wid
-      if cls ~= "" and not seen[key] then
-        seen[key] = true
-        by_space[wid] = by_space[wid] or {}
-        table.insert(by_space[wid], w)
-      end
-    end
-  end
-  -- Fisher-Yates per workspace, so each space is split roughly evenly and a
-  -- window stays on the space it was on. math.random is seeded from the clock
-  -- below; without the shuffle the order is just whatever Hyprland enumerated.
-  for _, leaders in pairs(by_space) do
-    for i = #leaders, 2, -1 do
-      local j = math.random(i)
-      leaders[i], leaders[j] = leaders[j], leaders[i]
-    end
-    for i, w in ipairs(leaders) do
-      snap(i % 2 == 1 and "left" or "right", w)
-    end
-  end
-end
 
--- Hide the switch-over behind a fade. Everything turning X Mode back on does
--- to a window -- the titlebars coming back and the boxes being refitted on the
--- reload, the re-float, the tab grouping, the arrange -- moves it, and a fade
--- that starts at the arrange is already too late for the first of those: that
--- move is seen on screen and then the fade runs on the new positions. So the
--- fade starts here, as soon as the marker is read, and the windows stay
--- invisible while the rest happens. The reveal is one step at the end,
--- deliberately not animated, so the new layout simply appears.
-local FADE_STEPS   = 10
-local FADE_STEP_MS = 25
-local SETTLE_MS    = 120
+-- A reload in the middle of a fade leaves the windows at whatever step the
+-- timers reached; those timers die with the config, so the state has to be put
+-- back before anything else touches opacity. layout.lua owns the fade (and the
+-- switch-over it hides), including the reveal and its deadline.
+layout.clear_fade()
 
-local function set_window_opacity(windows, value)
-  for _, w in ipairs(windows) do
-    if w ~= nil then
-      pcall(function()
-        -- Hyprland draws the focused window from "opacity" and every other one
-        -- from "opacity_inactive" (Window.cpp: alpha() vs alphaInactive()), so
-        -- both have to be set or only the focused window is seen to change.
-        hl.dispatch(hl.dsp.window.set_prop({ prop = "opacity", value = value, window = w }))
-        hl.dispatch(hl.dsp.window.set_prop({ prop = "opacity_inactive", value = value, window = w }))
-      end)
-    end
-  end
-end
+-- The restore points a previous parse wrote (theme switches and installs reload
+-- the config; the windows do not move). Read before anything can ask for a
+-- restore, and after this file's helpers exist, which is why it is here.
+layout.load_restore()
 
--- The windows an arrange can touch, named when the fade starts so the reveal
--- targets the same set even after consolidate() folds same-app windows into a
--- group.
-local function arrange_candidates()
-  local out = {}
-  for _, w in ipairs(hl.get_windows() or {}) do
-    w = refresh_window(w) or w
-    if w.mapped and not w.hidden and not is_fullscreen(w) and w.monitor ~= nil then
-      out[#out + 1] = w
-    end
-  end
-  return out
-end
-
--- Float anything still tiled. A 300ms timer does this normally; with an
--- arrange pending it is deferred to inside the fade, so the float happens on
--- invisible windows instead of moving them on screen before the fade.
-local function float_tiled()
-  for _, w in ipairs(hl.get_windows() or {}) do
-    if w.mapped and not w.floating and not is_fullscreen(w) then
-      hl.dispatch(hl.dsp.window.float({ action = "enable", window = w }))
-    end
-  end
-end
-
--- Fade the windows out and leave them invisible; the timer below reveals them
--- after the arrange. Every step is pcall'd: a window can close mid-fade, and
--- one bad handle must not leave the rest stuck at opacity 0.
-local function fade_out(windows)
-  if #windows == 0 then
-    return
-  end
-  local step = 0
-  local timer
-  timer = hl.timer(function()
-    step = step + 1
-    set_window_opacity(windows, string.format("%.3f", math.max(0, 1 - step / FADE_STEPS)))
-    if step >= FADE_STEPS then
-      timer:set_enabled(false)
-    end
-  end, { timeout = FADE_STEP_MS, type = "repeat" })
-end
-
--- The marker is dropped by install.sh before its reload and by the off path
--- when the desktop is switched back on. Arrange once per load: re-float the
--- still-tiled windows, gather same-app windows into tabs, deal them into
--- halves, and reveal once the new boxes have landed. The windows are named now,
--- at the fade, so the reveal targets exactly the ones that were faded.
-local arrange_pending = take_arrange_marker()
-local arrange_fade = {}
-if arrange_pending then
-  math.randomseed(os.time())
-  arrange_fade = arrange_candidates()
-  fade_out(arrange_fade)
-end
+-- The marker is dropped by install.sh before its reload and by the off path when
+-- the desktop is switched back on. layout.lua owns it: it reads the marker,
+-- starts the fade, and removes the marker only once the windows have actually
+-- been dealt -- a parse that cannot deal (no plugin yet) keeps the request
+-- instead of dropping it. This file asks once per load and gives it the tick.
+local arrange_pending = layout.arrange_pending()
 
 hl.timer(function()
-  if arrange_pending then
-    arrange_pending = false
-    float_tiled()
-    consolidate()
-    x_mode.arrange_halves()
-    hl.timer(function()
-      set_window_opacity(arrange_fade, "1")
-      arrange_fade = {}
-    end, { timeout = SETTLE_MS, type = "oneshot" })
-  else
-    consolidate()
-  end
-  for _, w in ipairs(hl.get_windows() or {}) do
+  for _, w in ipairs(as_list(hl.get_windows())) do
     release_hypr_maximize(refresh_window(w) or w)
   end
+  layout.settle(arrange_pending)
 end, { timeout = 600, type = "oneshot" })
 
 pcall(function()
@@ -1937,12 +2601,19 @@ end)
 -- pending the timer above does this after the fade instead, so the float is not
 -- seen (this 300ms timer would move the windows on screen before the fade).
 if not arrange_pending then
-  hl.timer(float_tiled, { timeout = 300, type = "oneshot" })
+  hl.timer(layout.float_tiled, { timeout = 300, type = "oneshot" })
 end
 
--- A load re-applies the zone box to every window that is still zone-shaped (see
--- resnap_zoned). Not with an arrange pending: that one deals every window into
--- the halves itself.
+-- A load re-applies the zone box to every window that is still zone-shaped
+-- (layout.resnap). Not with an arrange pending: that one deals every window into
+-- the halves itself. The pass waits for the plugin like the others: on the first
+-- parse of a session there is none yet, and it used to run into that and
+-- silently do nothing.
 if not arrange_pending then
-  resnap_zoned()
+  layout.resnap()
 end
+
+-- The alignment module, reachable from `hyprctl eval` (`x_mode.layout.state()`
+-- says where each window was snapped from and what frame the zones were built
+-- from). The panel and the binds go through the calls above, not this.
+x_mode.layout = layout

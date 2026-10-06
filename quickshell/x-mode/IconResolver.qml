@@ -9,7 +9,10 @@ import "logic.js" as Logic
 // entry (display name, the "New Window" action, single-instance).
 //
 // Kept as a plain component (not a singleton) so both Dock.qml and Panel.qml
-// can instantiate it without a qmldir; each instance owns its own scan.
+// can instantiate it without a qmldir. The dock owns the one its switcher
+// reuses (Switcher.dock); the panel keeps its own: it loads from the
+// bar-widget entry point, which may live in another shell process where a
+// singleton would not share the scan anyway.
 Item {
   id: root
   visible: false
@@ -33,35 +36,17 @@ Item {
   property var extensionIcons: ({})
   property var pendingExtensionIcons: ({})
 
+  // Scan commands are pure string building in logic.js (unit tested there);
+  // this component only runs them.
   function iconScanCommand() {
-    return [
-      'dirs="$HOME/.icons $HOME/.local/share/icons $HOME/.local/share/flatpak/exports/share/icons /var/lib/flatpak/exports/share/icons";',
-      'IFS=":"; for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do dirs="$dirs $d/icons"; done; unset IFS;',
-      'for ext in svg png; do',
-      '  for base in $dirs; do',
-      '    [[ -d $base ]] && find "$base" \\( -path "*/apps/*" -o -path "*/devices/*" \\) -name "*.$ext" 2>/dev/null;',
-      '  done;',
-      '  find /usr/share/pixmaps -maxdepth 1 -name "*.$ext" 2>/dev/null;',
-      'done'
-    ].join(' ')
+    return Logic.iconScanCommand()
   }
 
   // One id/StartupWMClass per desktop entry that declares it opens a single
   // main window: launching such an app activates the existing instance instead
   // of creating a new window, so there is no tab to open.
   function singleInstanceScanCommand() {
-    return [
-      'for d in "$HOME/.local/share/applications" /usr/local/share/applications /usr/share/applications /var/lib/flatpak/exports/share/applications "$HOME/.local/share/flatpak/exports/share/applications" /var/lib/snapd/desktop/applications; do',
-      '  [[ -d $d ]] || continue;',
-      '  for f in "$d"/*.desktop; do',
-      '    [[ -f $f ]] || continue;',
-      '    grep -qiE "^(SingleMainWindow|X-GNOME-SingleWindow|X-KDE-SingleMainWindow)=true" "$f" || continue;',
-      '    id=$(basename "$f" .desktop);',
-      '    wm=$(grep -i "^StartupWMClass=" "$f" | head -1 | cut -d= -f2-);',
-      '    printf "%s\\t%s\\n" "$id" "$wm";',
-      '  done;',
-      'done'
-    ].join(' ')
+    return Logic.singleInstanceScanCommand()
   }
 
   // Resolve an icon *name* (desktop entry Icon= value) to a loadable URL, going
@@ -111,19 +96,7 @@ Item {
   // Find the largest icon declared in every Chromium extension manifest under
   // the browser profiles and key it by the 32-char extension id ("a".."p").
   function extensionScanCommand() {
-    return [
-      "for base in $(find \"$HOME/.config\" -maxdepth 4 -type d -name Extensions 2>/dev/null); do",
-      "  for mf in $(find \"$base\" -mindepth 3 -maxdepth 3 -name manifest.json 2>/dev/null); do",
-      "    id=$(basename \"$(dirname \"$(dirname \"$mf\")\")\")",
-      "    [[ $id =~ ^[a-p]{32}$ ]] || continue",
-      "    vdir=$(dirname \"$mf\")",
-      "    icon=$(jq -r '.icons // {} | to_entries | max_by(.key | tonumber) | .value // empty' \"$mf\" 2>/dev/null)",
-      "    [ -n \"$icon\" ] || continue",
-      "    case $icon in /*) p=$icon ;; *) p=$vdir/$icon ;; esac",
-      "    [ -f \"$p\" ] && printf '%s\\t%s\\n' \"$id\" \"$p\"",
-      "  done",
-      "done"
-    ].join("\n")
+    return Logic.extensionScanCommand()
   }
 
   function extensionIconFor(cls) {
@@ -282,8 +255,12 @@ Item {
     var de = root.desktopIconFor(raw)
     if (de !== "")
       return de
-    var fb = Quickshell.iconPath("application-x-executable", true)
-    return fb && fb.length > 0 ? fb : ""
+    // Nothing matched: "" rather than a generic icon. AppIcon draws the class
+    // initial for an iconless class ("A" for the nest's aquamarine, "Z" for
+    // dev.zed.Zed), and that says which window it is where
+    // `application-x-executable` -- a gear in Yaru, Adwaita and Breeze -- says
+    // nothing and only hides the letter.
+    return ""
   }
 
   Process {

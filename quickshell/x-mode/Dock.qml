@@ -55,7 +55,6 @@ Item {
 
   readonly property var pinnedApps: apps.filter(function(a) { return a.pinned })
   readonly property var runningApps: apps.filter(function(a) { return !a.pinned })
-  readonly property bool menuPinned: menuApp ? !!menuApp.pinned : false
   // Depends on appsSig as well as menuOpen: menuApp is a snapshot taken when
   // the menu opened, so a window whose title changes afterwards (a file
   // manager navigating to another folder) would keep showing the old title
@@ -64,6 +63,13 @@ Item {
   readonly property bool emptyDock: pinnedApps.length === 0 && runningApps.length === 0
 
   readonly property string pinnedPath: Quickshell.env("HOME") + "/.config/omarchy/x-mode-dock.json"
+  // What the card is actually showing, one class per line, next to the other
+  // files the pack keeps in the runtime directory. The card's box says how many
+  // icons there are but not which, and the order is what the click helpers
+  // depend on -- a test cannot tell a stale order from a missed click without
+  // it. Written only when the published list changes, the same moment the
+  // icons move.
+  readonly property string orderPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode.dock-order"
   readonly property int iconSize: 26
   readonly property int pad: 7
   readonly property int iconSpacing: 6
@@ -97,89 +103,29 @@ Item {
     return -1
   }
 
+  // Thin wrapper: the model itself (grouping, order, sig) is pure in
+  // logic.js so it is unit tested without a compositor. Only the side
+  // effects stay here: clearing "launching" and publishing apps/sig.
   function rebuildApps() {
-    var byClass = {}
-    for (var i = 0; i < clients.length; i++) {
-      var c = clients[i]
-      if (!c.mapped || c.hidden)
-        continue
-      var cls = String(c.class || "")
-      if (cls === "")
-        continue
-      var e = byClass[cls]
-      if (e === undefined) {
-        e = { cls: cls, addrs: [], focus: 999999, bestAddr: c.address, ws: {}, wins: [] }
-        byClass[cls] = e
-      }
-      e.addrs.push(c.address)
-      var wid = c.workspace ? c.workspace.id : undefined
-      var f = c.focusHistoryID
-      if (typeof f !== "number")
-        f = 999999
-      e.wins.push({
-        addr: c.address,
-        title: String(c.title || "").trim(),
-        ws: wid !== undefined && wid !== null ? String(wid) : "",
-        focus: f
-      })
-      if (wid !== undefined && wid !== null) {
-        var key = String(wid)
-        var prev = e.ws[key]
-        if (!prev || f < prev.focus)
-          e.ws[key] = { addr: c.address, title: String(c.title || "").trim(), focus: f }
-      }
-      if (f < e.focus) {
-        e.focus = f
-        e.bestAddr = c.address
-      }
-    }
-    var out = []
-    var seen = {}
-    for (var p = 0; p < pinned.length; p++) {
-      var pc = pinned[p]
-      if (seen[pc])
-        continue
-      seen[pc] = true
-      var r = byClass[pc]
-      out.push({ cls: pc, pinned: true, running: r !== undefined, bestAddr: r ? r.bestAddr : "", addrs: r ? r.addrs : [], ws: r ? r.ws : {}, wins: r ? r.wins : [] })
-    }
-    var rest = []
-    for (var k in byClass) {
-      if (!seen[k])
-        rest.push(k)
+    var out = Logic.buildDockApps(clients, pinned)
+    for (var i = 0; i < out.length; i++) {
       // The app appeared: it is no longer "launching".
-      if (root.launching[k] !== undefined)
-        delete root.launching[k]
+      if (out[i].running && root.launching[out[i].cls] !== undefined)
+        delete root.launching[out[i].cls]
     }
-    rest.sort()
-    for (var j = 0; j < rest.length; j++) {
-      var rk = rest[j]
-      out.push({ cls: rk, pinned: false, running: true, bestAddr: byClass[rk].bestAddr, addrs: byClass[rk].addrs, ws: byClass[rk].ws, wins: byClass[rk].wins })
-    }
-    var sig = ""
-    for (var m = 0; m < out.length; m++) {
-      sig += out[m].cls + "|" + out[m].pinned + "|" + out[m].running + "|" + out[m].bestAddr
-      // Titles too: a file manager navigating to another folder changes
-      // nothing else about the app, and the context menu reads these rows.
-      var wins = out[m].wins
-      for (var n = 0; n < wins.length; n++)
-        sig += "|" + wins[n].addr + "=" + wins[n].title
-      sig += ";"
-    }
+    var sig = Logic.dockAppsSig(out)
     if (sig !== root.appsSig) {
       root.appsSig = sig
       root.apps = out
+      var order = []
+      for (var j = 0; j < out.length; j++)
+        order.push(out[j].cls)
+      orderFile.setText(order.join("\n") + "\n")
     }
   }
 
   function samePins(a, b) {
-    if (!a || !b || a.length !== b.length)
-      return false
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] !== b[i])
-        return false
-    }
-    return true
+    return Logic.samePins(a, b)
   }
 
   function focusAddr(addr) {
@@ -217,6 +163,7 @@ Item {
     focusAddr(addr)
   }
 
+  function iconFor(cls) { return icons.iconFor(cls) }
   function appEntryFor(cls) { return icons.appEntryFor(cls) }
   function appDisplayName(cls) { return icons.appDisplayName(cls) }
   function isSingleInstance(cls) { return icons.isSingleInstance(cls) }
@@ -276,24 +223,21 @@ Item {
   }
 
   function togglePin(cls) {
-    var list = pinned.slice()
-    var i = list.indexOf(cls)
-    if (i >= 0)
-      list.splice(i, 1)
-    else
-      list.push(cls)
-    pinned = list
-    pinnedFile.setText(JSON.stringify(list, null, 2) + "\n")
+    pinned = Logic.togglePinInList(pinned, cls)
+    pinnedFile.setText(JSON.stringify(pinned, null, 2) + "\n")
+    // Same as a drag reorder: the card reads `apps`, not `pinned`, so without
+    // this the icon stays in the running section until a client event or the
+    // 3s reconcile. The file watch cannot do it either: we already assigned
+    // `pinned`, so onLoaded sees the same list and skips.
+    rebuildApps()
   }
 
   function movePinTo(from, to) {
-    if (from < 0 || to < 0 || from >= pinned.length || to >= pinned.length || from === to)
+    var next = Logic.movePinInList(pinned, from, to)
+    if (!next)
       return false
-    var list = pinned.slice()
-    var item = list.splice(from, 1)[0]
-    list.splice(to, 0, item)
-    pinned = list
-    pinnedFile.setText(JSON.stringify(list, null, 2) + "\n")
+    pinned = next
+    pinnedFile.setText(JSON.stringify(pinned, null, 2) + "\n")
     // Rebuild immediately so the dock order matches before we clear the ghost.
     rebuildApps()
     return true
@@ -308,23 +252,9 @@ Item {
   }
 
   function pinSlotAt(y, fromIndex) {
-    var stride = iconSize + iconSpacing
-    var n = pinned.length
-    if (stride <= 0 || n <= 0)
-      return 0
     // Center-based target with a little hysteresis so the slot does not flap
     // when the cursor sits on a boundary (that was the jitter).
-    var idx = Math.round((y - iconSize / 2) / stride)
-    if (idx < 0)
-      idx = 0
-    if (idx > n - 1)
-      idx = n - 1
-    if (fromIndex >= 0 && fromIndex === dragHoverIndex) {
-      var center = idx * stride + iconSize / 2
-      if (Math.abs(y - center) < stride * 0.2)
-        return dragHoverIndex
-    }
-    return idx
+    return Logic.pinSlotIndex(y, fromIndex, dragHoverIndex, iconSize + iconSpacing, iconSize, pinned.length)
   }
 
   function closeApp(app) {
@@ -363,54 +293,20 @@ Item {
   }
 
   function menuActions() {
-    var a = []
-    // menuApp is the app object captured at open time. The client list is
-    // re-read on windowtitle, so swap in the current entry for the same class
-    // before building the rows — otherwise the titles stay frozen.
-    if (menuApp) {
-      for (var k = 0; k < apps.length; k++) {
-        if (apps[k].cls === menuApp.cls) {
-          menuApp = apps[k]
-          break
-        }
-      }
-    }
-    if (menuApp && !root.isSingleInstance(menuApp.cls)) {
-      a.push({ id: "new", label: "New " + root.appDisplayName(menuApp.cls), enabled: true })
-      if (menuApp.wins && menuApp.wins.length > 0)
-        a.push({ id: "sep", label: "", enabled: false })
-    }
-    var wins = (menuApp && menuApp.wins) ? menuApp.wins.slice() : []
-    wins.sort(function(x, y) {
-      var dx = Number(x.ws) - Number(y.ws)
-      if (dx !== 0)
-        return dx
-      return (x.focus || 0) - (y.focus || 0)
-    })
-    if (wins.length > 0) {
-      for (var i = 0; i < wins.length; i++) {
-        var win = wins[i]
-        var title = String(win.title || "").trim()
-        a.push({
-          id: "win:" + win.addr,
-          label: title || "Window",
-          wsLabel: win.ws ? String(win.ws) : "",
-          enabled: true,
-          addr: win.addr
-        })
-      }
-      a.push({ id: "sep", label: "", enabled: false })
-    }
-    if (menuPinned)
-      a.push({ id: "unpin", label: "Unpin", enabled: true })
-    else
-      a.push({ id: "pin", label: "Pin", enabled: true })
-    a.push({ id: "close", label: "Quit", enabled: menuApp && menuApp.addrs && menuApp.addrs.length > 0 })
-    return a
+    // menuApp is the snapshot taken at open time. Rows are built from the
+    // current `apps` entry for that class (titles update on windowtitle).
+    // Do not assign menuApp here: this function is the menuActionsModel
+    // binding, and writing a property it reads is a binding loop that freezes
+    // the dock the moment the menu is open (Pin, a title change, anything
+    // that retriggers the binding).
+    var r = Logic.buildMenuActions(menuApp, apps, menuApp ? root.appDisplayName(menuApp.cls) : "", menuApp ? root.isSingleInstance(menuApp.cls) : false)
+    return r.actions
   }
 
   function runMenuAction(id) {
-    var app = menuApp
+    // Fresh entry for the class, same swap the rows use. menuApp stays the
+    // open-time snapshot so the binding above never has to write it.
+    var app = Logic.buildMenuActions(menuApp, apps, "", false).app
     if (typeof id === "string" && id.indexOf("win:") === 0) {
       focusAddr(id.slice(4))
     } else if (typeof id === "string" && id.indexOf("ws:") === 0) {
@@ -420,9 +316,12 @@ Item {
       focusAddr(addr)
     } else if (id === "new")
       launchApp(app)
-    else if (id === "pin" || id === "unpin")
-      togglePin(app.cls)
-    else if (id === "close")
+    else if (id === "pin" || id === "unpin") {
+      // Pin rebuilds `apps` and resizes the card. Doing that (or destroying
+      // the overlay) inside this click waits on a frame that cannot arrive
+      // until the handler returns, and the dock never commits again.
+      menuCloseDefer.pinCls = app ? app.cls : ""
+    } else if (id === "close")
       closeApp(app)
     // The menu layer goes away on the next turn. Destroying it in this click
     // waits on a frame callback before the close or focus dispatch is written,
@@ -434,7 +333,14 @@ Item {
     id: menuCloseDefer
     interval: 0
     repeat: false
-    onTriggered: root.closeMenu()
+    property string pinCls: ""
+    onTriggered: {
+      var cls = pinCls
+      pinCls = ""
+      root.closeMenu()
+      if (cls)
+        root.togglePin(cls)
+    }
   }
 
   Process {
@@ -681,6 +587,12 @@ Item {
   }
 
   FileView {
+    id: orderFile
+    path: root.orderPath
+    printErrors: false
+  }
+
+  FileView {
     id: pinnedFile
     path: root.pinnedPath
     watchChanges: true
@@ -688,24 +600,29 @@ Item {
     onFileChanged: reload()
     onLoaded: {
       var next = []
+      var parsed = false
       try {
         var d = JSON.parse(text())
-        if (Array.isArray(d))
+        if (Array.isArray(d)) {
           next = d
+          parsed = true
+        }
       } catch (e) {}
       // Same list: do not assign. A new array resizes the card, and that
       // commit is what we are trying not to repeat on the re-read below.
       if (root.samePins(root.pinned, next))
         return
+      // Atomic writes replace the file. A read that races the rename is
+      // empty or invalid, and treating that as "unpinned everything" emptied
+      // the card the moment someone pinned. A real `[]` still parses and
+      // clears. Keep the in-memory list until the next reload catches up.
+      if (!parsed && root.pinned.length > 0)
+        return
       root.pinned = next
       root.rebuildApps()
     }
-    onLoadFailed: {
-      if (root.pinned.length === 0)
-        return
-      root.pinned = []
-      root.rebuildApps()
-    }
+    // No onLoadFailed wipe: an atomic write can miss the file for a moment,
+    // and treating that as "unpinned everything" emptied the card on Pin.
   }
 
   // inotify does not see a pin file that is created after the dock has
@@ -748,7 +665,7 @@ Item {
   Component.onCompleted: root.refreshClients()
 
   function applyXModeLine(raw) {
-    var on = Logic.parseEnabled(raw)
+    var on = Logic.readEnabledLine(raw)
     if (on !== null)
       root.xModeOn = on
   }
@@ -889,24 +806,12 @@ Item {
                   }
                 }
 
-                Text {
-                  anchors.centerIn: parent
-                  // Hide the source icon while the ghost is shown.
-                  visible: !item.isDragSource && iconImg.status !== Image.Ready
-                  text: String(item.modelData.cls).charAt(0).toUpperCase()
-                  color: Color.foreground
-                  font.pixelSize: Math.round(root.iconSize * 0.6)
-                }
-
-                Image {
-                  id: iconImg
+                // Hide the source icon while the ghost is shown.
+                AppIcon {
                   anchors.fill: parent
+                  cls: String(item.modelData.cls)
                   source: icons.iconFor(item.modelData.cls)
-                  sourceSize.width: root.iconSize
-                  sourceSize.height: root.iconSize
-                  fillMode: Image.PreserveAspectFit
-                  asynchronous: false
-                  visible: !item.isDragSource && status === Image.Ready
+                  iconVisible: !item.isDragSource
                 }
 
                 Rectangle {
@@ -1031,23 +936,10 @@ Item {
                   z: 100
                   opacity: 0.95
 
-                  Image {
-                    id: ghostImg
+                  AppIcon {
                     anchors.fill: parent
+                    cls: String(root.dragCls || "")
                     source: root.dragActive ? icons.iconFor(root.dragCls) : ""
-                    sourceSize.width: root.iconSize
-                    sourceSize.height: root.iconSize
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: false
-                    visible: status === Image.Ready
-                  }
-
-                  Text {
-                    anchors.centerIn: parent
-                    visible: ghostImg.status !== Image.Ready
-                    text: String(root.dragCls || "").charAt(0).toUpperCase()
-                    color: Color.foreground
-                    font.pixelSize: Math.round(root.iconSize * 0.6)
                   }
                 }
               }
@@ -1073,130 +965,19 @@ Item {
           }
         }
 
-        // Right-click context menu. Only instantiated while open, so the
-        // full-screen overlay never captures input when closed.
-        Loader {
-          active: root.menuOpen
-
-          sourceComponent: Component {
-            PanelWindow {
-              id: menuPanel
-              screen: modelData
-              anchors {
-            top: true
-            bottom: true
-            left: true
-            right: true
-          }
-          color: "transparent"
-          WlrLayershell.namespace: "x-mode-dock-menu"
-          WlrLayershell.layer: WlrLayer.Overlay
-          WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-          exclusionMode: ExclusionMode.Ignore
-          // Take pointer input everywhere except the dock strip, so a
-          // right-click on another icon reaches the dock and swaps the menu in
-          // one click (instead of the overlay swallowing it to close first).
-          mask: Region {
-            width: modelData.width
-            height: modelData.height
-
-            Region {
-              intersection: Intersection.Subtract
-              x: modelData.width - root.cardWidth - root.dockGap
-              y: 0
-              width: root.cardWidth + root.dockGap
-              height: modelData.height
-            }
-          }
-
-          MouseArea {
-            anchors.fill: parent
-            onClicked: root.closeMenu()
-          }
-
-          Rectangle {
-            id: menuCard
-            width: 240
-            height: menuCol.implicitHeight + 12
-            x: modelData.width - root.dockGap - root.cardWidth - width - (Style.gapsOut * 2)
-            // Align the popup with the icon it was opened from (the card's
-            // pad puts the first row at the icon's top).
-            y: Math.max(8, Math.min(modelData.height - height - 8, root.menuY - root.pad))
-            radius: root.dockRadius
-            color: Util.alpha(Color.background, 0.97)
-            border.color: Util.alpha(Color.foreground, 0.2)
-            border.width: 1
-
-            Column {
-              id: menuCol
-              anchors {
-                left: parent.left
-                right: parent.right
-                top: parent.top
-                margins: 6
-              }
-              spacing: 2
-
-              Repeater {
-                model: root.menuActionsModel
-
-                delegate: Rectangle {
-                  id: menuRow
-                  required property var modelData
-                  width: menuCol.width
-                  height: (modelData.id === "sep" || modelData.id === "sep2") ? 7 : 26
-                  color: (modelData.id !== "sep" && modelData.id !== "sep2" && rowMouse.containsMouse && modelData.enabled)
-                    ? Util.alpha(Color.foreground, 0.12) : "transparent"
-
-                  Rectangle {
-                    visible: modelData.id === "sep" || modelData.id === "sep2"
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    height: 1
-                    color: Util.alpha(Color.foreground, 0.2)
-                  }
-
-                  // Title on the left, elided so it always fits; workspace
-                  // number right-aligned with the same 8px margin.
-                  Text {
-                    id: menuRowLabel
-                    visible: modelData.id !== "sep" && modelData.id !== "sep2"
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.left: parent.left
-                    anchors.leftMargin: 8
-                    anchors.right: menuRowWs.visible ? menuRowWs.left : parent.right
-                    anchors.rightMargin: 8
-                    text: modelData.label
-                    elide: Text.ElideRight
-                    color: modelData.enabled ? Color.foreground : Util.alpha(Color.foreground, 0.4)
-                    font.pixelSize: 12
-                  }
-
-                  Text {
-                    id: menuRowWs
-                    visible: menuRowLabel.visible && !!modelData.wsLabel
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.right: parent.right
-                    anchors.rightMargin: 8
-                    text: modelData.wsLabel || ""
-                    color: Util.alpha(Color.foreground, 0.55)
-                    font.pixelSize: 12
-                  }
-
-                  MouseArea {
-                    id: rowMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    enabled: modelData.enabled && modelData.id !== "sep" && modelData.id !== "sep2"
-                    onClicked: root.runMenuAction(modelData.id)
-                  }
-                }
-              }
-            }
-          }
-        }
-          }
+        // Right-click context menu. The overlay UI lives in DockMenu.qml;
+        // state (open/app/rows) and the pick handling stay here.
+        DockMenu {
+          screen: modelData
+          open: root.menuOpen
+          actions: root.menuActionsModel
+          menuY: root.menuY
+          pad: root.pad
+          cardWidth: root.cardWidth
+          dockGap: root.dockGap
+          dockRadius: root.dockRadius
+          onPick: function(id) { root.runMenuAction(id) }
+          onClose: function() { root.closeMenu() }
         }
       }
     }

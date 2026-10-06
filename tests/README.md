@@ -1,14 +1,25 @@
 # x-mode tests
 
-Four layers:
+Five layers:
 
 
 - **`lint/`** (via `lint.sh`) — `qmllint` over `quickshell/x-mode/*.qml`. The
   Quickshell/qs.* modules are not on the lint import path, so their "not found"
   warnings are expected; only real errors fail.
+- **`harness_test.sh`** — the suite's own helpers, in a plain shell with no nest.
+  `wait_until` has to be *text*: `wait_until 5 [ "$(f)" = 1 ]` expands the
+  substitution once, before the first check, so it waits for nothing and a step
+  that took a moment longer reads as a flake. The test pins that a quoted
+  condition is re-evaluated on every poll, and that one which never holds still
+  gives up on time.
 - **`unit/`** — pure Lua, no compositor: the parsing modules in `hypr/x-mode/`
-  (settings, theme, MRU). Geometry has no unit layer on purpose: it is the
-  plugin's (`Snap::`), and the nest covers it.
+  (settings, theme, MRU, the Super-as-Ctrl plan, the macOS text-chord table)
+  plus one test that loads the
+  whole config against a stub `hl` to check it survives Omarchy's keybindings
+  scan. Geometry has no unit layer on purpose: it is the plugin's (`Snap::`),
+  and the nest covers it. The runner gives every test a throwaway `HOME` and
+  `$X_MODE_STATE`, so a test that loads the config cannot reach the session's
+  files.
 - **`qml/`** — pure JS, no compositor: the shell plugin's shared logic in
   `quickshell/x-mode/logic.js`, run with `qmltestrunner` offscreen.
 - **`nest/`** — scenarios in a nested Hyprland: a window inside the real session
@@ -19,11 +30,26 @@ Four layers:
 ## Run
 
 ```sh
-bash tests/run.sh       # lint, unit, qml, then nest
+bash tests/run.sh       # lint, harness, unit, qml, then nest
 tests/nest/run.sh       # nest only
 bash tests/unit/run.sh  # pure lua only
 bash tests/qml/run.sh   # pure JS only
+bash tests/harness_test.sh   # the wait helpers only
 ```
+
+In an agent session these are started detached and checked with a short command
+rather than waited for -- see the section in `../AGENTS.md`, and `tests/async.sh`,
+which keeps one log per label:
+
+```sh
+bash tests/async.sh run suite bash tests/run.sh
+bash tests/async.sh status suite
+```
+
+The `run` also writes `<log>.status` when the run ends: the same text `status`
+prints, plus the log path. `.pi/extensions/test-status.ts` watches those files and
+sends one as a message that starts a turn, so a finished run reaches an agent
+session by itself instead of being polled for.
 
 Nest scenarios can be picked by name, whole or in part:
 
@@ -93,7 +119,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `snap_test.sh` | halves keep the bar/gap/border inset and do not overlap |
 | `group_test.sh` | a same-app window joins; the tabbar grows the chrome without pushing the visual top |
 | `topbar_test.sh` | with the bar gone (shell restart) a snap still clears where it was |
-| `nogaps_test.sh` | the panel's file + reload zeroes the gaps and re-lays the snapped windows |
+| `nogaps_test.sh` | the panel's file + reload zeroes the gaps and re-lays the snapped windows; the pack returns the desktop's own gaps when the option goes off and when x-mode goes off, and Omarchy's own gaps toggle (`⇧⌘⌫`) is not bound |
 | `focus_test.sh` | the focused window ends up topmost, including after a same-app window joins |
 | `pointer_test.sh` | a titlebar drag moves the window through the drag session, and a click does not |
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
@@ -107,9 +133,14 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/arrange_keeps_workspaces_test.sh` | the arrange arranges a window where it already is |
 | `integration/chrome_off_drag_reaches_bar_test.sh` | without chrome the box reaches the bar |
 | `integration/chrome_off_no_group_test.sh` | a chrome-off window is never grouped |
+| `integration/ctrl_as_super_test.sh` | Super as Ctrl: the free Super+keys are bound, occupied ones and the flag being off are not |
+| `integration/ctrl_click_test.sh` | Super+click (left/right/middle) is bound as Ctrl+click |
+| `integration/steal_occupied_test.sh` | an occupied Super key stolen for one app is Ctrl+key there and the original action everywhere else (Super+Q, Super+Tab, Super+F) |
+| `integration/ctrl_c_shift_test.sh` | Ctrl+C goes in shifted for the flagged app and stays plain for the rest |
 | `integration/client_fullscreen_not_pushed_test.sh` | a window the app made fullscreen is not re-clamped below the bar |
 | `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
 | `integration/ctrl_tab_switch_binds_test.sh` | Ctrl+1..9 binds are opt-in |
+| `integration/switcher_keeps_super_tab_test.sh` | Super+Tab is the switcher for an app with Super as Ctrl too |
 | `integration/dock_appears_test.sh` | the dock is a 40px card, centred, reserving nothing |
 | `integration/dock_click_focuses_app_test.sh` | clicking an icon focuses and raises that app |
 | `integration/dock_click_same_app_no_tab_switch_test.sh` | clicking the focused app's icon does not switch tabs |
@@ -120,6 +151,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/dock_menu_focuses_other_workspace_test.sh` | a window row on another workspace moves there |
 | `integration/dock_menu_hides_new_for_single_instance_test.sh` | a single-instance app gets no New row |
 | `integration/dock_menu_lists_windows_test.sh` | the menu lists every window and a row focuses that one |
+| `integration/dock_menu_pin_rebuilds_test.sh` | pinning a running app rebuilds the card and the dock stays alive |
 | `integration/dock_menu_pin_writes_file_test.sh` | the menu's Pin row writes the class, and Unpin clears it |
 | `integration/dock_menu_quit_closes_app_test.sh` | the menu's last row quits the app |
 | `integration/dock_offset_follows_gaps_test.sh` | the dock's edge inset follows the gaps |
@@ -134,7 +166,9 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/drag_snap_zones_test.sh` | side strips give halves, the top strip maximizes, corners quarter |
 | `integration/drag_down_then_focus_keeps_box_test.sh` | a dragged window keeps its drop when another window takes focus |
 | `integration/drag_up_clamps_to_bar_test.sh` | dragging up leaves the chrome below the bar |
-| `integration/arrow_keys_unbound_test.sh` | Cmd+arrows are unbound and do not move focus |
+| `integration/capture_keys_test.sh` | the macOS capture keys run Omarchy's capture commands with the matching mode, and the window-move spelling of those digits is gone |
+| `integration/text_chords_test.sh` | the macOS text chords: a tagged terminal gets readline's chord and everything else its toolkit's (the bytes the app received are read back) |
+| `integration/arrow_keys_unbound_test.sh` | Cmd+arrows are the pack's text chords, not Omarchy's directional focus, and still do not move focus |
 | `integration/follow_mouse_detached_test.sh` | follow_mouse stays 2 and a click focuses the window under the cursor |
 | `integration/fullscreen_exit_restores_size_test.sh` | leaving fullscreen restores the floating box, not the fullscreen size |
 | `integration/fullscreen_holds_others_under_test.sh` | a fullscreen window keeps the others under it |
@@ -177,6 +211,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/super_q_closes_app_test.sh` | Super+Q closes every tab of the app and nothing else |
 | `integration/super_q_single_window_test.sh` | Super+Q on an ungrouped window closes just it |
 | `integration/super_w_closes_window_test.sh` | Super+W closes the window and keeps the focus in the group |
+| `integration/super_w_ctrl_w_test.sh` | a class that steals Cmd+W gets Ctrl+W instead of the pack closing it, and a file that still carries the older `ctrlW` flag keeps doing the same |
 | `integration/super_w_single_window_test.sh` | and closes an ungrouped window on its own |
 | `integration/switcher_cycles_apps_test.sh` | Super+Tab cycles apps and writes the switcher's command file |
 | `integration/switcher_mru_order_test.sh` | the switcher's next app is the one used before this one |
@@ -193,6 +228,13 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/titlebar_drawn_test.sh` | the titlebar band is actually painted |
 | `integration/resize_after_open_clears_bar_test.sh` | a window resized after opening still clears the bar (known gap, reported) |
 | `integration/titlebar_rmb_no_drag_test.sh` | a right-button drag does nothing, a left-button drag moves |
+| `integration/key_pin_test.sh` | a card pins one app against the desktop: the pack's tabs own Cmd+1..0 everywhere while that class is Always off and Super-as-Ctrl Always on for it, so Cmd+3 arrives as exactly the bytes a physical Ctrl+3 does, and a class with no card still switches tabs |
+| `integration/gaps_toggle_retired_test.sh` | the pack retires Omarchy's own gaps toggle on every load — the state file it sources goes, and the reload the pack schedules brings the desktop's gaps back — including when x-mode is switched on from the panel |
+| `integration/global_keys_test.sh` | a keyboard replacement forced on for every app (options.keys) reaches an app with no entry of its own: the generated Super-as-Ctrl binds exist for it, a globally stolen Super+Q arrives as Ctrl+Q, and the app is not closed |
+| `integration/lock_key_test.sh` | Ctrl+Cmd+Q locks the screen (Omarchy's lock command) and takes Omarchy's Calculator key with it; turning the option off gives the Calculator back, turning it on takes it again |
+| `integration/fade_opacity_reset_test.sh` | a reload leaves no window dimmed: the arrange fade runs in 25ms steps and the timers die with the config, so a window stuck at the first step (0.9, seen as a translucent titlebar) has to come back at 1 on the next load |
+| `integration/digit_tabs_test.sh` | with the workspaces on the F keys, the freed Cmd+1..0 follow each app's card: a reserved digit switches the pack's tab (and is eaten even with no such tab), `Super as Ctrl` alone hands over Ctrl+digit (byte-equal to a physical one), both flags mean the tab, and with neither the digit does nothing |
+| `integration/workspaces_on_fkeys_test.sh` | the workspace keys move to Super+F1..F10 and the pack binds the freed digits itself — Cmd+0 as the tenth tab, no generated super-ctrl bind left on them |
 
 `focus_test.sh` relies on `hyprctl clients -j` being in z-order (topmost last),
 which is what `lib.sh`'s helpers read.
@@ -230,6 +272,14 @@ that needs arguments, like a zenity dialog), `nest_clean`, `win_geom`, `visible_
 `nest_ctl`, `nest_socket`, `nest_display`, `titlebar_point`, `drag_to`,
 `place_frac`, `nest_screenshot`, `image_diff`, the `pointer_*` and `dock_*`
 families below, and `assert_eq/ne/ge/le/between`.
+
+Waiting is `wait_until 5 'condition'`: the condition is text, evaluated on every
+poll, so quote it, or pass the name of a function the scenario defines (the
+shorter spelling for a condition asked about twice). `wait_until 5 [ "$(f)" = 1 ]`
+is the trap — the caller expands the substitution once, so it waits for nothing —
+and `harness_test.sh` fails if the helper ever goes back to doing that. A value
+the text compares against has to be captured in a `local` before the call: the
+helper shifts its own `$1`, so a bare `$1` inside the text is not yours any more.
 
 Three things about the tabbar, all found the hard way:
 
@@ -316,6 +366,14 @@ window overhangs the far side of its zone instead; `oversized_snap_anchors_test.
 holds that down, and `oversized_snap_cycle_test.sh` that the Super+Alt+arrow cycle
 still steps on from there (its candidates are grown the same way, or the wider
 window matches none of them and the next press only re-snaps the same half).
+
+Unplugging a monitor (or powering the only one off, which Hyprland treats as a
+destroy and then a virtual FALLBACK `monitor.added`) leaves floats whole screens
+away. `hyprbars.fit` force-pages them back onto the same half, configures the
+client, and does not raise: `monitor_added_restores_click_test.sh` is a click on
+the restored titlebar, `monitor_added_group_once_test.sh` that a two-tab group is
+fitted once and both tabs share that slot. The ordinary `monitor.removed` page
+restore is `monitor_removed_restores_page_test.sh`.
 
 Upstream has the fitting code but does not call it here:
 `CDefaultFloatingAlgorithm::fitBoxInWorkArea()` clamps into `space->workArea(true)`
@@ -503,7 +561,9 @@ here any more: it is `Snap::` in the plugin, and the nest is its test layer.
 
 | file | module | covers |
 |---|---|---|
-| `settings_test.lua` | `hypr/x-mode/settings.lua` | options/apps parsing, the apps section vs the whole file, the legacy array, the merge of the two old files, the rule diff |
+| `settings_test.lua` | `hypr/x-mode/settings.lua` | options/apps parsing, the apps section vs the whole file, the legacy array, the per-app flags and their sets, the merge of the two old files, the rule diff |
+| `supermap_test.lua` | `hypr/x-mode/supermap.lua` | the keysym list, the free-key plan from a `hyprctl binds` table (occupied, submap and own binds left out, keycode binds mapped back to their key, Shift variants for letters only), the stealable occupied list (digits and Super+W skipped, foreign Lua dropped, steal wraps kept) |
+| `scan_stub_test.lua` | `hypr/x-mode/x-mode.lua` | the whole config loads under Omarchy's keybindings-scan stub `hl` (every field a callable proxy) without spinning on a query result |
 | `theme_test.lua` | `hypr/x-mode/theme.lua` | the TOML subset (inline comments, quotes), hex/rgb conversion, the bar color defaults |
 | `mru_test.lua` | `hypr/x-mode/mru.lua` | touch ordering, step wrapping, sort by MRU then focus |
 
@@ -519,7 +579,7 @@ Same idea for the shell plugin: the pure JS it shares lives in
 
 | file | covers |
 |---|---|
-| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, invalid), `cleanName`, `lastSegment`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect` |
+| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, the three states, the off list, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, pin moves a running app), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg` (only what was pinned is written), `setPanelFlag`, `setKeyFlag`, `setOccupiedKey`, `keyFlagState`/`keyFlagCycle`/`keyFlagDescription`/`keyStealState` (follows the desktop, Always on, Always off), `globalScopeCfg`, `setGlobalFlag`, `setGlobalSteal`, `hasGlobalSteal`, `globalKeysSummary`, `appKeysSummary`, `parseThemeAccents`, `stealToggleLabel`, `sameOccupiedList`, `buildPanelRunning` |
 
 What is *not* unit-testable this way: the components themselves. `import
 Quickshell` fails under `qmltestrunner` (`plugin "quickshell-coreplugin" not

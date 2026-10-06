@@ -11,7 +11,7 @@
 # (24 + gaps_out/2 + border, around 36); with chrome on it is 28 lower.
 . "$(dirname "$0")/../../lib.sh"
 
-SETTINGS="$NEST_STATE/state/settings.json"
+SETTINGS="$NEST_SETTINGS"
 
 open_command org.mozilla.Thunderbird foot --app-id=org.mozilla.Thunderbird
 snap org.mozilla.Thunderbird left

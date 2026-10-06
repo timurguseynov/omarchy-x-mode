@@ -8,7 +8,7 @@
 # back. The No gaps toggle is the real path for this (settings file, then reload).
 . "$(dirname "$0")/../../lib.sh"
 
-SETTINGS="$NEST_STATE/state/settings.json"
+SETTINGS="$NEST_SETTINGS"
 
 dock_start
 dock_settle

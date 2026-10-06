@@ -11,6 +11,13 @@ if [ -f "$HERE/lint.sh" ]; then
   bash "$HERE/lint.sh" || fail=1
 fi
 
+# The suite's own helpers: a wait that does not wait reads as a flake, so it is
+# checked before the layers that lean on it.
+if [ -f "$HERE/harness_test.sh" ]; then
+  echo "== harness"
+  bash "$HERE/harness_test.sh" || fail=1
+fi
+
 for d in unit qml nest; do
   [ -f "$HERE/$d/run.sh" ] || continue
   echo "== $d"

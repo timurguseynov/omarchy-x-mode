@@ -16,10 +16,10 @@ Item {
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var shell: null
   property var manifest: null
-  // `dock` is only kept so the existing `Switcher { dock: root }` in Dock.qml
-  // still binds. The icon lookup moved out of the dock into IconResolver.
+  // Icon lookup reuses the dock's resolver (one scan per shell process),
+  // so this component owns no IconResolver of its own. Without a dock the
+  // row still shows the class letters.
   property var dock: null
-  IconResolver { id: icons }
 
   readonly property string cmdPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-switcher.cmd"
 
@@ -29,11 +29,13 @@ Item {
   property var classes: []
 
   function iconFor(cls) {
-    return icons.iconFor(cls)
+    if (root.dock && typeof root.dock.iconFor === "function")
+      return root.dock.iconFor(cls)
+    return ""
   }
 
   function applyXModeLine(raw) {
-    var on = Logic.parseEnabled(raw)
+    var on = Logic.readEnabledLine(raw)
     if (on === null)
       return
     root.xModeOn = on
@@ -109,9 +111,10 @@ Item {
           color: Util.alpha(Color.background, 0.94)
           border.color: Util.alpha(Color.foreground, 0.14)
           border.width: 1
+          // No fade on the way in: the surface is unmapped the moment Super is
+          // released (`visible`), so an opacity animation only ever showed on the
+          // way in -- and a Cmd+Tab switcher is expected to be there at once.
           opacity: root.shown ? 1 : 0
-
-          Behavior on opacity { NumberAnimation { duration: 90 } }
 
           Row {
             id: row
@@ -125,11 +128,16 @@ Item {
                 width: 48
                 height: 48
 
-                Image {
+                // A class with no desktop icon (a portal file dialog, a
+                // terminal launched under another app id) would otherwise be a
+                // blank slot. Same letter the dock draws until the image loads.
+                AppIcon {
                   anchors.centerIn: parent
+                  width: 40
+                  height: 40
+                  cls: String(modelData.cls)
                   source: root.iconFor(modelData.cls)
-                  sourceSize.width: 40
-                  sourceSize.height: 40
+                  letterPixelSize: 22
                   opacity: modelData.cls === root.activeClass ? 1 : 0.45
                 }
 

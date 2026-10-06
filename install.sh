@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # omarchy-x-mode installer.
 #
-# Additive by design: it only creates files in its own namespace (x-mode,
-# x-mode.lua) and makes a single, sentinel-marked edit to
+# Additive by design: it only creates files in its own namespace (the
+# ~/.config/hypr/x-mode directory) and makes a single, sentinel-marked edit to
 # ~/.config/hypr/hyprland.lua. Uninstall removes exactly what it created and
-# leaves the user's own config untouched.
+# leaves the user's own config untouched -- including ~/.config/hypr/x-mode.json,
+# the settings the panel writes, which lives next to the pack's directory rather
+# than inside it so it survives an uninstall.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -19,7 +21,7 @@ manifest_add() { mkdir -p "$X_MODE_STATE_DIR"; printf '%s\n' "$1" >> "$X_MODE_MA
 # The single sentinel block we add to hyprland.lua (removed verbatim on uninstall).
 X_MODE_BEGIN='-- >>> omarchy-x-mode >>>'
 X_MODE_END='-- <<< omarchy-x-mode <<<'
-X_MODE_LOAD='dofile((os.getenv("HOME") or "") .. "/.config/hypr/x-mode.lua")'
+X_MODE_LOAD='dofile((os.getenv("HOME") or "") .. "/.config/hypr/x-mode/x-mode.lua")'
 sentinel_present() { grep -qF -e "$X_MODE_BEGIN" "$1" 2>/dev/null; }
 # Drop trailing blank lines so reinstall/uninstall does not accumulate gaps.
 sentinel_trim() {
@@ -71,12 +73,6 @@ Usage: ./install.sh [install|uninstall|status]
   uninstall    remove everything the installer created
   status       show what is installed
 EOF
-}
-
-copy_file() { # src dst
-  mkdir -p "$(dirname "$2")"
-  cp -f "$1" "$2"
-  manifest_add "$2"
 }
 
 copy_tree() { # src_dir dst_dir
@@ -148,12 +144,12 @@ print(json.dumps(out))
   log "loading patched hyprbars"
   hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
   hyprctl plugin load "$HYPRBARS_SO" >/dev/null 2>&1 || warn "could not load hyprbars now (it will load on next login)"
-  # Before either reload: the config spreads the already-open windows across
-  # the left and right halves, then deletes the marker. Whichever of the two
-  # reloads parses the new config first does the arrange; the other, and
-  # every reload after, leaves windows where the user put them.
-  mkdir -p "$X_MODE_STATE_DIR"
-  : > "$X_MODE_STATE_DIR/arrange"
+  # No arrange marker here. This reload is the plugin's (on a fresh install the
+  # pack's config is not wired in yet, on a reinstall it is still the previous
+  # one), and a marker left for it is an arrange with the old geometry -- or a
+  # second arrange, dealing the windows out in a new order a moment later. The one
+  # marker is written below, for the reload that parses the config just
+  # installed.
   log "reloading Hyprland to activate hyprbars"
   hyprctl reload >/dev/null 2>&1 || true
 
@@ -181,18 +177,26 @@ print(json.dumps(out))
   log "installing Hyprland config"
   # Clean up the old drop-in / script layout from earlier installs.
   rm -f "$HYPR"/conf.d/5x-x-mode-*.lua 2>/dev/null || true
-  rm -rf "$HYPR/x-mode" 2>/dev/null || true
-  copy_file "$HERE/hypr/x-mode.lua" "$HYPR/x-mode.lua"
-  # The pure parsing modules live next to it in x-mode/; x-mode.lua dofiles them
-  # relative to its own path, so the directory has to be installed too. Geometry
-  # is not in there: that is the plugin's (hyprbars/snap.cpp).
+  # Earlier installs put the config file next to the directory instead of in it.
+  rm -f "$HYPR/x-mode.lua" 2>/dev/null || true
+  # The pure parsing modules live next to x-mode.lua; the whole directory is the
+  # pack's, x-mode.lua dofiles its siblings relative to its own path, and
+  # uninstall removes the directory as one entry. Geometry is not in there: that
+  # is the plugin's (hyprbars/snap.cpp).
   copy_tree "$HERE/hypr/x-mode" "$HYPR/x-mode"
+  # The panel's settings used to live in the state dir, which uninstall wipes.
+  # Move an existing one to its own file next to the directory so it survives.
+  if [ -f "$X_MODE_STATE_DIR/settings.json" ] && [ ! -f "$HYPR/x-mode.json" ]; then
+    mv "$X_MODE_STATE_DIR/settings.json" "$HYPR/x-mode.json"
+  fi
 
   log "wiring x-mode into hyprland.lua"
   sentinel_add "$HYPR/hyprland.lua"
 
-  # Recreate the marker: the reload above may already have consumed it, and
-  # this reload is the one that parses the config just installed.
+  # The one arrange marker. The config deals the already-open windows out (groups
+  # across the halves, a lone group centred) and removes the marker only once it
+  # has actually dealt them, so a parse that cannot run the deal (the plugin is not
+  # loaded yet) keeps it instead of dropping the arrange on the floor.
   mkdir -p "$X_MODE_STATE_DIR"
   : > "$X_MODE_STATE_DIR/arrange"
 
@@ -239,7 +243,11 @@ do_uninstall() {
 
   log "removing installed files"
   rm -f "$HYPR"/conf.d/5x-x-mode-*.lua 2>/dev/null || true
+  # The pack's directory, and the config file earlier installs left beside it.
   rm -rf "$HYPR/x-mode" 2>/dev/null || true
+  rm -f "$HYPR/x-mode.lua" 2>/dev/null || true
+  # ~/.config/hypr/x-mode.json (the panel's settings) is the user's, not ours: it
+  # is not in the manifest and stays, so a reinstall brings the settings back.
   if [ -f "$X_MODE_MANIFEST" ]; then
     tac "$X_MODE_MANIFEST" | while IFS= read -r p; do
       [ -n "$p" ] || continue
@@ -292,6 +300,10 @@ PY
   fi
 
   OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}" omarchy-restart-shell >/dev/null 2>&1 || true
+  # Kept on purpose: the user's settings, not ours.
+  if [ -f "$HYPR/x-mode.json" ]; then
+    log "kept settings  $HYPR/x-mode.json"
+  fi
   rm -rf "$X_MODE_STATE_DIR"
   log "uninstalled omarchy-x-mode"
 }
@@ -299,6 +311,11 @@ PY
 do_status() {
   echo "state dir: $X_MODE_STATE_DIR"
   echo "manifest:  $X_MODE_MANIFEST"
+  if [ -f "$HYPR/x-mode.json" ]; then
+    echo "settings:  $HYPR/x-mode.json (kept on uninstall)"
+  else
+    echo "settings:  $HYPR/x-mode.json (none yet)"
+  fi
   if [ -f "$X_MODE_MANIFEST" ]; then
     echo "installed paths:"
     sed 's/^/  /' "$X_MODE_MANIFEST"
