@@ -1,6 +1,24 @@
 # A Mac-like desktop for Omarchy
 
-**X Mode** — floating windows, a Mac titlebar with same-app tabs, Rectangle-style snapping, a right-edge dock, Command-Tab, and the shortcuts you already use on macOS — on [Omarchy](https://omarchy.org). Coming from a Mac, or already tiling: Linux and Omarchy stay, and so does the way you work.
+**X Mode** — floating windows, a Mac titlebar with same-app tabs, Rectangle-style snapping, a right-edge dock, Command-Tab, and the shortcuts you already use on macOS — on [Omarchy](https://omarchy.org). Coming from a Mac, or already tiling: Linux and Omarchy stay, and so do the controls. How the windows are kept does not.
+
+> Optional. Omarchy tiling stays the default. The top-bar button turns X Mode off; nothing to reinstall.
+
+## How it's meant to be used
+
+> Never hide. Never use another space. Snaps and tabs arrange the windows, so they can sit on top of each other, and you never think about spaces, hiding or where you put a window.
+
+Never close, minimize, or hide a window.
+
+Every window of an app is a tab.
+
+If they are arranged, they don't need to be hidden.
+
+One space. Spaces are only for something extra.
+
+The dock is always on. It is the reference.
+
+Never think about it.
 
 See it in a minute:
 
@@ -8,9 +26,7 @@ https://github.com/user-attachments/assets/0d840197-4fcf-4000-ba25-4ebfc3ff6c65
 
 **Floating windows · Mac titlebars · App tabs · Window snapping · Dock · App switcher · Mac shortcuts**
 
-> Optional. Omarchy tiling stays the default. The top-bar button turns X Mode off; nothing to reinstall.
-
-[Features](#features) · [Installation](#installation) · [Uninstallation](#uninstallation) · [Settings](#settings) · [Keyboard shortcuts](#keyboard-shortcuts) · [License](#license)
+[How it's meant to be used](#how-its-meant-to-be-used) · [Features](#features) · [Installation](#installation) · [Uninstallation](#uninstallation) · [Settings](#settings) · [Keyboard shortcuts](#keyboard-shortcuts) · [License](#license)
 
 ---
 
