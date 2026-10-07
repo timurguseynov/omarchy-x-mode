@@ -125,7 +125,9 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `qml_test.sh` | the plugin loads in a real Quickshell (see below) |
 | `integration/almost_maximize_key_test.sh` | Super+Alt+A is most of the workarea, not all of it |
 | `integration/alt_tab_no_resize_test.sh` | Alt+Tab leaves the geometry alone |
+| `integration/alt_tab_stays_on_workspace_test.sh` | Alt+Tab keeps to the workspace it started on, even when a window of another one was used last |
 | `integration/alt_tab_switches_group_tab_test.sh` | Alt+Tab and Alt+Shift+Tab move through a group's tabs |
+| `integration/alt_tab_window_mru_test.sh` | Alt+Tab walks the focused group's tabs and then the workspace's other windows by MRU |
 | `integration/always_tabbar_single_tab_test.sh` | alwaysTabbar pushes a lone window down by the tabbar |
 | `integration/arrange_counts_group_once_test.sh` | a group of tabs takes one half, not two |
 | `integration/arrange_fades_test.sh` | the arrange fades the windows out first and reveals them at full opacity |

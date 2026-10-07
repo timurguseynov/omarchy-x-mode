@@ -6,7 +6,7 @@
 
 ## How it's meant to be used
 
-> Never hide. Spaces are only for something extra. Snaps and tabs arrange the windows, so they can sit on top of each other, and you never think about spaces, hiding or where you put a window. The dock is always on for fast access.
+> Never minimize or hide windows. Spaces are only for something extra. Snaps and tabs arrange the windows, so they can sit on top of each other, and you never think about spaces, hiding or where you put a window. The dock is always on for fast access.
 
 https://github.com/user-attachments/assets/0d840197-4fcf-4000-ba25-4ebfc3ff6c65
 
@@ -25,7 +25,7 @@ The Mac habits that keep you fast — on Omarchy.
 * **Tabs in every app.** Like native tabs on a Mac, but for every app you choose: two windows of the same app on a workspace become tabs of one window.
 * **Snaps.** Rectangle-like snapping from the titlebar: drag to a side for a half, a corner for a quarter, the top edge to maximize. `Super+Alt+←/→` cycles `½ → ⅔ → ⅓`.
 * **The Dock.** The familiar column of pinned and running apps, on the right edge. Click to focus or launch, right-click for a new window, the window list, pin or quit, drag pins to reorder.
-* **Command-Tab.** Hold Super and tap Tab — the app switcher you use all day, most recently used first. Click an icon or release Super to switch.
+* **Command-Tab.** Hold Super and tap Tab — the app switcher you use all day, most recently used first. Click an icon or release Super to switch. `Alt+Tab` walks windows instead: the focused app's tabs first, then the rest of the workspace, most recently used first.
 * **The rest of the Mac keys.** Copy, paste and cut Omarchy already does. X Mode adds `Super+←`/`→` by line, `Super+↑`/`↓` by document, `Alt+←`/`→` by word, deleting a word, or to the start and end of the line, `Super+[`/`]` back and forward, `Super+Shift+3…5` screenshots and `Super+Ctrl+Q` lock. Shortcuts are configurable app by app, so the Mac experience stays seamless even where one app disagrees.
 * **The settings panel.** Open it from the top-bar button: X Mode on or off, per-app titlebars and grouping, and the shortcuts. Settings survive uninstall.
 
@@ -109,8 +109,8 @@ Super is Command (`⌘` in the panel).
 | --- | --- |
 | `Super` + `Tab` | Next app |
 | `Super` + `Shift` + `Tab` | Previous app |
-| `Alt` + `Tab` | Next tab |
-| `Alt` + `Shift` + `Tab` | Previous tab |
+| `Alt` + `Tab` | Next tab, then the next window on this workspace |
+| `Alt` + `Shift` + `Tab` | The same, back |
 | `Ctrl` + `1`…`0` | Jump to tab *N* (off until enabled in Shortcuts) |
 | `Super` + `1`…`0` | Jump to tab *N* (when Workspaces on F1…F10 and `⌘1`…`0` for tabs are on) |
 | `Super` + `W` | Close window or tab |

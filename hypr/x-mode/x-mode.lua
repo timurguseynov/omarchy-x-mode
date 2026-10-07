@@ -679,6 +679,151 @@ hl.layer_rule({
 })
 
 -- ---------------------------------------------------------------------------
+-- Alt+Tab window cycle
+-- ---------------------------------------------------------------------------
+-- The switcher below is per class. Alt+Tab walks one stop per *window* of the
+-- workspace the user is looking at: a group's tabs stay together in tab order,
+-- and the rest is the order those windows were really used in. A window the
+-- pack refuses to tab -- Geary's Accounts dialog, a lone app -- is in the same
+-- ring as the tabs beside it, so the key reaches it, and focusing it is what
+-- raises it over the parent it opened behind.
+--
+-- The order is this address-keyed MRU list, not the switcher's class-keyed one.
+-- It records a *real* focus change only: the focus the cycle itself makes is
+-- skipped (as the switcher's is while Super is held), or each press would
+-- rebuild the ring with the window just crossed at the front -- Alt+Tab would
+-- oscillate between two windows instead of walking the circle, and
+-- Alt+Shift+Tab could not be the way back.
+local tab_mru = {}
+-- Guards the one focus dispatch the ring makes, like `raising` below: the same
+-- focus emits window.active again, and that pass must not record a use of a
+-- window the user only tabbed across.
+local tab_cycling = false
+-- A cycle ran and Alt has not been let go of yet. That release is the end of
+-- the gesture, and the window left focused is the one that moves to the front.
+local tab_active = false
+
+local function tab_touch(w)
+  if w ~= nil then
+    mru.touch(tab_mru, tostring(w.address))
+  end
+end
+
+-- The ring: every window of the active workspace, most recently used first,
+-- with each group emitted as one run of its members in tab order. A window that
+-- has had no real focus yet is not in tab_mru; it is taken in Hyprland's own
+-- order and then remembered, so two presses in a row do not see a different
+-- ring.
+local function tab_ring()
+  local active = hl.get_active_window()
+  if active == nil then
+    return {}
+  end
+  local ws = ws_id(active)
+  local windows = as_list(hl.get_windows())
+  local live = {}
+  for _, w in ipairs(windows) do
+    if not w.hidden and ws_id(w) == ws then
+      live[tostring(w.address)] = w
+    end
+  end
+  local order = {}
+  local seen = {}
+  for _, addr in ipairs(tab_mru) do
+    local w = live[addr]
+    if w ~= nil and not seen[addr] then
+      seen[addr] = true
+      table.insert(order, w)
+    end
+  end
+  local rest = {}
+  for _, w in ipairs(windows) do
+    local addr = tostring(w.address)
+    if live[addr] ~= nil and not seen[addr] then
+      seen[addr] = true
+      table.insert(rest, w)
+    end
+  end
+  table.sort(rest, function(a, b)
+    return (tonumber(a.focus_history_id) or 0) < (tonumber(b.focus_history_id) or 0)
+  end)
+  for _, w in ipairs(rest) do
+    table.insert(tab_mru, tostring(w.address))
+    table.insert(order, w)
+  end
+  local ring = {}
+  local done = {}
+  for _, w in ipairs(order) do
+    local members = w.group and w.group.members or nil
+    if members ~= nil and #members > 1 then
+      local key = tostring(members[1].address)
+      if not done[key] then
+        done[key] = true
+        for _, m in ipairs(members) do
+          table.insert(ring, tostring(m.address))
+        end
+      end
+    else
+      table.insert(ring, tostring(w.address))
+    end
+  end
+  return ring
+end
+
+-- One Alt+Tab press. Same group as the focused window: switch the tab the way
+-- the tabbar does, so the group keeps the focus and no unfocus/refocus gap dims
+-- the app's own title bar (Zed paints it from is_window_active). Anywhere else,
+-- focus the window by address and let window.active do the raise.
+local function switch_window(step)
+  local active = hl.get_active_window()
+  if active == nil then
+    return
+  end
+  local ring = tab_ring()
+  local n = #ring
+  if n < 2 then
+    return
+  end
+  local cur = tostring(active.address)
+  local idx = 0
+  for i = 1, n do
+    if ring[i] == cur then
+      idx = i
+      break
+    end
+  end
+  if idx == 0 then
+    return
+  end
+  local addr = ring[mru.step(idx, n, step)]
+  local target = window_by_addr(addr)
+  if target == nil then
+    return
+  end
+  local index = nil
+  if active.group ~= nil then
+    for i, m in ipairs(active.group.members) do
+      if tostring(m.address) == addr then
+        index = i
+        break
+      end
+    end
+  end
+  tab_cycling = true
+  if index ~= nil then
+    pcall(function()
+      hl.dispatch(hl.dsp.group.active({ index = index, window = active }))
+    end)
+  else
+    pcall(function()
+      hl.dispatch(hl.dsp.focus({ window = target }))
+    end)
+  end
+  tab_cycling = false
+  tab_active = true
+end
+
+-- ---------------------------------------------------------------------------
 -- Cmd+Tab app switcher
 -- ---------------------------------------------------------------------------
 -- The preview overlay (Quickshell, Switcher.qml) is driven by a command file,
@@ -814,6 +959,7 @@ local function switcher_hide()
   local active = hl.get_active_window()
   if active ~= nil then
     switcher_touch(active.class)
+    tab_touch(active)
   end
   switcher_active = false
   switcher_order = {}
@@ -845,16 +991,28 @@ hl.on("window.active", function(w, reason)
     pcall(p.raise, w)
     raising = false
   end
-  if switcher_active then
+  if switcher_active or tab_cycling then
     return
   end
   switcher_touch(w.class)
+  tab_touch(w)
 end)
 
--- Super (keycode 133/134 + 8) released: hide the switcher.
+-- Super (keycode 133/134 + 8) released: hide the switcher. Alt (56/100 +
+-- 8) released: the Alt+Tab cycle is over, and the window it left focused is the
+-- one that moves to the front of the window MRU -- the switcher does the same
+-- for its class on hide.
 hl.on("input.keyboard.key", function(keycode, _, state)
-  if switcher_active and state == 0 and (keycode == 133 or keycode == 134) then
+  if state ~= 0 then
+    return
+  end
+  if switcher_active and (keycode == 133 or keycode == 134) then
     switcher_hide()
+    return
+  end
+  if tab_active and (keycode == 56 or keycode == 100) then
+    tab_touch(hl.get_active_window())
+    tab_active = false
   end
 end)
 
@@ -1054,44 +1212,18 @@ o.bind("SUPER + SHIFT + TAB", "Focus on previous window", function()
   switcher_step(-1)
 end)
 
--- Alt+Tab switches between the tabs of the focused group (Omarchy binds it to
--- cyclenext, which we do not want). Set the group's active index directly:
--- group.next() briefly focuses something else, and a follow-up focus would
--- unfocus and refocus the window within one switch.
-local function switch_group_tab(next)
-  local w = hl.get_active_window()
-  if w == nil or w.group == nil then
-    return
-  end
-  local members = w.group.members
-  local n = #members
-  if n < 2 then
-    return
-  end
-  local cur = w.group.current
-  local idx = 1
-  for i = 1, n do
-    if members[i].address == cur.address then
-      idx = i
-      break
-    end
-  end
-  idx = next and (idx % n) + 1 or ((idx + n - 2) % n) + 1
-  -- group.active focuses the new tab (CGroup::setCurrent calls rawWindowFocus
-  -- when the group held focus) and focusing routes through window.active, which
-  -- raises. No second dsp.focus: that is a fullWindowFocus plus warpCursor, so
-  -- the window is unfocused and refocused within one switch, and Zed paints its
-  -- title bar from is_window_active, so that gap dims the bar for a frame.
-  hl.dispatch(hl.dsp.group.active({ index = idx, window = w }))
-end
-
+-- Alt+Tab switches between the tabs of the focused group and then goes on to
+-- the next window of the workspace (Omarchy binds it to cyclenext, which we do
+-- not want). switch_window keeps the group focused on a tab change: setting the
+-- group's active index directly means no unfocus/refocus within one switch, and
+-- group.next() would briefly focus something else.
 hl.unbind("ALT + TAB")
 hl.unbind("ALT + SHIFT + TAB")
-o.bind("ALT + TAB", "Next tab", function()
-  switch_group_tab(true)
+o.bind("ALT + TAB", "Next window", function()
+  switch_window(1)
 end)
-o.bind("ALT + SHIFT + TAB", "Previous tab", function()
-  switch_group_tab(false)
+o.bind("ALT + SHIFT + TAB", "Previous window", function()
+  switch_window(-1)
 end)
 
 -- Cmd+Shift+arrows swap the window with its neighbour in Omarchy's defaults;
