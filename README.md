@@ -6,7 +6,7 @@
 
 ## How it's meant to be used
 
-> Never hide. Spaces are only for something extra. Snaps and tabs arrange the windows, so they can sit on top of each other, and you never think about spaces, hiding or where you put a window.
+> Never hide. Spaces are only for something extra. Snaps and tabs arrange the windows, so they can sit on top of each other, and you never think about spaces, hiding or where you put a window. The dock is always on for fast access.
 
 https://github.com/user-attachments/assets/0d840197-4fcf-4000-ba25-4ebfc3ff6c65
 
