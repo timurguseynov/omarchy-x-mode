@@ -6,7 +6,7 @@
 
 ## How it's meant to be used
 
-> Never hide. Never use another space. Snaps and tabs arrange the windows, so they can sit on top of each other, and you never think about spaces, hiding or where you put a window.
+> Never hide. Spaces are only for something extra. Snaps and tabs arrange the windows, so they can sit on top of each other, and you never think about spaces, hiding or where you put a window.
 
 https://github.com/user-attachments/assets/0d840197-4fcf-4000-ba25-4ebfc3ff6c65
 
