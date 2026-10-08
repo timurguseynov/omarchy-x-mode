@@ -35,3 +35,25 @@ elapsed_ms=$(( ($(date +%s%N) - start) / 1000000 ))
 [ "$elapsed_ms" -ge 900 ] || fail "wait_until gave up after ${elapsed_ms}ms instead of the second it was asked for"
 
 echo "  ok   wait_until re-evaluates its condition, and gives up on time"
+
+# A finished run's status file names the pi session that started it, so another
+# agent (Goose, a second pi session) does not wake up for it. A run with no
+# session id -- a terminal, Goose -- stays unstamped, and a watcher that only
+# accepts its own id ignores that file.
+ASYNC="$TESTS_DIR/async.sh"
+LOG="$TMP/xmode-test-harness.log"
+printf '%s\n' '== nest ok' > "$LOG"
+printf '%s\n' none > "$LOG.pid"
+
+PI_SESSION_ID=pi-session-one bash "$ASYNC" watch harness "$LOG"
+assert_eq "$(head -n1 "$LOG.status")" "session: pi-session-one" \
+  "a run started from a pi session stamps the status file with that session"
+grep -q '^log: ' "$LOG.status" || fail "the stamped status file still has the log path"
+
+unset PI_SESSION_ID
+bash "$ASYNC" watch harness "$LOG"
+assert_eq "$(head -n1 "$LOG.status" | grep -c '^session: ')" 0 \
+  "a run with no session id does not stamp the status file"
+grep -q '^log: ' "$LOG.status" || fail "an unstamped status file still has the log path"
+
+echo "  ok   async.sh stamps a status file only when a pi session started the run"

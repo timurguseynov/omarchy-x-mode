@@ -47,9 +47,11 @@ bash tests/async.sh status suite
 ```
 
 The `run` also writes `<log>.status` when the run ends: the same text `status`
-prints, plus the log path. `.pi/extensions/test-status.ts` watches those files and
-sends one as a message that starts a turn, so a finished run reaches an agent
-session by itself instead of being polled for.
+prints, plus the log path, and a `session:` stamp when a pi session started it.
+`.pi/extensions/test-status.ts` watches those files and sends one as a message
+that starts a turn only when the stamp is this session, so a finished run
+reaches the agent that started it -- not Goose, and not another pi session --
+instead of being polled for.
 
 Nest scenarios can be picked by name, whole or in part:
 

@@ -3,15 +3,17 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /**
- * Test-run status for this repo.
+ * Test-run status for this repo, scoped to this pi session.
  *
  * `tests/async.sh run <label> ...` starts a run detached and, when the run is
- * over, writes one `<log>.status` file next to its log: the summary line, the
- * counts, the failing scenarios, and the log path. This watches that directory
- * and turns a new or changed status file into a message in the session, so a
- * finished -- or failed -- run reaches the agent by itself. It is the same
- * mechanism as examples/extensions/file-trigger.ts, on the file the test runner
- * already writes.
+ * over, writes one `<log>.status` file next to its log: a `session:` stamp when
+ * a pi session started it (PI_SESSION_ID), then the summary line, the counts,
+ * the failing scenarios, and the log path. This watches that directory and
+ * turns a new or changed status file into a message in the session -- but only
+ * when the stamp matches this session. A run Goose started, or one from a
+ * terminal, has no stamp (or a different one) and must not start a turn here.
+ * Same mechanism as examples/extensions/file-trigger.ts, on the file the test
+ * runner already writes.
  *
  * The agent starts a run and stops there; the run reports back. See AGENTS.md,
  * "Running the suite from an agent session".
@@ -45,6 +47,37 @@ function read(path: string): { text: string; mtime: number } | undefined {
   }
 }
 
+function parseStatus(text: string): { session: string | undefined; body: string } {
+  if (!text.startsWith("session: ")) return { session: undefined, body: text };
+  const nl = text.indexOf("\n");
+  if (nl < 0) return { session: text.slice("session: ".length).trim(), body: "" };
+  return {
+    session: text.slice("session: ".length, nl).trim(),
+    body: text.slice(nl + 1),
+  };
+}
+
+function sessionIdFrom(ctx: {
+  sessionManager?: { getSessionFile?: () => string | null | undefined };
+}): string | undefined {
+  const file = ctx.sessionManager?.getSessionFile?.();
+  if (!file) return undefined;
+  const base = file.split(/[/\\]/).pop() || "";
+  const fromName = base.match(
+    /_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i,
+  );
+  if (fromName) return fromName[1];
+  try {
+    const header = JSON.parse(fs.readFileSync(file, "utf-8").split("\n")[0] || "null") as {
+      id?: unknown;
+    };
+    if (typeof header?.id === "string" && header.id) return header.id;
+  } catch {
+    // Ephemeral sessions have no file yet; those runs simply do not report back.
+  }
+  return undefined;
+}
+
 export default function (pi: ExtensionAPI) {
   let watcher: fs.FSWatcher | undefined;
   let poll: NodeJS.Timeout | undefined;
@@ -55,6 +88,7 @@ export default function (pi: ExtensionAPI) {
   // is not.
   const seen = new Map<string, string>();
   let primed = false;
+  let sessionId: string | undefined;
 
   function scan(): void {
     const live = new Set(statusPaths(DIR));
@@ -68,10 +102,14 @@ export default function (pi: ExtensionAPI) {
       // The first scan only records what is already there: a run that finished
       // before this session started is not news. /test-status shows those.
       if (!primed) continue;
+      // No stamp, or a stamp for another session: Goose, a terminal, a second
+      // pi session. /test-status still lists them; they must not start a turn.
+      const parsed = parseStatus(info.text);
+      if (!sessionId || parsed.session !== sessionId || !parsed.body.trim()) continue;
       pi.sendMessage(
         {
           customType: "xmode-test-status",
-          content: info.text,
+          content: parsed.body,
           display: true,
         },
         { triggerTurn: true },
@@ -109,6 +147,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     // A long-lived watcher belongs to the session, not to the factory: some
     // invocations load extensions without starting one.
+    sessionId = sessionIdFrom(ctx);
     scan();
     try {
       watcher = fs.watch(DIR, () => schedule());
@@ -117,7 +156,14 @@ export default function (pi: ExtensionAPI) {
     }
     poll = setInterval(scan, POLL_MS);
     poll.unref?.();
-    if (ctx.hasUI) ctx.ui.notify(`test runs in ${DIR} report back here`, "info");
+    if (ctx.hasUI) {
+      ctx.ui.notify(
+        sessionId
+          ? "test runs this session starts report back here"
+          : `test runs in ${DIR} report back here`,
+        "info",
+      );
+    }
   });
 
   pi.on("session_shutdown", async () => {
@@ -127,5 +173,6 @@ export default function (pi: ExtensionAPI) {
     poll = undefined;
     if (debounce) clearTimeout(debounce);
     debounce = undefined;
+    sessionId = undefined;
   });
 }
