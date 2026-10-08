@@ -213,6 +213,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/super_w_closes_window_test.sh` | Super+W closes the window and keeps the focus in the group |
 | `integration/super_w_ctrl_w_test.sh` | a class that steals Cmd+W gets Ctrl+W instead of the pack closing it, and a file that still carries the older `ctrlW` flag keeps doing the same |
 | `integration/super_w_single_window_test.sh` | and closes an ungrouped window on its own |
+| `integration/switcher_click_flagged_test.sh` | a click on an icon switches apps while the row is over a Ctrl+click window |
 | `integration/switcher_cycles_apps_test.sh` | Super+Tab cycles apps and writes the switcher's command file |
 | `integration/switcher_mru_order_test.sh` | the switcher's next app is the one used before this one |
 | `integration/tab_close_active_only_test.sh` | only the current tab's close button closes |

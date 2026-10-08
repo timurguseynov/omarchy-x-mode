@@ -629,8 +629,22 @@ local function window_at_cursor()
   end
   return hit
 end
+-- Does the app switcher (below) hold the pointer right now? It is set with the
+-- rest of the switcher's state, and declared here because the Ctrl+click bind
+-- below has to know. The row is drawn over the windows, and a click on one of its
+-- icons is a click on the icon: the window the icon covers must not be read as
+-- the click's target. It was, whenever that window carried the flag -- the click
+-- went to it as a Ctrl+click and the row never saw it, so clicking an icon did
+-- nothing exactly when a flagged app (the browser) was under the row.
+local switcher_active = false
+
 local function super_ctrl_click(button)
   return function()
+    -- The switcher is up: the click belongs to its row (a layer surface takes
+    -- the pointer over a window), so the event only has to be let through.
+    if switcher_active then
+      return { pass_event = true }
+    end
     -- Titlebar / empty space: let the click through (hyprbars, focus).
     -- The window under the cursor, not the focused one: Cmd+click a link in
     -- a background window should still be Ctrl+click there.
@@ -683,10 +697,10 @@ hl.layer_rule({
 -- ---------------------------------------------------------------------------
 -- The preview overlay (Quickshell, Switcher.qml) is driven by a command file,
 -- like the snap preview: "show <active-class> <class>..." while cycling, "hide"
--- when Super is released.
+-- when Super is released. `switcher_active` is declared above the Ctrl+click
+-- bind, which is the one other place that has to know the row holds the pointer.
 local SWITCHER_PATH = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/omarchy-switcher.cmd"
 local last_switcher = ""
-local switcher_active = false
 
 local function switcher_write(line)
   if line == last_switcher then
