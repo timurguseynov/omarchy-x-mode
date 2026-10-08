@@ -681,12 +681,13 @@ hl.layer_rule({
 -- ---------------------------------------------------------------------------
 -- Alt+Tab window cycle
 -- ---------------------------------------------------------------------------
--- The switcher below is per class. Alt+Tab walks one stop per *window* of the
--- workspace the user is looking at: a group's tabs stay together in tab order,
--- and the rest is the order those windows were really used in. A window the
--- pack refuses to tab -- Geary's Accounts dialog, a lone app -- is in the same
--- ring as the tabs beside it, so the key reaches it, and focusing it is what
--- raises it over the parent it opened behind.
+-- The switcher below is per class. Alt+Tab walks the *focused app*: the tabs
+-- of its group stay together in tab order, and its other floating windows -- a
+-- dialog the pack refuses to tab, Geary's Accounts, a lone window -- follow in
+-- the order they were really used in. The ring is the app's own, so Alt+Tab
+-- never walks into another application; the key that cycles an app's tabs must
+-- not move the whole desktop. Focusing one of those windows still raises it;
+-- that is the plugin's, and a child is now kept over its parent on every raise.
 --
 -- The order is this address-keyed MRU list, not the switcher's class-keyed one.
 -- It records a *real* focus change only: the focus the cycle itself makes is
@@ -709,21 +710,25 @@ local function tab_touch(w)
   end
 end
 
--- The ring: every window of the active workspace, most recently used first,
--- with each group emitted as one run of its members in tab order. A window that
--- has had no real focus yet is not in tab_mru; it is taken in Hyprland's own
--- order and then remembered, so two presses in a row do not see a different
--- ring.
+-- The ring: the windows of the active window's app on the active workspace,
+-- most recently used first, with each group emitted as one run of its members
+-- in tab order. The app is the active window's class, the same key the switcher
+-- groups by: two windows of one class are one app here even without a group (a
+-- Wayland dialog is refused a tab and has no peer), and a window of any other
+-- class is out of the ring. A window that has had no real focus yet is not in
+-- tab_mru; it is taken in Hyprland's own order and then remembered, so two
+-- presses in a row do not see a different ring.
 local function tab_ring()
   local active = hl.get_active_window()
   if active == nil then
     return {}
   end
   local ws = ws_id(active)
+  local cls = window_class(active)
   local windows = as_list(hl.get_windows())
   local live = {}
   for _, w in ipairs(windows) do
-    if not w.hidden and ws_id(w) == ws then
+    if not w.hidden and ws_id(w) == ws and window_class(w) == cls then
       live[tostring(w.address)] = w
     end
   end

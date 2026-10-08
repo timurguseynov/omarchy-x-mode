@@ -83,3 +83,16 @@ end
 -- See nest-host.lua and nest_host_no_real_input in tests/lib.sh.
 
 dofile(os.getenv("X_MODE_LUA") or ((os.getenv("HOME") or "") .. "/.config/hypr/x-mode/x-mode.lua"))
+
+-- The nest's outputs, as the harness' rules. A monitor rule set at runtime
+-- through hyprctl is dropped when the config is reparsed, and a reparse happens
+-- whenever a scenario touches an option: without these the host's output comes
+-- back as a second monitor with a frame of its own, the window lands on it, and
+-- the pack reads that frame. nest_output_rule writes them once it knows which
+-- outputs to keep, and this parse reads them last so the nest's own output wins
+-- the match (Hyprland takes the last rule that names a monitor). The first
+-- parse, before the nest is up, has no file to read.
+local outputs = os.getenv("NEST_OUTPUT_LUA")
+if outputs and outputs ~= "" then
+  pcall(dofile, outputs)
+end

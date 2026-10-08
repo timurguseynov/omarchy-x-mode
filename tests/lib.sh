@@ -9,6 +9,7 @@
 
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$TESTS_DIR/.." && pwd)"
+XDGCHILD_DIR="$TESTS_DIR/xdgchild"
 # Paths that depend on which nest this process talks to. A parallel run gives
 # each worker its own slot; the built pointer, keyboard and nestq stay shared.
 nest_paths() {
@@ -35,6 +36,7 @@ nest_paths() {
   NESTQ="$NEST_ROOT/nestq"
   POINTER_BIN="$NEST_ROOT/pointer/pointer"
   KEYBOARD_BIN="$NEST_ROOT/keyboard/keyboard"
+  XDGCHILD_BIN="$NEST_ROOT/xdgchild/xdgchild"
   SIG="${SIG:-$(cat "$NEST_STATE/sig" 2>/dev/null || true)}"
   DOCK_RUNTIME="$NEST_RUNTIME"
   DOCK_CFG="$NEST_STATE/dock"
@@ -42,6 +44,10 @@ nest_paths() {
   NEST_DIRTY="$NEST_STATE/config-dirty"
   # Config a scenario needs the nest's *parse* to see (see nest_overlay).
   NEST_OVERLAY="$NEST_STATE/state/overlay.lua"
+  # The nest's outputs, as a rule the *parse* owns: a monitor rule set through
+  # hyprctl is dropped when the config is reparsed, and the host's output then
+  # comes back as a second monitor with a frame of its own (see nest_output_rule).
+  NEST_OUTPUT_LUA="$NEST_STATE/state/output.lua"
   # What a failing scenario leaves behind for the report: the picture is the one
   # thing the state dumps cannot give.
   NEST_FAIL_SHOT="$NEST_ROOT/fail-$NEST_SLOT.png"
@@ -134,6 +140,25 @@ build_keyboard() {
     || fail "keyboard build failed"
 }
 
+# A Wayland toplevel pair for the scenarios that need a dialog: a toplevel with
+# an xdg parent (xdgchild). xdg-shell lives in wayland-protocols, unlike the wlr
+# protocols the pointer and keyboard vendor, so the XML comes from the system.
+build_xdgchild() {
+  local out="$NEST_ROOT/xdgchild" xdgdir
+  command -v wayland-scanner >/dev/null || fail "wayland-scanner not found"
+  pkg-config --exists wayland-client || fail "wayland-client headers not found"
+  pkg-config --exists wayland-protocols || fail "wayland-protocols not found"
+  xdgdir="$(pkg-config --variable=pkgdatadir wayland-protocols)/stable/xdg-shell"
+  [ -f "$xdgdir/xdg-shell.xml" ] || fail "xdg-shell.xml not found under $xdgdir"
+  mkdir -p "$out"
+  wayland-scanner client-header "$xdgdir/xdg-shell.xml" "$out/xdg-shell-client-protocol.h"
+  wayland-scanner private-code "$xdgdir/xdg-shell.xml" "$out/xdg-shell-client-protocol.c"
+  # shellcheck disable=SC2046 - pkg-config output is a flag list on purpose
+  cc -O2 -Wall -Wextra -I"$out" -o "$XDGCHILD_BIN" "$XDGCHILD_DIR/xdgchild.c" \
+    "$out/xdg-shell-client-protocol.c" $(pkg-config --cflags --libs wayland-client) \
+    || fail "xdgchild build failed"
+}
+
 # The nest is a toplevel on the host in session mode. Without this rule the host
 # focuses it on map and again whenever the nested compositor asks to be
 # activated, which is every time a window inside it takes focus. no_initial_focus
@@ -223,6 +248,7 @@ nest_start() {
     build_pointer
     build_keyboard
     build_nestq
+    build_xdgchild
   fi
   [ -x "$NESTQ" ] || fail "nestq is missing (build failed)"
   nest_stop
@@ -272,6 +298,7 @@ nest_start() {
     X_MODE_LUA="$NEST_LUA" \
     X_MODE_STATE="$NEST_STATE/state" \
     NEST_OVERLAY_LUA="$NEST_OVERLAY" \
+    NEST_OUTPUT_LUA="$NEST_OUTPUT_LUA" \
     "${nest_drm[@]}" \
     NEST_OUTPUT="$NEST_OUTPUT" \
     NEST_MODE="$NEST_MODE" \
@@ -416,22 +443,25 @@ nest_stop() {
 }
 
 # The monitor rules for the nest's own output, and for the host's one out of the
-# way. Both are runtime, so a config reparse wipes them -- and a reparse happens
-# whenever a scenario touches an option, because nest_clean reloads the config
-# after it. Without putting them back the host's output returns, and with it a
-# second monitor whose size, scale and focus nothing here controls. Every reload
-# goes through nest_ctl or nest_clean, so both of them call this.
+# way. They are written into a file the nest's *parse* sources (NEST_OUTPUT_LUA)
+# as well as applied at runtime: a monitor rule set through hyprctl is dropped
+# when the config is reparsed, and a reparse happens whenever a scenario touches
+# an option (and nest_clean reloads the config after one). Without the parse
+# owning them the host's output returns as a second monitor whose size, scale and
+# focus nothing here controls -- and whose frame the pack reads, because the
+# reserved top of a host output that came back is not the bar's 24. That is how a
+# scenario that reloads and then reads geometry measures a window placed against
+# the wrong monitor.
 #
 # The outputs to switch off are found on every run rather than remembered: a
 # reparse can hand the nest a different set, and the host's output is not always
-# called the same thing -- the wayland backend names it after the host's monitor
-# (DP-1 in a session run on this machine).
+# called the same thing -- the wayland backend names it after the host's monitor.
 nest_output_rule() {
   case "$NEST_HOST" in
     session | shared) ;;
     *) return 0 ;;
   esac
-  local want host got
+  local want host got hosts=""
   want="${NEST_MODE%%@*}@$NEST_SCALE"
   got="$(nest_ctl monitors -j 2>/dev/null | python3 -c '
 import json, sys
@@ -457,17 +487,46 @@ except Exception:
     ms = []
 print(" ".join(str(m.get("name", "")) for m in ms if str(m.get("name", "")) != "'"$NEST_OUTPUT"'"))'); do
     nest_ctl eval "hl.monitor({ output = '$host', disabled = true })" >/dev/null 2>&1 || true
+    hosts="$hosts $host"
   done
+  # The same rules for the *parse*: a monitor rule set through hyprctl is dropped
+  # by a reparse, so a reload would otherwise rebuild a monitor set nothing here
+  # asked for. An output that is off is not in the monitor list at all, so the
+  # names already in the file are kept -- dropping one is exactly what would let
+  # that output return on the next reparse.
+  NEST_HOSTS="$hosts" NEST_OUTPUT="$NEST_OUTPUT" NEST_MODE="$NEST_MODE" \
+    NEST_SCALE="$NEST_SCALE" NEST_OUTPUT_LUA="$NEST_OUTPUT_LUA" python3 -c '
+import os, re
+
+names = [n for n in os.environ["NEST_HOSTS"].split() if n]
+try:
+    with open(os.environ["NEST_OUTPUT_LUA"]) as f:
+        for line in f:
+            hit = re.match(r"hl\.monitor\(\{ output = \"([^\"]+)\", disabled = true \}\)", line.strip())
+            if hit:
+                names.append(hit.group(1))
+except OSError:
+    pass
+
+out = ["hl.monitor({ output = \"%s\", mode = \"%s\", position = \"0x0\", scale = \"%s\" })" %
+       (os.environ["NEST_OUTPUT"], os.environ["NEST_MODE"], os.environ["NEST_SCALE"])]
+for name in dict.fromkeys(names):
+    if name != os.environ["NEST_OUTPUT"]:
+        out.append("hl.monitor({ output = \"%s\", disabled = true })" % name)
+with open(os.environ["NEST_OUTPUT_LUA"], "w") as f:
+    f.write("\n".join(out) + "\n")
+'
 }
 
-# After a reparse: the rules back, and the view where the scenario left it. A
-# reparse brings the host's output back for a moment (the monitor rules are
-# runtime, and a reparse is a reparse), Hyprland gives a re-enabled output a
-# workspace of its own, and disabling it again hands that workspace to the monitor
-# that is left -- so the view can end up on an empty workspace with nothing
-# focused, and the scenario fails for a reason that has nothing to do with what it
-# checks. The handover happens a frame after the disable, which is why putting the
-# view back is a wait and not one read.
+# After a reparse: the rules back, and the view where the scenario left it. The
+# parse owns the rules now (nest_output_rule writes them for it to source), so the
+# host's output should not come back at all; this is what covers it if it does
+# anyway -- Hyprland gives a re-enabled output a workspace of its own, and
+# disabling it again hands that workspace to the monitor that is left, so the view
+# can end up on an empty workspace with nothing focused and the scenario fails for
+# a reason that has nothing to do with what it checks. The handover happens a
+# frame after the disable, which is why putting the view back is a wait and not
+# one read.
 nest_output_reapply() {
   case "$NEST_HOST" in
     session | shared) ;;
@@ -947,6 +1006,23 @@ open_command() { # CLASS COMMAND...
     sleep 0.1
   done
   fail "command did not open another '$cls' window: $*"
+}
+
+# Open a Wayland dialog: a parent toplevel CLASS and a child toplevel CHILD
+# that names it with xdg_toplevel.set_parent (xdgchild). Hyprland floats the
+# child and hyprbars refuses it a tab, so it is a separate floating window of
+# the same app; with the same class for both, it is Geary's Accounts window.
+# Waits for both, like open_window.
+open_xdgchild() { # PARENT_CLASS CHILD_CLASS
+  local i
+  env WAYLAND_DISPLAY="$(nest_display)" setsid "$XDGCHILD_BIN" "$1" "$2" >/dev/null 2>&1 < /dev/null &
+  for i in $(seq 1 80); do
+    if [ "$(count_class "$1")" -ge 1 ] && [ "$(count_class "$2")" -ge 1 ]; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  fail "xdgchild did not open '$1' with child '$2'"
 }
 
 # Wait until CLASS has COUNT windows, up to TIMEOUT seconds (10 by default). A

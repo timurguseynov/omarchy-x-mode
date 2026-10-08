@@ -79,12 +79,43 @@ bool holdUnderFullscreen(PHLWINDOW w) {
     return true;
 }
 
+// Hyprland's CWindowState::moveToZ lifts the whole X11 transient stack when it
+// raises a window, and on Wayland only the window itself. A Wayland dialog is a
+// toplevel with a parent -- the parent is what makes it float, and what makes
+// hyprbars.groupable refuse it a tab -- so raising the window it opened from
+// draws that parent over its own dialog: Geary's Accounts window sat behind the
+// window it belongs to. The pack keeps modal blocking off (a click on the parent
+// has to stay on the parent), so the raise is what decides the order: after w is
+// raised, its mapped children on the same workspace go back above it, deepest
+// last, and a dialog the client opened from w stays where a dialog belongs. The
+// workspace has to match: lifting a child that was moved away would reorder a
+// workspace nobody raised anything on.
+static void raiseChildren(PHLWINDOW w, int depth) {
+    if (!w || depth > 4)
+        return;
+
+    // Collect first: raise() rotates the window list, so a range-for over the
+    // list while raising it would be reading a list that moves.
+    std::vector<PHLWINDOW> children;
+    for (const auto& other : Desktop::windowState()->windows()) {
+        if (other && other != w && other->m_isMapped && !other->isHidden() && other->m_workspace == w->m_workspace && other->parent() == w)
+            children.emplace_back(other);
+    }
+    for (const auto& child : children) {
+        if (holdUnderFullscreen(child))
+            continue;
+        Desktop::windowState()->raise(child);
+        raiseChildren(child, depth + 1);
+    }
+}
+
 bool raiseFloating(PHLWINDOW w) {
     if (!w || !w->m_isFloating)
         return true; // nothing to raise; the caller may still focus it
     if (holdUnderFullscreen(w))
         return false;
     Desktop::windowState()->raise(w);
+    raiseChildren(w, 0);
     return true;
 }
 

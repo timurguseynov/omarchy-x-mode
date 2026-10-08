@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Alt+Tab is a cycle of the workspace the user is looking at, not a jump to
-# another one. A window on a different workspace is out of the ring even when
-# it was the last thing used: the key that walks tab by tab must not move the
-# whole desktop. Here the extra window is the most recently used of all, and
-# the second Alt+Tab still lands on kitty, on the viewed workspace.
+# Alt+Tab is the focused app's ring on the workspace the user is looking at:
+# another app's window is not in it, and neither is a window of another
+# workspace, even when it was the last thing used. The key that walks tab by tab
+# must not move the whole desktop.
 . "$(dirname "$0")/../../lib.sh"
 
 open_window foot
@@ -32,5 +31,6 @@ assert_eq "$(active_tab_index foot)" 1 "which is the second tab"
 
 key alt+tab
 settle
-assert_eq "$(active_class)" kitty "the next window is on the viewed workspace, not the other one"
+assert_eq "$(active_class)" foot "the ring stays in the app on the viewed workspace"
+assert_eq "$(active_tab_index foot)" 0 "so it wraps to the first tab"
 assert_eq "$(viewed_workspace)" 1 "and the workspace never changed"

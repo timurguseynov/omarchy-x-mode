@@ -1,49 +1,50 @@
 #!/usr/bin/env bash
-# Alt+Tab walks the tabs of the focused group, and once the group's tabs are
-# done it goes on to the next window of the workspace in the switcher's MRU
-# order. A window the pack refuses to tab -- Geary's Accounts dialog, a lone
-# app -- is in the same ring as the tabs, so Alt+Tab reaches it; from a window
-# with no group (or from the group's last tab) the old handler did nothing at
-# all.
+# Alt+Tab is the focused app's own ring: the tabs of its group in tab order, and
+# then the app's other floating windows. A Wayland dialog is refused a tab
+# (hyprbars.groupable sees its xdg parent) and has no peer to group with, so it
+# is a second window of the same class -- the shape of Geary's Accounts window.
+# Another app's window is never in the ring, even when it is the most recently
+# used one.
 #
-# The order is by real use: foot (two tabs) was used last, kitty before it.
-# Alt+Tab goes tab 1 -> tab 2 -> kitty, and Alt+Shift+Tab comes back the same
-# way -- the ring must not move under the key while it is walked.
+# The order is by real use, and the focus the ring itself makes does not count
+# as a use: the ring has to keep still while it is walked, or Alt+Shift+Tab
+# could not be the way back.
 . "$(dirname "$0")/../../lib.sh"
+
+# Both windows share a class, so the title says which of the two is active.
+addr_of() { # TITLE
+  nest_ctl clients -j | python3 -c "
+import json, sys
+for c in json.load(sys.stdin):
+    if c['title'] == '$1':
+        print(c['address'])
+        break"
+}
+
+open_xdgchild xmode-app xmode-app
+parent_addr="$(addr_of 'x-mode dialog parent')"
+child_addr="$(addr_of 'x-mode dialog child')"
+assert_ne "$parent_addr" "" "the app's own window is there"
+assert_ne "$child_addr" "" "and so is its dialog"
 
 open_window foot
 open_window foot 2
-assert_eq "$(group_size foot)" 2 "two foot windows share the group"
 open_window kitty
 
-# group.active only moves the tab when the group holds the focus, so put the
-# focus in the group first (kitty was opened last and still has it).
-nest_ctl dispatch "hl.dsp.focus({ window = 'class:foot' })" >/dev/null
-sleep 0.3
-group_tab 1 foot
-assert_eq "$(active_class)" foot "foot is focused"
-assert_eq "$(active_tab_index foot)" 0 "on its first tab"
+# Start in the app, on its own window: the dialog was used after it, and kitty
+# is the freshest window of all.
+nest_ctl dispatch "hl.dsp.focus({ window = 'address:$parent_addr' })" >/dev/null
+settle
+assert_eq "$(active_address)" "$parent_addr" "the app's own window is focused"
 
 key alt+tab
 settle
-assert_eq "$(active_class)" foot "Alt+Tab keeps the group focused"
-assert_eq "$(active_tab_index foot)" 1 "and moves tab by tab"
+assert_eq "$(active_address)" "$child_addr" "the next stop is the app's dialog"
 
 key alt+tab
 settle
-assert_eq "$(active_class)" kitty "after the group's last tab comes the next window by MRU"
+assert_eq "$(active_address)" "$parent_addr" "the ring wraps inside the app, not to kitty"
 
 key alt+shift+tab
 settle
-assert_eq "$(active_class)" foot "Alt+Shift+Tab comes back to the group"
-assert_eq "$(active_tab_index foot)" 1 "on the tab it left"
-
-key alt+shift+tab
-settle
-assert_eq "$(active_class)" foot "one more step back"
-assert_eq "$(active_tab_index foot)" 0 "is the previous tab"
-
-key alt+tab
-settle
-assert_eq "$(active_class)" foot "and Alt+Tab goes on around the tabs"
-assert_eq "$(active_tab_index foot)" 1 "to the next one"
+assert_eq "$(active_address)" "$child_addr" "Alt+Shift+Tab comes back the same way"

@@ -61,6 +61,7 @@ build_plugin
 build_pointer
 build_keyboard
 build_nestq
+build_xdgchild
 export NEST_SKIP_BUILD=1
 
 # The runner needs the paths too: the queue of scenarios and the lock its report

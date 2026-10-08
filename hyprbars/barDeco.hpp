@@ -40,10 +40,11 @@ void keepGroupFocusOnClose(PHLWINDOW w);
 // held under it (no raise). A group tab of that window is not held.
 bool holdUnderFullscreen(PHLWINDOW w);
 
-// Raise a floating window, unless holdUnderFullscreen claims it. Returns false
-// when the window was held under a fullscreen one (nothing raised, and the
-// caller must not focus it); true otherwise, including a non-floating window,
-// which the caller may still focus.
+// Raise a floating window, unless holdUnderFullscreen claims it, and put its
+// mapped children (a Wayland dialog's toplevel has a parent) back above it.
+// Returns false when the window was held under a fullscreen one (nothing
+// raised, and the caller must not focus it); true otherwise, including a
+// non-floating window, which the caller may still focus.
 bool raiseFloating(PHLWINDOW w);
 
 // Raise and focus in one step, for the dock and the switcher. CWindowState::raise
