@@ -70,4 +70,8 @@ do
   end
 end
 
+-- Rules for this machine's real devices are the *host's* business, not a nest's:
+-- a nest is a wayland client of the host and gets its input from the host's seat.
+-- See nest-host.lua and nest_host_no_real_input in tests/lib.sh.
+
 dofile(os.getenv("X_MODE_LUA") or ((os.getenv("HOME") or "") .. "/.config/hypr/x-mode/x-mode.lua"))

@@ -72,11 +72,14 @@ NEST_QUEUE_AT="$NEST_ROOT/queue.at"
 NEST_QUEUE_LOCK="$NEST_ROOT/queue.lock"
 
 # Keep a newly mapped nest from taking the user's focus or clicks, and park it
-# on NEST_WORKSPACE when one is given. In weston mode there is no nest window on
+# on NEST_WORKSPACE when one is given. In shared mode there is no nest window on
 # this desktop at all and the rule is not applied. The rule is removed when this
 # process exits, including after a failed run.
 nest_host_rule_on || { nest_host_rule_off; exit 1; }
-trap 'nest_host_rule_off' EXIT
+# NEST_HOST=shared: one Hyprland of our own on a vkms card, started before the
+# slots and killed with the run. In session mode this is a no-op.
+nest_host_start || exit 1
+trap 'nest_host_rule_off; nest_host_stop' EXIT
 
 report() { # STATUS NAME FILE
   flock 9
@@ -283,6 +286,7 @@ abort() {
   for pid in ${pids[@]:+"${pids[@]}"}; do
     kill -- "-$pid" 2>/dev/null || true
   done
+  nest_host_stop
   sleep 0.5
   for pid in ${pids[@]:+"${pids[@]}"}; do
     kill -9 -- "-$pid" 2>/dev/null || true
@@ -320,6 +324,10 @@ done
 for pid in "${pids[@]}"; do
   wait "$pid" || fail=1
 done
+
+# The host outlives every scenario, so it goes now (the trap covers a run that
+# stopped early).
+nest_host_stop
 
 # Anything chosen that was never reported: a slot whose nest would not come up
 # leaves scenarios behind, and a scenario can also be taken from the queue and

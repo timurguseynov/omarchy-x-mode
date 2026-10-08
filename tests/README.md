@@ -69,16 +69,24 @@ on workspace 4 and leaves the view where it is. A scenario that fails is run
 once more on the same nest, and a failure that comes back is reported.
 
 The nest runs on a host compositor: the live session by default
-(`NEST_HOST=session`), or a headless weston (`NEST_HOST=weston`, needs `weston`
-installed), which takes the live session out of the run entirely. Either way the
-host decides nothing about the nest's geometry or its frames. When the nest is up
-it makes its own headless output at `NEST_MODE` (900x1000@60 at scale 2, the
-450x500 logical desktop the scenarios' numbers are written for) and the host's
-output is disabled -- Hyprland drops a disabled monitor from `monitors -j`, so
-the nest has exactly one, the bar binds that one and windows open on it. Frames
-come from that output's own timer, so a nest the host has covered or unfocused
-still presents; that is why there is no pin, no keep-presenting layer and no host
-mode to wait out any more.
+(`NEST_HOST=session`), or a Hyprland of the run's own (`NEST_HOST=shared`), which
+takes the live session out of the run entirely. Either way the host decides
+nothing about the nest's geometry or its frames. When the nest is up it makes its
+own headless output at `NEST_MODE` (900x1000@60 at scale 2, the 450x500 logical
+desktop the scenarios' numbers are written for) and every other output the nest
+sees is disabled -- Hyprland drops a disabled monitor from `monitors -j`, so the
+nest has exactly one, the bar binds that one and windows open on it. Frames come
+from that output's own timer, so a nest the host has covered or unfocused still
+presents; that is why there is no pin, no keep-presenting layer and no host mode
+to wait out any more.
+
+A nest is also told which DRM device it may use (`AQ_DRM_DEVICES`, a **render
+node**): both of its backends read that list, the wayland one needs a DRM fd for
+its allocator, and the DRM one would make an output of any *card* it is given -- a
+second monitor with no mode, which the monitor rules do not switch off and the
+monitor tests then trip over. A render node serves the first and is refused by the
+second ("does not support kms"), and it can carry no KMS either way, so a nest
+cannot reach for the live session's card.
 
 In session mode the nest is a window on this desktop. Its class is `aquamarine`
 (the wayland backend's app id); the pack keeps that class, and `Hyprland`, out of
@@ -86,6 +94,22 @@ same-app groups, so several nests stay separate windows. A runtime window rule o
 that class keeps a nest from taking the user's focus or clicks while a run is
 going on. The window draws nothing (its output is disabled); it is only what the
 wayland backend needs to exist. The runner removes the rule when it exits.
+
+In shared mode the run starts one Hyprland of its own before the slots, on a vkms
+card, as a session of its own, and the nests are its wayland clients. Nothing of
+the run touches the live session then: no window in it, no rule, no focus -- and
+no real keyboard either, which session mode cannot say, because a nest inherits
+the live session's seat there. It needs `sudo modprobe vkms` and seatd running with
+its socket reachable (`seatd` comes with the `seatd` package; the unit's socket is
+`root:seat`, so either your user is in that group or the unit's `-g` names one it
+is in). A reparse drops the runtime monitor rules, so `nest_output_rule` runs
+after every reload the harness makes, and the view is put back on the workspace
+the scenario was looking at -- a re-enabled host output is given a workspace of
+its own, and that handover leaves the view on an empty one.
+
+Shared mode is newer than session mode and not yet green: the scenarios that sleep
+through a reload before reading geometry are the ones it fails (the reparse does
+more work there), and they are the next thing to wait on the effect instead.
 
 Each nest has its own runtime directory, `/tmp/xmn-<slot>`. The name is that
 short on purpose: Hyprland's event socket path has to fit in 107 bytes, and

@@ -45,8 +45,9 @@ nest_paths() {
   NEST_FAIL_SHOT="$NEST_ROOT/fail-$NEST_SLOT.png"
   # Which compositor hosts the nest. session: a window in the live session; the
   # nest then makes its own headless output and disables the host's, so nothing
-  # about the live session decides the nest's geometry or its frames. weston: a
-  # headless weston, so the live session is not involved at all.
+  # about the live session decides the nest's geometry or its frames. shared: the
+  # run has a Hyprland host of its own on a vkms card (see nest_host_start), so the
+  # live session is not part of the run at all.
   NEST_HOST="${NEST_HOST:-session}"
   # The nest's own output and its mode. Fixed, so a test reads the same geometry
   # however the host sized the nested window. The shape is the one a host window
@@ -188,7 +189,7 @@ nest_host_rule() {
   done
 }
 
-# In weston mode the nest is not a window on the host at all, so there is
+# In shared mode the nest is not a window on this desktop at all, so there is
 # nothing to rule on and nothing to keep presenting.
 nest_host_rule_on() {
   [ "$NEST_HOST" = "session" ] || return 0
@@ -199,6 +200,18 @@ nest_host_rule_off() {
   [ "$NEST_HOST" = "session" ] || return 0
   hyprctl eval 'hl.window_rule({ name = "x-mode-nest", enabled = false })' >/dev/null 2>&1 || true
   hyprctl eval 'hl.window_rule({ name = "x-mode-nest-hl", enabled = false })' >/dev/null 2>&1 || true
+}
+
+# Hyprland's own stdout stops before the backend is up: after that its log goes to
+# a file (empty for a run that died early) and an abort loses the buffered lines.
+# What a nest that died during startup has to say is in its crash report's log
+# tail -- "Failed to open a session", "no allocator", which backend failed -- so a
+# start failure prints that too.
+nest_crash_tail() { # PID
+  local report
+  report="$(ls -t "$HOME/.cache/hyprland/hyprlandCrashReport$1.txt" 2>/dev/null | head -1)"
+  [ -n "$report" ] || return 0
+  grep -A40 '^Log tail:' "$report" 2>/dev/null | sed 's/^/       /' >&2 || true
 }
 
 nest_start() {
@@ -213,13 +226,17 @@ nest_start() {
   nest_stop
   rm -rf "$NEST_RUNTIME"
   mkdir -p "$NEST_RUNTIME" "$NEST_ROOT"
-  # The nest is a Wayland client of a host compositor, and its own
-  # WAYLAND_DISPLAY has to be absolute once XDG_RUNTIME_DIR points elsewhere. In
-  # session mode that host is the live session; in weston mode it is a headless
-  # weston started here, which takes the live session out of the run.
-  local host_socket
-  if [ "$NEST_HOST" = "weston" ]; then
-    host_socket="$NEST_RUNTIME/weston-nest"
+  # The nest is a Wayland client of a host compositor, and its own WAYLAND_DISPLAY
+  # has to be absolute once XDG_RUNTIME_DIR points elsewhere. session: the live
+  # session. shared: the Hyprland run.sh started on its own vkms card, whose socket
+  # it exported before the slots (see nest_host_start).
+  local host_socket=""
+  if [ "$NEST_HOST" = "shared" ]; then
+    [ -n "$NEST_HOST_SOCKET" ] || {
+      echo "NEST_HOST=shared has no host socket (run.sh starts the host)" >&2
+      return 1
+    }
+    host_socket="$NEST_HOST_SOCKET"
   else
     host_socket="${WAYLAND_DISPLAY:-wayland-1}"
     case "$host_socket" in /*) ;; *) host_socket="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$host_socket" ;; esac
@@ -228,10 +245,21 @@ nest_start() {
   # behind, and the next run would inherit it.
   rm -rf "$NEST_STATE/state" "$NEST_STATE/home"
   mkdir -p "$NEST_STATE/state" "$NEST_STATE/home" "$(dirname "$NEST_SETTINGS")"
-  # After the state dir: weston's HOME is the nest's throwaway one.
-  if [ "$NEST_HOST" = "weston" ]; then
-    nest_weston_start || return 1
-  fi
+
+  # A nest is a wayland client, and both of its backends read AQ_DRM_DEVICES: the
+  # wayland one needs a DRM fd to build its allocator from, and the DRM one would
+  # make an output of any *card* it is given -- a second monitor with no mode,
+  # which the monitor rules do not switch off and the monitor tests then trip
+  # over. A render node is the one device that serves the first and is refused by
+  # the second ("does not support kms"), so it is the one to name; it can carry no
+  # KMS either way, so a nest cannot reach for the live session's card.
+  local nest_drm=() render=""
+  for render in /dev/dri/renderD*; do
+    if [ -e "$render" ]; then
+      nest_drm=("AQ_DRM_DEVICES=$render")
+      break
+    fi
+  done
 
   # setsid makes this pid the process-group leader, so nest_stop can kill the
   # nest without the pattern match that would also kill every other slot.
@@ -241,6 +269,10 @@ nest_start() {
     XDG_RUNTIME_DIR="$NEST_RUNTIME" \
     X_MODE_LUA="$NEST_LUA" \
     X_MODE_STATE="$NEST_STATE/state" \
+    "${nest_drm[@]}" \
+    NEST_OUTPUT="$NEST_OUTPUT" \
+    NEST_MODE="$NEST_MODE" \
+    NEST_SCALE="$NEST_SCALE" \
     Hyprland -c "$TESTS_DIR/nest.lua" > "$NEST_LOG" 2>&1 < /dev/null &
   local pid=$! i
   echo "$pid" > "$NEST_STATE/pid"
@@ -251,7 +283,7 @@ nest_start() {
     [ -n "$SIG" ] && break
     sleep 0.2
   done
-  [ -n "$SIG" ] || { tail -20 "$NEST_LOG" >&2; fail "nest did not come up"; }
+  [ -n "$SIG" ] || { tail -20 "$NEST_LOG" >&2; nest_crash_tail "$pid"; fail "nest did not come up"; }
   echo "$SIG" > "$NEST_STATE/sig"
   nest_ipc_start
 
@@ -292,8 +324,8 @@ for out in data.values():
 raise SystemExit(1)' && [ "$(bar_top 2>/dev/null)" = 24 ]
 }
 
-# The size of the nest's output, which is the only monitor it has: its own
-# headless output in session mode, weston's in weston mode. Both are NEST_MODE.
+# The size of the nest's output, which is the only monitor the nest has: its own
+# headless output, in every mode. It is made at NEST_MODE.
 nest_output_size() {
   nest_ctl monitors -j 2>/dev/null | python3 -c '
 import json, sys
@@ -365,7 +397,6 @@ nest_bar_stop() {
 nest_stop() {
   nest_bar_stop
   nest_ipc_stop
-  nest_weston_stop
   local pid=""
   [ -f "$NEST_STATE/pid" ] && pid="$(cat "$NEST_STATE/pid")"
   if [ -n "$pid" ]; then
@@ -388,10 +419,15 @@ nest_stop() {
 # second monitor whose size, scale and focus nothing here controls. Every reload
 # goes through nest_ctl or nest_clean, so both of them call this.
 #
-# The host output is found by name rather than remembered: it is the wayland
-# backend's, and aquamarine names those WAYLAND-N.
+# The outputs to switch off are found on every run rather than remembered: a
+# reparse can hand the nest a different set, and the host's output is not always
+# called the same thing -- the wayland backend names it after the host's monitor
+# (DP-1 in a session run on this machine).
 nest_output_rule() {
-  [ "$NEST_HOST" = "session" ] || return 0
+  case "$NEST_HOST" in
+    session | shared) ;;
+    *) return 0 ;;
+  esac
   local want host got
   want="${NEST_MODE%%@*}@$NEST_SCALE"
   got="$(nest_ctl monitors -j 2>/dev/null | python3 -c '
@@ -416,36 +452,47 @@ try:
     ms = json.load(sys.stdin) or []
 except Exception:
     ms = []
-print(" ".join(str(m.get("name", "")) for m in ms if str(m.get("name", "")).startswith("WAYLAND-")))'); do
+print(" ".join(str(m.get("name", "")) for m in ms if str(m.get("name", "")) != "'"$NEST_OUTPUT"'"))'); do
     nest_ctl eval "hl.monitor({ output = '$host', disabled = true })" >/dev/null 2>&1 || true
   done
 }
 
-# After a reparse: the rules back, and the focus on the nest's own output, so a
-# window opens on it and pointer_extent reads the monitor the tests mean.
+# After a reparse: the rules back, and the view where the scenario left it. A
+# reparse brings the host's output back for a moment (the monitor rules are
+# runtime, and a reparse is a reparse), Hyprland gives a re-enabled output a
+# workspace of its own, and disabling it again hands that workspace to the monitor
+# that is left -- so the view can end up on an empty workspace with nothing
+# focused, and the scenario fails for a reason that has nothing to do with what it
+# checks. The handover happens a frame after the disable, which is why putting the
+# view back is a wait and not one read.
 nest_output_reapply() {
-  [ "$NEST_HOST" = "session" ] || return 0
+  case "$NEST_HOST" in
+    session | shared) ;;
+    *) return 0 ;;
+  esac
+  local keep="${1:-}"
   nest_output_rule
-  nest_ctl eval "hl.dispatch(hl.dsp.focus({ monitor = '$NEST_OUTPUT' }))" >/dev/null 2>&1 || true
+  [ -n "$keep" ] || return 0
+  local i
+  for i in $(seq 1 20); do
+    [ "$(nest_query active workspace 2>/dev/null || true)" = "$keep" ] && return 0
+    nest_ctl eval "hl.dispatch(hl.dsp.focus({ workspace = '$keep' }))" >/dev/null 2>&1 || true
+    sleep 0.05
+  done
+  return 0
 }
 
-# The nest renders to its own output, not to the window the host gave it. A fixed
-# mode is what makes the geometry deterministic: a nested window's size is the
-# host's decision, and while several nests map at once its first configure is 0x0,
-# so the mode used to settle a moment later -- and the bar could bind a mode the
-# host had not accepted yet.
-#
-# Disabling the host output is what leaves exactly one: Hyprland drops a disabled
-# monitor from `monitors -j`, the bar binds the one that is left, and windows open
-# on it. Frames come from the headless output's own timer, so nothing outside the
-# nest gates them any more -- which is why this layer needs no render_unfocused
-# and no 1px tick.
 nest_output_setup() {
-  # weston already gives the nest one headless output at NEST_MODE; there is no
-  # host output to disable.
-  [ "$NEST_HOST" = "session" ] || return 0
+  # The nest's own headless output is what every mode uses; the host's output is
+  # disabled so that it is not a second monitor with another size and focus.
+  case "$NEST_HOST" in
+    session | shared) ;;
+    *) return 0 ;;
+  esac
   local i count
   nest_ctl output create headless "$NEST_OUTPUT" >/dev/null 2>&1 || return 1
+  # The mode and the scale come from the runtime rule, so the output has to be
+  # there before it is applied; below, the settle wait checks it took.
   for i in $(seq 1 40); do
     nest_ctl monitors -j 2>/dev/null | grep -q "\"name\": \"$NEST_OUTPUT\"" && break
     sleep 0.1
@@ -455,6 +502,9 @@ nest_output_setup() {
   # focused one, so a window opens on it.
   nest_ctl eval "hl.dispatch(hl.dsp.focus({ monitor = '$NEST_OUTPUT' }))" >/dev/null 2>&1 || true
   for i in $(seq 1 40); do
+    # Again, every time: the DRM backend's output can appear after the first pass,
+    # and until it is off it is a second monitor with another size and focus.
+    nest_output_rule
     count="$(nest_ctl monitors -j 2>/dev/null | python3 -c '
 import json, sys
 try:
@@ -471,50 +521,141 @@ except Exception:
   return 1
 }
 
-# A headless weston as the nest's host: the nest is still a wayland client, but of
-# a compositor that has no window on the user's desktop, needs no rule to stay out
-# of the way, and never stops presenting -- so the live session is out of the run
-# entirely. weston's kiosk shell gives the one client the whole output.
-nest_weston_start() {
-  command -v weston >/dev/null || { echo "NEST_HOST=weston needs weston (pacman -S weston)" >&2; return 1; }
-  local w h i
-  w="${NEST_MODE%%x*}"
-  h="${NEST_MODE#*x}"
-  h="${h%%@*}"
-  mkdir -p "$NEST_STATE/home/.config"
-  # The nest's output is weston's, so its size and scale are weston's to set: the
-  # same 900x1000 at scale 2 the session mode gives, so the scenarios read the
-  # same logical desktop either way.
-  cat > "$NEST_STATE/home/.config/weston.ini" <<INI
-[output]
-name=headless
-mode=$w x $h
-scale=$NEST_SCALE
-INI
-  setsid env \
-    HOME="$NEST_STATE/home" \
-    XDG_CONFIG_HOME="$NEST_STATE/home/.config" \
-    XDG_RUNTIME_DIR="$NEST_RUNTIME" \
-    weston --backend=headless --shell=kiosk --width="$w" --height="$h" --socket=weston-nest \
-    > "$NEST_STATE/weston.log" 2>&1 < /dev/null &
-  echo $! > "$NEST_STATE/weston.pid"
-  for i in $(seq 1 60); do
-    [ -S "$NEST_RUNTIME/weston-nest" ] && return 0
-    sleep 0.1
+# --- the shared host (NEST_HOST=shared) -------------------------------------
+#
+# One Hyprland of our own, on a vkms card, as a session of its own, with the five
+# nests as its wayland clients. Nothing of the run touches the live session then:
+# no window in it, no rule, no focus -- and no real keyboard either, which session
+# mode cannot say, because a nest inherits the live session's seat there.
+#
+# That it is our own Hyprland is what makes this possible at all: aquamarine binds
+# wl_compositor at 6 and wl_seat at 9 without clamping to what the host offers, and
+# weston 15 offers at most 5 (wlroots 4), so no other compositor can take a nest.
+#
+# The card is found by name and not guessed: taking DRM master on the live
+# session's card would black that session out.
+nest_vkms_card() {
+  local c name drv
+  for c in /dev/dri/card*; do
+    [ -e "$c" ] || continue
+    name="$(basename "$c")"
+    drv="$(basename "$(readlink -f "/sys/class/drm/$name/device/driver" 2>/dev/null)")"
+    case "$drv" in
+      vkms | faux_driver)
+        printf '%s' "$c"
+        return 0
+        ;;
+    esac
   done
-  echo "weston did not come up" >&2
-  sed 's/^/       /' "$NEST_STATE/weston.log" >&2
   return 1
 }
 
-nest_weston_stop() {
+# The host is not a nest: it has its own runtime directory and its own hyprctl,
+# and it outlives every scenario in the run.
+NEST_HOST_RUNTIME="${NEST_HOST_RUNTIME:-/tmp/xmn-host}"
+NEST_HOST_STATE="$NEST_ROOT/host"
+NEST_HOST_SOCKET=""
+NEST_HOST_SIG=""
+
+host_hyprctl() { # ARGS...
+  env XDG_RUNTIME_DIR="$NEST_HOST_RUNTIME" HYPRLAND_INSTANCE_SIGNATURE="$NEST_HOST_SIG" hyprctl "$@"
+}
+
+# The host has the seat, so libinput here would read this machine's real devices --
+# and the nests inherit the host's seat, so the person at the keyboard would be
+# typing into the tests. Enumerating them once the host is up and switching each
+# off by rule is what keeps the run's input to the virtual tools; the reload
+# applies the rules to the devices that are already there (postConfigReload calls
+# setKeyboardLayout/setPointerConfigs).
+nest_host_no_real_input() {
+  {
+    echo "-- Written by the harness (nest_host_no_real_input): the host has the seat"
+    echo "-- and every nest inherits it, so libinput reading this machine's real"
+    echo "-- devices would put the person at the keyboard into the tests."
+    host_hyprctl devices -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin) or {}
+except Exception:
+    d = {}
+for k in ("keyboards", "mice", "tablets", "touch"):
+    for dev in d.get(k) or []:
+        print(dev.get("name", ""))' 2>/dev/null | while IFS= read -r dev; do
+      [ -n "$dev" ] || continue
+      printf 'hl.device({ name = "%s", enabled = false })\n' "$dev"
+    done
+  } > "$NEST_HOST_STATE/devices.lua"
+  host_hyprctl reload >/dev/null 2>&1 || true
+}
+
+nest_host_start() {
+  [ "$NEST_HOST" = "shared" ] || return 0
+  local card="" sig="" wl="" pid="" i
+  card="$(nest_vkms_card)" || {
+    echo "NEST_HOST=shared needs a vkms card: sudo modprobe vkms" >&2
+    return 1
+  }
+  nest_host_stop
+  rm -rf "$NEST_HOST_RUNTIME" "$NEST_HOST_STATE"
+  mkdir -p "$NEST_HOST_RUNTIME" "$NEST_HOST_STATE/home/.config"
+  chmod 700 "$NEST_HOST_RUNTIME"
+  setsid env \
+    HOME="$NEST_HOST_STATE/home" \
+    XDG_CONFIG_HOME="$NEST_HOST_STATE/home/.config" \
+    XDG_RUNTIME_DIR="$NEST_HOST_RUNTIME" \
+    AQ_DRM_DEVICES="$card" \
+    LIBSEAT_BACKEND=seatd \
+    NEST_DEVICES_LUA="$NEST_HOST_STATE/devices.lua" \
+    Hyprland -c "$TESTS_DIR/nest-host.lua" > "$NEST_HOST_STATE/host.log" 2>&1 < /dev/null &
+  pid=$!
+  echo "$pid" > "$NEST_HOST_STATE/host.pid"
+  for i in $(seq 1 60); do
+    sig="$(XDG_RUNTIME_DIR="$NEST_HOST_RUNTIME" hyprctl instances 2>/dev/null | awk -v pid="$pid" '
+      /^instance / { n = $2; sub(/:$/, "", n) }
+      /pid:/ { if ($2 == pid) print n }')"
+    [ -n "$sig" ] && break
+    sleep 0.2
+  done
+  if [ -z "$sig" ]; then
+    echo "the shared host did not come up" >&2
+    tail -20 "$NEST_HOST_STATE/host.log" >&2
+    nest_crash_tail "$pid"
+    return 1
+  fi
+  NEST_HOST_SIG="$sig"
+  export NEST_HOST_SIG
+  wl="$(XDG_RUNTIME_DIR="$NEST_HOST_RUNTIME" hyprctl instances 2>/dev/null | python3 -c "
+import sys, re
+for b in sys.stdin.read().split('instance ')[1:]:
+    if '$sig' in b:
+        print(re.search(r'wl socket: (\S+)', b).group(1)); break
+")"
+  if [ -z "$wl" ]; then
+    echo "the shared host has no wayland socket" >&2
+    return 1
+  fi
+  NEST_HOST_SOCKET="$NEST_HOST_RUNTIME/$wl"
+  export NEST_HOST_SOCKET
+  nest_host_no_real_input
+  return 0
+}
+
+nest_host_stop() {
+  [ "$NEST_HOST" = "shared" ] || return 0
   local pid=""
-  [ -f "$NEST_STATE/weston.pid" ] && pid="$(cat "$NEST_STATE/weston.pid")"
+  [ -f "$NEST_HOST_STATE/host.pid" ] && pid="$(cat "$NEST_HOST_STATE/host.pid")"
   if [ -n "$pid" ]; then
     kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
   fi
-  rm -f "$NEST_STATE/weston.pid"
+  rm -f "$NEST_HOST_STATE/host.pid"
 }
+
+# A headless weston as the host was the first idea for shared mode, and it cannot
+# work: weston 15 offers wl_compositor at most 5 while aquamarine 0.15.0 binds it
+# at 6 without clamping, so a nest's connection is killed before it is up (and
+# wlroots is worse, 4). One of our own Hyprlands is the host instead, and for the
+# same reason: aquamarine also binds wl_seat at 9.
+
 
 # What the current scenario changed in the live config. A plugin option is read
 # back by the pack on every event, so only a reload puts it back; a named window
@@ -527,7 +668,7 @@ nest_weston_stop() {
 # live, so only another reload restores them. A "rule <name>" line is a named
 # window rule to switch off, which does not need a reload.
 nest_ctl() {
-  local reload=0 rc=0
+  local reload=0 rc=0 ws_before=""
   case "$*" in
     *"reload"* | *"hl.config"*) printf 'reload\n' >> "$NEST_DIRTY"; reload=1 ;;
     *"hl.window_rule"*)
@@ -536,11 +677,12 @@ nest_ctl() {
       [ -n "$rule" ] && printf 'rule %s\n' "$rule" >> "$NEST_DIRTY"
       ;;
   esac
+  # The workspace the scenario is looking at, so the reparse can put the view back
+  # where it was (see nest_output_reapply).
+  [ "$reload" = 1 ] && ws_before="$(nest_query active workspace 2>/dev/null || true)"
   nest_hyprctl "$@"
   rc=$?
-  # A reparse drops the nest's monitor rules; put them back before the scenario
-  # goes on (see nest_output_rule).
-  [ "$reload" = 1 ] && nest_output_reapply
+  [ "$reload" = 1 ] && nest_output_reapply "$ws_before"
   return "$rc"
 }
 
@@ -687,8 +829,6 @@ nest_clean() {
   if [ -f "$NEST_DIRTY" ] && grep -q '^reload$' "$NEST_DIRTY"; then
     nest_hyprctl reload >/dev/null 2>&1 || true
     sleep 0.4
-    # The reparse also dropped the nest's monitor rules: the host's output is
-    # back, and with it a second monitor with another size, scale and focus.
     nest_output_reapply
   elif [ -f "$NEST_DIRTY" ]; then
     local rule
