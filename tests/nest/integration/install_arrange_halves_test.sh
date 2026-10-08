@@ -17,7 +17,9 @@ open_window kitty
 
 touch "$NEST_STATE/state/arrange"
 nest_ctl reload >/dev/null
-sleep 1.0
+# The pack removes the marker once the windows have actually been dealt, so that is
+# the wait; a clock here read a mid-pass frame and called it a half.
+wait_until 8 '[ ! -e "$NEST_STATE/state/arrange" ]' || fail "the arrange never dealt the windows"
 
 read -r fx fy fw _ _ <<<"$(win_geom foot)"
 read -r kx ky kw _ _ <<<"$(win_geom kitty)"
@@ -31,6 +33,10 @@ assert_le "$kw" $((half + 40)) "each app gets a half, not the full width"
 assert_ne "$fx" "$kx" "the two apps land on different sides"
 
 nest_ctl reload >/dev/null
+# Nothing to wait *for* here: the assertion is that this reload does nothing at
+# all, and the only way to see "nothing" is to give the pass it would have started
+# the time it would have taken. 1s is past the arrange timer (600ms), and the
+# marker the pack drops the request with is not there to watch.
 sleep 1.0
 
 read -r fx2 fy2 _ _ _ <<<"$(win_geom foot)"

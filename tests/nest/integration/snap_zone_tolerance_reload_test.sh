@@ -14,7 +14,11 @@ nest_ctl dispatch "hl.dsp.window.move({ x = $x0, y = $((y0 + 60)), relative = fa
 sleep 0.3
 
 nest_ctl reload >/dev/null
-sleep 0.6
+# The re-snap is the pack's own pass after the reparse, and the zone it has to put
+# the window back in is what is waited for -- a clock here read whatever frame the
+# pass happened to be in.
+want="$x0 $y0 $w0 $h0"
+wait_until 8 '[ "$(win_geom foot | cut -d" " -f1-4)" = "'"$want"'" ]'
 
 read -r x1 y1 w1 h1 _ <<<"$(win_geom foot)"
 assert_eq "$x1" "$x0" "the window keeps the x of its zone"

@@ -12,8 +12,13 @@ bar="$(bar_top)"
 assert_ge "$bar" 1 "the bar has to be there, or this test proves nothing"
 
 open_window foot
+# The clamp below the bar is a pass of the pack's after the window is up, so what
+# the assertion says is what is waited for; a real climb-over never satisfies it
+# and is reported by the assertion, with the wait having given it its chance.
+wait_until 5 '[ "$(visual_top foot)" -ge "'"$bar"'" ]'
 assert_ge "$(visual_top foot)" "$bar" "a lone new window must not climb over the bar"
 
 open_window foot 2
 assert_eq "$(group_size foot)" 2 "the second foot joins the group"
+wait_until 5 '[ "$(visual_top foot)" -ge "'"$bar"'" ]'
 assert_ge "$(visual_top foot)" "$bar" "a window joining a group must not climb over the bar"

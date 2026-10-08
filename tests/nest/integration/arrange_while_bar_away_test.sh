@@ -11,7 +11,10 @@
 . "$(dirname "$0")/../../lib.sh"
 
 memory_off() {
-  nest_ctl eval "hl.config({ plugin = { hyprbars = { x_mode_bar_top_memory_ms = 0 } } })" >/dev/null 2>&1 || true
+  # In the *parse*, not after it: a reload republishes the config file's values,
+  # and setting the option once the reload returned races the arrange pass that
+  # reload starts -- which is the behavior this scenario is about.
+  nest_overlay 'hl.config({ plugin = { hyprbars = { x_mode_bar_top_memory_ms = 0 } } })'
 }
 
 extent="$(pointer_extent)"
@@ -27,9 +30,6 @@ wait_until 5 '[ "$(bar_top)" = 0 ]' || fail "the bar never released the top"
 
 touch "$NEST_STATE/state/arrange"
 nest_ctl reload >/dev/null
-# A reload publishes the config file's values again, so the memory is turned off
-# once more, before the arrange timer fires.
-memory_off
 
 # The arrange timer (600ms) has come and gone. The pass may not have placed
 # anything: the frame it would have used was the whole screen.

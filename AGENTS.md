@@ -73,6 +73,10 @@ Pack code, in this repo:
   or the whole nest with a different `NEST_JOBS`/`NEST_WORKSPACE` (including the
   defaults), and do not treat such a run as evidence: a difference there is a
   property of the run, not of the change.
+  The nests run on the live session by default (`NEST_HOST=session`), which is the
+  sanctioned mode. `NEST_HOST=shared` is a Hyprland host of the run's own on a vkms
+  card, and is not green yet (see tests/README.md); it is not what the sanctioned
+  run uses.
   It is automated and isolated: the unit layer is plain lua, the nest layer is a
   nested Hyprland with its own state directory and a runtime directory of its
   own, so nothing the pack writes (the state file, the switcher and preview

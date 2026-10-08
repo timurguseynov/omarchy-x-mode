@@ -40,6 +40,8 @@ nest_paths() {
   DOCK_CFG="$NEST_STATE/dock"
   DOCK_LOG="$NEST_STATE/dock.log"
   NEST_DIRTY="$NEST_STATE/config-dirty"
+  # Config a scenario needs the nest's *parse* to see (see nest_overlay).
+  NEST_OVERLAY="$NEST_STATE/state/overlay.lua"
   # What a failing scenario leaves behind for the report: the picture is the one
   # thing the state dumps cannot give.
   NEST_FAIL_SHOT="$NEST_ROOT/fail-$NEST_SLOT.png"
@@ -269,6 +271,7 @@ nest_start() {
     XDG_RUNTIME_DIR="$NEST_RUNTIME" \
     X_MODE_LUA="$NEST_LUA" \
     X_MODE_STATE="$NEST_STATE/state" \
+    NEST_OVERLAY_LUA="$NEST_OVERLAY" \
     "${nest_drm[@]}" \
     NEST_OUTPUT="$NEST_OUTPUT" \
     NEST_MODE="$NEST_MODE" \
@@ -657,6 +660,14 @@ nest_host_stop() {
 # same reason: aquamarine also binds wl_seat at 9.
 
 
+# Config the nest's *parse* has to see. A scenario whose reload has to find an
+# option already in force -- a plugin option the pass the reload starts would
+# otherwise race -- writes it here instead of setting it after the reload. nest.lua
+# sources the file when NEST_OVERLAY_LUA points at it, and nest_clean removes it.
+nest_overlay() { # LUA...
+  printf '%s\n' "$@" > "$NEST_OVERLAY"
+}
+
 # What the current scenario changed in the live config. A plugin option is read
 # back by the pack on every event, so only a reload puts it back; a named window
 # rule can be switched off on its own. Everything else a scenario does (windows,
@@ -807,7 +818,7 @@ nest_clean() {
   # scenario that turns X Mode off (or arranges, or snaps a window) must not
   # leave the next one off, mid-arrange, or with a box from a window whose
   # address this scenario's window may be given.
-  rm -f "$NEST_STATE/state/enabled" "$NEST_STATE/state/arrange" "$NEST_STATE/state/restore.txt"
+  rm -f "$NEST_STATE/state/enabled" "$NEST_STATE/state/arrange" "$NEST_STATE/state/restore.txt" "$NEST_OVERLAY"
   # The dock's pinned list lives in the dock's HOME, which outlives a single
   # scenario, so it has to be cleared too or the next dock test starts with
   # someone else's icons. Desktop entries written there are cleared for the same

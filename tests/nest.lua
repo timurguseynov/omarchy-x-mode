@@ -70,6 +70,14 @@ do
   end
 end
 
+-- Config a scenario needs this parse to see (see nest_overlay in tests/lib.sh): it
+-- exists so that a reload can find an option in force rather than have it set
+-- after the reparse, which races whatever pass the reparse starts.
+local overlay = os.getenv("NEST_OVERLAY_LUA")
+if overlay and overlay ~= "" then
+  pcall(dofile, overlay)
+end
+
 -- Rules for this machine's real devices are the *host's* business, not a nest's:
 -- a nest is a wayland client of the host and gets its input from the host's seat.
 -- See nest-host.lua and nest_host_no_real_input in tests/lib.sh.
