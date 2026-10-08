@@ -71,13 +71,10 @@ NEST_QUEUE="$NEST_ROOT/queue"
 NEST_QUEUE_AT="$NEST_ROOT/queue.at"
 NEST_QUEUE_LOCK="$NEST_ROOT/queue.lock"
 
-# Keep a newly mapped nest from taking focus, and pin it so a later focus
-# does not cover it. NEST_WORKSPACE drops the pin and maps the nests on that
-# workspace instead. A covered nest on this workspace gets no frames, so its
-# bar and clients never commit. The rule and the 1px tick are
-# removed when this process exits, including after a failed run. A click on a
-# nest's titlebar focuses that nest. Placing another nest does not hand focus
-# back.
+# Keep a newly mapped nest from taking the user's focus or clicks, and park it
+# on NEST_WORKSPACE when one is given. In weston mode there is no nest window on
+# this desktop at all and the rule is not applied. The rule is removed when this
+# process exits, including after a failed run.
 nest_host_rule_on || { nest_host_rule_off; exit 1; }
 trap 'nest_host_rule_off' EXIT
 
@@ -208,23 +205,34 @@ worker() { # SLOT
     name="$(name_of "$t")"
     nest_clean
     out="$(mktemp)"
+    retry="$(mktemp)"
     if bash "$t" >"$out" 2>&1; then
       report ok "$name" "$out"
     else
-      # Three nests on this machine drop the occasional dock event. A second
-      # pass on the same nest is that event arriving; a real failure fails
-      # again. The first output is discarded so the report is the one that
-      # still failed.
+      # What the nest looked like when it failed, before nest_clean takes it
+      # apart. A bare "FAIL: <assertion>" is all a red run says otherwise.
+      nest_dump >> "$out" 2>&1
+      # One more pass on the same nest: three of them drop the occasional dock
+      # event, and this is that event arriving. The first pass is kept either
+      # way -- a flake that passes here is still a flake, and its dump is the
+      # only record of what it looked like.
       nest_clean
-      if bash "$t" >"$out" 2>&1; then
-        report ok "$name" "$out"
+      if bash "$t" >"$retry" 2>&1; then
+        { echo "(first pass failed, this one passed; what it saw then:)"
+          # "FAIL" is what the run's counters and its list of failing scenarios
+          # match on: a flake that passed must not show up in either.
+          sed -e 's/^/  /' -e 's/FAIL/failed/' "$out"; } >> "$retry"
+        report ok "$name" "$retry"
       else
-        report fail "$name" "$out"
+        # The retry's assertion, and the first pass under it: that one carries
+        # the nest dump, which is the point of keeping it.
+        { echo "(first pass, and what the nest looked like then:)"; sed 's/^/  /' "$out"; } >> "$retry"
+        report fail "$name" "$retry"
         rc=1
       fi
     fi
     check_errors "$name"
-    rm -f "$out"
+    rm -f "$out" "$retry"
   done
   rm -f "$errors_seen"
   dock_stop

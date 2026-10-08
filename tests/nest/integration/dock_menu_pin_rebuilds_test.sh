@@ -13,21 +13,22 @@ dock_settle
 assert_eq "$(dock_box | awk '{print $4}')" 72 "two running apps, no pins"
 
 # Icon 1 is kitty (foot sorts first). Pin it.
-read -r px py <<<"$(dock_icon_point 1)"
-pointer_click "$px" "$py" right
-settle
+dock_menu_open 1
 
 read -r rx ry <<<"$(dock_menu_row_point 1 4 "26 7 26 7 26 26")"
-pointer_click "$rx" "$ry"
+dock_menu_click "$rx" "$ry"
 
-# Pin has to rebuild on that click. The 3s client reconcile would also move
-# the icon, so only a short wait counts: if the card is still 72 here, Pin
-# did not rebuild.
-h=72
+# Pin has to rebuild on that click. Wait for the file the row writes first:
+# under a loaded host the click can take a moment to land, and that delay is not
+# what the scenario is about. From the write on, only a short wait counts -- the
+# 3s client reconcile would also move the icon, so a card still at 72 after that
+# is a Pin that did not rebuild, which is the bug this pins down.
+wait_until 8 '[ -s "$(dock_pinned_file)" ] && grep -q kitty "$(dock_pinned_file)"'
+h="$(dock_box | awk '{print $4}')"
 for _ in $(seq 1 8); do
-  h="$(dock_box | awk '{print $4}')"
   [ "$h" = 79 ] && break
   sleep 0.2
+  h="$(dock_box | awk '{print $4}')"
 done
 
 assert_eq "$(python3 -c "import json;print(','.join(json.load(open('$(dock_pinned_file)'))))")" kitty \
@@ -50,9 +51,7 @@ settle
 assert_eq "$(active_class)" kitty "the first icon is the app that was just pinned"
 
 # A dock that froze on Pin would not map the menu again.
-read -r px py <<<"$(dock_icon_point 0)"
-pointer_click "$px" "$py" right
-settle
+dock_menu_open 0
 w="$(dock_layer_box x-mode-dock-menu 2>/dev/null | awk '{print $3}')"
 assert_ge "${w:-0}" 100 "the dock still opens a menu after a pin"
 

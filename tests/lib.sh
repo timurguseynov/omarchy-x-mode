@@ -40,6 +40,21 @@ nest_paths() {
   DOCK_CFG="$NEST_STATE/dock"
   DOCK_LOG="$NEST_STATE/dock.log"
   NEST_DIRTY="$NEST_STATE/config-dirty"
+  # What a failing scenario leaves behind for the report: the picture is the one
+  # thing the state dumps cannot give.
+  NEST_FAIL_SHOT="$NEST_ROOT/fail-$NEST_SLOT.png"
+  # Which compositor hosts the nest. session: a window in the live session; the
+  # nest then makes its own headless output and disables the host's, so nothing
+  # about the live session decides the nest's geometry or its frames. weston: a
+  # headless weston, so the live session is not involved at all.
+  NEST_HOST="${NEST_HOST:-session}"
+  # The nest's own output and its mode. Fixed, so a test reads the same geometry
+  # however the host sized the nested window. The shape is the one a host window
+  # used to give -- 900x1000 at the display's scale 2, a 450x500 logical desktop
+  # -- because the scenarios' numbers are written against it.
+  NEST_OUTPUT="${NEST_OUTPUT:-NEST-1}"
+  NEST_MODE="${NEST_MODE:-900x1000@60}"
+  NEST_SCALE="${NEST_SCALE:-2}"
   # The panel's settings live in the user's config dir (the pack's own directory
   # and the state dir are both removed on uninstall), so the nest writes them
   # into its throwaway HOME.
@@ -116,45 +131,35 @@ build_keyboard() {
     || fail "keyboard build failed"
 }
 
-# The nest is a toplevel on the host. Without this rule the host focuses it on
-# map and again whenever the nested compositor asks to be activated, which is
-# every time a window inside it takes focus. no_initial_focus covers the map,
-# and focus_on_activate covers those requests. no_focus is not set: it also
-# rejects a click on the titlebar, so the keyboard stays on Chrome or Zed.
-# The rule is runtime-only: it is not written into the user's config, and the
+# The nest is a toplevel on the host in session mode. Without this rule the host
+# focuses it on map and again whenever the nested compositor asks to be
+# activated, which is every time a window inside it takes focus. no_initial_focus
+# covers the map, and focus_on_activate covers those requests. no_focus is not
+# set: it also rejects a click on the titlebar, so the keyboard stays on Chrome or
+# Zed. The rule is runtime-only: it is not written into the user's config, and the
 # runner drops it when the run ends. Same name on every slot, so several nests
 # share one rule.
 #
-# pin keeps each nest above the rest of the desktop. A covered window on the
-# current workspace is not drawn, and the unfocused-render timer skips any
-# window whose workspace is visible, so that timer never unlocks a nest
-# something else has covered. The bar and the clients inside then never
-# commit, and the nest looks like it did not start. Same-app grouping already
-# skips class aquamarine and Hyprland. The pin dies with the window.
+# Nothing else about the host decides anything. The nest makes its own headless
+# output and the host's one is disabled (nest_output_setup), so the size the host
+# gives a nested window, its focus and its stacking are all out of the picture:
+# the tests read the fixed mode of the nest's own output, and the frames come
+# from that output's own timer. This rule is now only about not stealing the
+# user's keyboard and mouse while a run is going on -- the window is a leftover
+# that draws nothing, hence allows_input: a click must fall through it.
 #
-# NEST_WORKSPACE is a workspace id. Empty leaves the nests on the workspace
-# the run started on, pinned. A number maps every nest there and drops the
-# pin: a pinned window is drawn on every workspace, so it would still sit on
-# the one in view. The string is "N silent" so the view stays put. A named
-# rule keeps an effect it was given before, so the empty case sends "unset",
-# which is what clears a workspace stored by an earlier run. The workspace
-# has to be the one on screen: Hyprland suspends a window whose workspace is
-# not visible, and a suspended nest stops committing.
-#
-# The nest is not lowered. A covered window on the current workspace is not
-# drawn, so it gets no frame callback: Hyprland's unfocused-render timer skips
-# any window whose workspace is visible, and that timer is the only path that
-# also unlocks the client's buffer. A 1px overlay committing 10 times a second
-# is only a backstop for a nest something else has covered. The layer is
-# removed with the rule.
+# NEST_WORKSPACE is a workspace id. Empty leaves the nests on the workspace the
+# run started on. A number maps every nest there, and "N silent" keeps the view
+# put. A named rule keeps an effect it was given before, so the empty case sends
+# "unset", which is what clears a workspace stored by an earlier run.
 #
 # The toplevel's class is the wayland backend's app id, "aquamarine", not
 # "Hyprland". A rule on the wrong class never matches, so the nest takes focus
 # every time a window inside it does. The second name covers a build that
 # still calls the toplevel Hyprland. Each update sends the whole rule: a
 # partial one replaces the rest.
-nest_host_rule() { # true|false — render_unfocused
-  local render="${1:-false}" cls name pin=true ws_rule="unset"
+nest_host_rule() {
+  local cls name ws_rule="unset"
   if [ -n "${NEST_WORKSPACE:-}" ]; then
     case "$NEST_WORKSPACE" in
       *[!0-9]*|0)
@@ -162,7 +167,6 @@ nest_host_rule() { # true|false — render_unfocused
         return 1
         ;;
     esac
-    pin=false
     ws_rule="${NEST_WORKSPACE} silent"
   fi
   for cls in aquamarine Hyprland; do
@@ -176,96 +180,23 @@ nest_host_rule() { # true|false — render_unfocused
       float = true,
       size = \"900 1000\",
       move = \"40 40\",
-      pin = ${pin},
       workspace = \"${ws_rule}\",
       no_initial_focus = true,
       focus_on_activate = false,
-      render_unfocused = ${render},
+      allows_input = false,
     })" >/dev/null || return 1
   done
 }
 
-# One pixel, above every window, committing 10 times a second. It does not
-# take keyboard focus and it does not reserve space. The speck sits in the
-# bottom-right corner for the length of the run.
-nest_host_tick_start() {
-  local cfg="$NEST_ROOT/host-tick" i
-  mkdir -p "$cfg"
-  cat > "$cfg/shell.qml" <<'QML'
-import QtQuick
-import Quickshell
-import Quickshell.Wayland
-
-ShellRoot {
-  Variants {
-    model: Quickshell.screens
-    delegate: Component {
-      PanelWindow {
-        required property var modelData
-        screen: modelData
-        exclusionMode: ExclusionMode.Ignore
-        exclusiveZone: 0
-        focusable: false
-        aboveWindows: true
-        anchors { bottom: true; right: true }
-        implicitWidth: 1
-        implicitHeight: 1
-        color: "transparent"
-        WlrLayershell.namespace: "x-mode-nest-tick"
-
-        Rectangle {
-          id: pix
-          width: 1
-          height: 1
-          color: "#000000"
-        }
-
-        Timer {
-          interval: 100
-          running: true
-          repeat: true
-          onTriggered: pix.color = pix.color == "#000000" ? "#010101" : "#000000"
-        }
-      }
-    }
-  }
-}
-QML
-  setsid qs -p "$cfg" > "$NEST_ROOT/host-tick.log" 2>&1 < /dev/null &
-  echo $! > "$NEST_ROOT/host-tick.pid"
-  for i in $(seq 1 30); do
-    hyprctl layers -j 2>/dev/null | python3 -c '
-import json, sys
-data = json.load(sys.stdin) or {}
-for out in data.values():
-    for layers in ((out or {}).get("levels") or {}).values():
-        for layer in layers or []:
-            if layer.get("namespace") == "x-mode-nest-tick":
-                raise SystemExit(0)
-raise SystemExit(1)' && return 0
-    sleep 0.1
-  done
-  echo "host tick did not map" >&2
-  sed 's/^/       /' "$NEST_ROOT/host-tick.log" >&2
-  return 1
-}
-
-nest_host_tick_stop() {
-  local pid=""
-  [ -f "$NEST_ROOT/host-tick.pid" ] && pid="$(cat "$NEST_ROOT/host-tick.pid")"
-  if [ -n "$pid" ]; then
-    kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
-  fi
-  rm -f "$NEST_ROOT/host-tick.pid"
-}
-
+# In weston mode the nest is not a window on the host at all, so there is
+# nothing to rule on and nothing to keep presenting.
 nest_host_rule_on() {
-  nest_host_rule true || return 1
-  nest_host_tick_start
+  [ "$NEST_HOST" = "session" ] || return 0
+  nest_host_rule || return 1
 }
 
 nest_host_rule_off() {
-  nest_host_tick_stop
+  [ "$NEST_HOST" = "session" ] || return 0
   hyprctl eval 'hl.window_rule({ name = "x-mode-nest", enabled = false })' >/dev/null 2>&1 || true
   hyprctl eval 'hl.window_rule({ name = "x-mode-nest-hl", enabled = false })' >/dev/null 2>&1 || true
 }
@@ -280,16 +211,27 @@ nest_start() {
   fi
   [ -x "$NESTQ" ] || fail "nestq is missing (build failed)"
   nest_stop
-  # The nest is a Wayland client of the host, so its own WAYLAND_DISPLAY has to be
-  # absolute once XDG_RUNTIME_DIR points elsewhere.
-  local host_socket="${WAYLAND_DISPLAY:-wayland-1}"
-  case "$host_socket" in /*) ;; *) host_socket="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$host_socket" ;; esac
   rm -rf "$NEST_RUNTIME"
   mkdir -p "$NEST_RUNTIME" "$NEST_ROOT"
+  # The nest is a Wayland client of a host compositor, and its own
+  # WAYLAND_DISPLAY has to be absolute once XDG_RUNTIME_DIR points elsewhere. In
+  # session mode that host is the live session; in weston mode it is a headless
+  # weston started here, which takes the live session out of the run.
+  local host_socket
+  if [ "$NEST_HOST" = "weston" ]; then
+    host_socket="$NEST_RUNTIME/weston-nest"
+  else
+    host_socket="${WAYLAND_DISPLAY:-wayland-1}"
+    case "$host_socket" in /*) ;; *) host_socket="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$host_socket" ;; esac
+  fi
   # Start from a clean state dir: a run that fails midway can leave settings.json
   # behind, and the next run would inherit it.
   rm -rf "$NEST_STATE/state" "$NEST_STATE/home"
   mkdir -p "$NEST_STATE/state" "$NEST_STATE/home" "$(dirname "$NEST_SETTINGS")"
+  # After the state dir: weston's HOME is the nest's throwaway one.
+  if [ "$NEST_HOST" = "weston" ]; then
+    nest_weston_start || return 1
+  fi
 
   # setsid makes this pid the process-group leader, so nest_stop can kill the
   # nest without the pattern match that would also kill every other slot.
@@ -315,10 +257,15 @@ nest_start() {
 
   # The config parses before the plugin exists, so its plugin:* keys are unknown
   # on the first pass. Load the plugin and reload once; the second parse is clean.
+  # nest_hyprctl, not nest_ctl: this reload is the harness' own, before any
+  # scenario, and it must not leave a dirty marker that makes the first
+  # nest_clean reparse the config again for nothing.
   nest_ctl plugin load "$PLUGIN_SO" >/dev/null
-  nest_ctl reload >/dev/null
+  nest_hyprctl reload >/dev/null
 
-  nest_place_window "$pid"
+  # The nest's own output, with the host's one out of the way. This is what makes
+  # the geometry a test reads the same on every run; see nest_output_setup.
+  nest_output_setup || return 1
 
   if [ "$NEST_BAR" = 1 ]; then
     nest_bar_start || return 1
@@ -345,14 +292,8 @@ for out in data.values():
 raise SystemExit(1)' && [ "$(bar_top 2>/dev/null)" = 24 ]
 }
 
-# The output shows up after the wayland socket. A bar started before that
-# binds no screen and never maps, and the reserved top stays whatever the
-# output reported on the way up.
-#
-# The size, and not "wide enough": the backend offers 1280x720 first, the host
-# rejects that mode, and until its own configure lands hyprctl still reports that
-# wide monitor -- which a width threshold accepts. What is waited for is a size
-# that stops changing instead; see nest_bar_spawn.
+# The size of the nest's output, which is the only monitor it has: its own
+# headless output in session mode, weston's in weston mode. Both are NEST_MODE.
 nest_output_size() {
   nest_ctl monitors -j 2>/dev/null | python3 -c '
 import json, sys
@@ -377,28 +318,9 @@ nest_bar_spawn() {
     sleep 0.05
   done
   [ -S "$disp" ] || return 1
-  # The first configure is 0x0. The backend answers with 1280x720, the host
-  # rejects that mode, and for a moment hyprctl still reports a wide monitor.
-  # qs started on that blip binds no real screen, and "wide enough" is true of
-  # the rejected mode as well -- so what is waited for is one non-zero size that
-  # holds. Eighth tenths of a second is a configure cycle on a loaded host.
-  local ready=0 streak=0 size="" held=""
-  for i in $(seq 1 100); do
-    size="$(nest_output_size 2>/dev/null || true)"
-    if [ -n "$size" ] && [ "$size" != "0x0" ] && [ "$size" = "$held" ]; then
-      streak=$((streak + 1))
-      if [ "$streak" -ge 8 ]; then
-        ready=1
-        break
-      fi
-    else
-      streak=0
-    fi
-    held="$size"
-    sleep 0.1
-  done
-  [ "$ready" = 1 ] || return 1
-  sleep 0.2
+  # The nest's output is up already (nest_output_setup runs first) and its mode
+  # is ours, so there is no mode left to wait out.
+  [ "$(nest_output_size 2>/dev/null || true)" = "${NEST_MODE%%@*}" ] || return 1
   env WAYLAND_DISPLAY="$disp" \
     XDG_RUNTIME_DIR="$NEST_RUNTIME" \
     QT_QPA_PLATFORM=wayland \
@@ -409,11 +331,11 @@ nest_bar_spawn() {
 
 nest_bar_start() {
   local attempt _
-  # The first shell sometimes connects before the nest has an output, or
-  # the host drops that wayland client while several nests are mapping.
-  # A later try has the output, and a shell that already bound a placeholder
-  # is thrown away rather than waited on.
-  for attempt in 1 2 3 4; do
+  # A shell that connects before the nest answers, or one the host drops while
+  # several nests are mapping, binds a placeholder or nothing. A later try has
+  # the socket and the output, and a shell already bound to a placeholder is
+  # thrown away rather than waited on.
+  for attempt in 1 2 3; do
     nest_bar_spawn || {
       sleep 0.3
       continue
@@ -427,9 +349,7 @@ nest_bar_start() {
   # return, do not exit. fail() ends the worker, so the caller's
   # "start the nest again" never runs and one missed bar drops the slot.
   # The output is printed with it: an empty reserved top says the nest has no
-  # output at all, '0' that it has one and the bar reserved nothing on it, and
-  # a width that is not the settled one says the bar bound the mode the host
-  # had not accepted yet.
+  # output at all, '0' that it has one and the bar reserved nothing on it.
   echo "bar reserved '$(bar_top 2>/dev/null)' with the output '$(nest_output_size 2>/dev/null || echo none)'" >&2
   sed 's/^/       /' "$NEST_STATE/bar.log" >&2
   echo "the nest bar did not reserve the top" >&2
@@ -445,6 +365,7 @@ nest_bar_stop() {
 nest_stop() {
   nest_bar_stop
   nest_ipc_stop
+  nest_weston_stop
   local pid=""
   [ -f "$NEST_STATE/pid" ] && pid="$(cat "$NEST_STATE/pid")"
   if [ -n "$pid" ]; then
@@ -460,55 +381,139 @@ nest_stop() {
   rm -f "$NEST_STATE/pid"
 }
 
-# The nest is a toplevel on the host and the host layout can put it off-screen.
-nest_place_window() {
-  local pid="$1" addr="" i
-  for i in $(seq 1 25); do
-    addr="$(hyprctl clients -j 2>/dev/null | python3 -c "
+# The monitor rules for the nest's own output, and for the host's one out of the
+# way. Both are runtime, so a config reparse wipes them -- and a reparse happens
+# whenever a scenario touches an option, because nest_clean reloads the config
+# after it. Without putting them back the host's output returns, and with it a
+# second monitor whose size, scale and focus nothing here controls. Every reload
+# goes through nest_ctl or nest_clean, so both of them call this.
+#
+# The host output is found by name rather than remembered: it is the wayland
+# backend's, and aquamarine names those WAYLAND-N.
+nest_output_rule() {
+  [ "$NEST_HOST" = "session" ] || return 0
+  local want host got
+  want="${NEST_MODE%%@*}@$NEST_SCALE"
+  got="$(nest_ctl monitors -j 2>/dev/null | python3 -c '
 import json, sys
-for c in json.load(sys.stdin):
-    if c.get('pid') == $pid:
-        print(c['address']); break
-" || true)"
-    [ -n "$addr" ] && break
-    sleep 0.2
+try:
+    ms = json.load(sys.stdin) or []
+except Exception:
+    ms = []
+m = next((x for x in ms if str(x.get("name", "")) == "'"$NEST_OUTPUT"'"), None)
+print("" if m is None else "%dx%d@%s" % (m.get("width") or 0, m.get("height") or 0, m.get("scale") or 1))')"
+  # Only when it is not already what it should be. Setting the mode on a monitor
+  # Hyprland already has is a reconfiguration, and that re-deals the monitor's
+  # workspaces -- which is how a scenario ends up looking at an empty workspace
+  # with no window focused. After a reparse it is the *host* output that comes
+  # back, not this one.
+  if [ "$got" != "$want" ]; then
+    nest_ctl eval "hl.monitor({ output = '$NEST_OUTPUT', mode = '$NEST_MODE', position = '0x0', scale = '$NEST_SCALE' })" >/dev/null 2>&1 || true
+  fi
+  for host in $(nest_ctl monitors -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    ms = json.load(sys.stdin) or []
+except Exception:
+    ms = []
+print(" ".join(str(m.get("name", "")) for m in ms if str(m.get("name", "")).startswith("WAYLAND-")))'); do
+    nest_ctl eval "hl.monitor({ output = '$host', disabled = true })" >/dev/null 2>&1 || true
   done
-  [ -n "$addr" ] || return 0
-  local w="address:$addr" x y
-  # Stagger so each titlebar sticks out of the pile. A click then hits the
-  # nest it is aimed at. Nothing here moves keyboard focus: handing it back
-  # to whoever was active when the run started is what sent a titlebar click
-  # to Chrome or Zed while the other nests were still mapping. The host rule
-  # pins the window, so a later focus does not cover it and stop its frames.
-  x=$((40 + ${NEST_SLOT:-0} * 36))
-  y=$((40 + ${NEST_SLOT:-0} * 36))
-  # The host rule already floats and sizes. These dispatches are the fallback
-  # when that rule did not match, and they must not raise the window:
-  # alter_zorder top is what pulled it over the desktop on every run.
-  hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"$w\" })" >/dev/null 2>&1 || true
-  # The first configure the host sends can be 0x0 while it is busy mapping
-  # several nests. The wayland backend then commits a fallback size, the host
-  # rejects that mode, and the nest never gets an output. Keep resizing until
-  # the window is actually the box the rule asked for.
-  local sz=""
-  for i in $(seq 1 15); do
-    hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 1000, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
-    hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
-    sz="$(hyprctl clients -j 2>/dev/null | python3 -c "
-import json, sys
-for c in json.load(sys.stdin):
-    if c.get('pid') == $pid:
-        s = c.get('size') or [0, 0]
-        print(int(s[0]), int(s[1]))
-        break
-" || true)"
-    [ "$sz" = "900 1000" ] && break
+}
+
+# After a reparse: the rules back, and the focus on the nest's own output, so a
+# window opens on it and pointer_extent reads the monitor the tests mean.
+nest_output_reapply() {
+  [ "$NEST_HOST" = "session" ] || return 0
+  nest_output_rule
+  nest_ctl eval "hl.dispatch(hl.dsp.focus({ monitor = '$NEST_OUTPUT' }))" >/dev/null 2>&1 || true
+}
+
+# The nest renders to its own output, not to the window the host gave it. A fixed
+# mode is what makes the geometry deterministic: a nested window's size is the
+# host's decision, and while several nests map at once its first configure is 0x0,
+# so the mode used to settle a moment later -- and the bar could bind a mode the
+# host had not accepted yet.
+#
+# Disabling the host output is what leaves exactly one: Hyprland drops a disabled
+# monitor from `monitors -j`, the bar binds the one that is left, and windows open
+# on it. Frames come from the headless output's own timer, so nothing outside the
+# nest gates them any more -- which is why this layer needs no render_unfocused
+# and no 1px tick.
+nest_output_setup() {
+  # weston already gives the nest one headless output at NEST_MODE; there is no
+  # host output to disable.
+  [ "$NEST_HOST" = "session" ] || return 0
+  local i count
+  nest_ctl output create headless "$NEST_OUTPUT" >/dev/null 2>&1 || return 1
+  for i in $(seq 1 40); do
+    nest_ctl monitors -j 2>/dev/null | grep -q "\"name\": \"$NEST_OUTPUT\"" && break
     sleep 0.1
   done
-  # Leave it where map put it, above the other windows. alter_zorder bottom
-  # covers the nest, and a covered window on the current workspace gets no
-  # frame callbacks: the dock, the menu and the bar then never commit.
-  # no_initial_focus is what keeps the map from taking the keyboard.
+  nest_output_rule
+  # The workspace that was on the host's output moves here; make this monitor the
+  # focused one, so a window opens on it.
+  nest_ctl eval "hl.dispatch(hl.dsp.focus({ monitor = '$NEST_OUTPUT' }))" >/dev/null 2>&1 || true
+  for i in $(seq 1 40); do
+    count="$(nest_ctl monitors -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    print(len(json.load(sys.stdin) or []))
+except Exception:
+    print(-1)' 2>/dev/null || echo -1)"
+    if [ "$count" = 1 ] && [ "$(nest_output_size 2>/dev/null)" = "${NEST_MODE%%@*}" ]; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  echo "nest output '$NEST_OUTPUT' did not settle at $NEST_MODE" >&2
+  nest_ctl monitors -j 2>/dev/null | sed 's/^/       /' >&2
+  return 1
+}
+
+# A headless weston as the nest's host: the nest is still a wayland client, but of
+# a compositor that has no window on the user's desktop, needs no rule to stay out
+# of the way, and never stops presenting -- so the live session is out of the run
+# entirely. weston's kiosk shell gives the one client the whole output.
+nest_weston_start() {
+  command -v weston >/dev/null || { echo "NEST_HOST=weston needs weston (pacman -S weston)" >&2; return 1; }
+  local w h i
+  w="${NEST_MODE%%x*}"
+  h="${NEST_MODE#*x}"
+  h="${h%%@*}"
+  mkdir -p "$NEST_STATE/home/.config"
+  # The nest's output is weston's, so its size and scale are weston's to set: the
+  # same 900x1000 at scale 2 the session mode gives, so the scenarios read the
+  # same logical desktop either way.
+  cat > "$NEST_STATE/home/.config/weston.ini" <<INI
+[output]
+name=headless
+mode=$w x $h
+scale=$NEST_SCALE
+INI
+  setsid env \
+    HOME="$NEST_STATE/home" \
+    XDG_CONFIG_HOME="$NEST_STATE/home/.config" \
+    XDG_RUNTIME_DIR="$NEST_RUNTIME" \
+    weston --backend=headless --shell=kiosk --width="$w" --height="$h" --socket=weston-nest \
+    > "$NEST_STATE/weston.log" 2>&1 < /dev/null &
+  echo $! > "$NEST_STATE/weston.pid"
+  for i in $(seq 1 60); do
+    [ -S "$NEST_RUNTIME/weston-nest" ] && return 0
+    sleep 0.1
+  done
+  echo "weston did not come up" >&2
+  sed 's/^/       /' "$NEST_STATE/weston.log" >&2
+  return 1
+}
+
+nest_weston_stop() {
+  local pid=""
+  [ -f "$NEST_STATE/weston.pid" ] && pid="$(cat "$NEST_STATE/weston.pid")"
+  if [ -n "$pid" ]; then
+    kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+  fi
+  rm -f "$NEST_STATE/weston.pid"
 }
 
 # What the current scenario changed in the live config. A plugin option is read
@@ -522,8 +527,9 @@ for c in json.load(sys.stdin):
 # live, so only another reload restores them. A "rule <name>" line is a named
 # window rule to switch off, which does not need a reload.
 nest_ctl() {
+  local reload=0 rc=0
   case "$*" in
-    *"reload"* | *"hl.config"*) printf 'reload\n' >> "$NEST_DIRTY" ;;
+    *"reload"* | *"hl.config"*) printf 'reload\n' >> "$NEST_DIRTY"; reload=1 ;;
     *"hl.window_rule"*)
       local rule
       rule="$(printf '%s' "$*" | sed -n "s/.*name = '\([^']*\)'.*/\1/p")"
@@ -531,6 +537,60 @@ nest_ctl() {
       ;;
   esac
   nest_hyprctl "$@"
+  rc=$?
+  # A reparse drops the nest's monitor rules; put them back before the scenario
+  # goes on (see nest_output_rule).
+  [ "$reload" = 1 ] && nest_output_reapply
+  return "$rc"
+}
+
+# What the nest looked like, for a failure report. Not an assertion: the runner
+# prints it under the scenario that failed. Without it a red run says only which
+# assertion failed, and the part worth looking at -- a second monitor, a dock on
+# another screen, a focus that never moved -- is gone by the time anyone looks.
+nest_dump() {
+  echo "--- nest at failure"
+  nest_ctl monitors -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    ms = json.load(sys.stdin) or []
+except Exception:
+    ms = []
+for m in ms:
+    s = m.get("scale") or 1
+    print("  monitor", m.get("name"), "%dx%d" % (m.get("width") or 0, m.get("height") or 0),
+          "scale", s, "focused", m.get("focused"), "reserved", m.get("reserved"),
+          "ws", (m.get("activeWorkspace") or {}).get("id"))' 2>/dev/null || true
+  echo "  active: class='$(nest_query active class 2>/dev/null)' addr='$(nest_query active address 2>/dev/null)' ws='$(nest_query active workspace 2>/dev/null)'"
+  echo "  clients:"
+  nest_ctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    cs = json.load(sys.stdin) or []
+except Exception:
+    cs = []
+for c in cs:
+    print("   ", c.get("class"), "ws", (c.get("workspace") or {}).get("id"), "mon", c.get("monitor"),
+          "at", c.get("at"), "size", c.get("size"), "mapped", c.get("mapped"), "hidden", c.get("hidden"))' 2>/dev/null || true
+  echo "  layers:"
+  nest_ctl layers -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin) or {}
+except Exception:
+    data = {}
+for mon, out in data.items():
+    for lvl, layers in ((out or {}).get("levels") or {}).items():
+        for l in layers or []:
+            print("   ", mon, lvl, l.get("namespace"), "x", l.get("x"), "y", l.get("y"), "w", l.get("w"), "h", l.get("h"))' 2>/dev/null || true
+  # The picture, when a tool can take one *and* it was asked for: grim renders
+  # the whole output, and doing that for every failure of a full run is load the
+  # rest of the run then pays for.
+  if [ "${NEST_FAIL_SHOT_ON:-0}" = 1 ] && command -v grim >/dev/null 2>&1; then
+    if env WAYLAND_DISPLAY="$(nest_display)" timeout 6 grim "$NEST_FAIL_SHOT" >/dev/null 2>&1; then
+      echo "  screenshot: $NEST_FAIL_SHOT"
+    fi
+  fi
 }
 
 # The request socket is one command per connection, so a long-lived python
@@ -617,10 +677,9 @@ nest_clean() {
   # scenario plants (the gaps toggle, to watch the pack retire it) would decide the
   # next scenario's gaps before it opens a window.
   rm -rf "$NEST_STATE/home/.local/state/omarchy/toggles"
-  # Back to the first workspace: a scenario that switches away (the dock menu one
-  # does) would otherwise decide where the next one opens its windows, and two
-  # same-app windows that land on one space group instead of staying apart.
-  nest_ctl dispatch "hl.dsp.focus({ workspace = \"1\" })" >/dev/null 2>&1 || true
+  # The move back to the first workspace is at the end of this function: the
+  # reparse below focuses the nest's monitor, and focusing a monitor switches to
+  # the workspace that monitor remembers.
   # A scenario that reparsed the config (or set a plugin option, which is read
   # back live) leaves the next one with that config, because the file it wrote is
   # wiped above but the running config is not. Reparse once to put it back. A
@@ -628,6 +687,9 @@ nest_clean() {
   if [ -f "$NEST_DIRTY" ] && grep -q '^reload$' "$NEST_DIRTY"; then
     nest_hyprctl reload >/dev/null 2>&1 || true
     sleep 0.4
+    # The reparse also dropped the nest's monitor rules: the host's output is
+    # back, and with it a second monitor with another size, scale and focus.
+    nest_output_reapply
   elif [ -f "$NEST_DIRTY" ]; then
     local rule
     while read -r rule; do
@@ -648,6 +710,11 @@ nest_clean() {
   # file, so the pack has to be pointed at the empty one it was just given.
   nest_hyprctl eval 'if x_mode and x_mode.refresh_options then x_mode.refresh_options() end' >/dev/null 2>&1 || true
   nest_hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null 2>&1 || true
+  # Back to the first workspace, and last, so nothing above can decide it. A
+  # scenario that switches away -- the dock menu one does -- would otherwise decide
+  # where the next one opens its windows, and two same-app windows that land on one
+  # space group instead of staying apart.
+  nest_ctl dispatch "hl.dsp.focus({ workspace = \"1\" })" >/dev/null 2>&1 || true
 }
 
 # The panel's path for an app-list change: write settings.json, then this.
@@ -989,6 +1056,23 @@ dock_box() { # "X Y W H" of the dock's layer surface
   dock_layer_box x-mode-dock
 }
 
+# The card is away for a turn while the dock rebuilds it -- a pin moves the icon
+# into the pinned section and resizes the card. A geometry helper that takes
+# whatever one query gives then computes an empty point, and a click at nothing
+# says nothing about why, so the read waits for the card instead.
+dock_box_wait() {
+  local i box
+  for i in $(seq 1 20); do
+    box="$(dock_box 2>/dev/null || true)"
+    if [ -n "$box" ]; then
+      printf '%s' "$box"
+      return 0
+    fi
+    sleep 0.2
+  done
+  fail "the dock's card is not there (no x-mode-dock layer)"
+}
+
 # The order the card is actually showing: one class per line in the file the
 # dock writes when its published list changes, as one line for assertions.
 dock_order() {
@@ -1031,7 +1115,7 @@ raise SystemExit(1)"
 # one separator plus two spacings lower.
 dock_icon_point() { # INDEX
   local x y w h
-  read -r x y w h <<<"$(dock_box)"
+  read -r x y w h <<<"$(dock_box_wait)"
   python3 -c "print($x + $w // 2, $y + $DOCK_PAD + $DOCK_ICON // 2 + $1 * ($DOCK_ICON + $DOCK_SPACING))"
 }
 
@@ -1147,20 +1231,41 @@ dock_pin() {
 # the icon it was opened from.
 dock_menu_row_point() { # ICON_INDEX ROW_INDEX "26 7 26 ..."
   local dx dy _ _
-  read -r dx dy _ _ <<<"$(dock_box)"
+  read -r dx dy _ _ <<<"$(dock_box_wait)"
   # The menu is a layer of its own and is not up in the same breath as the
   # click. Its width is the screen the card is placed against; the point is
   # meaningless until that width exists.
   local screen_w i
   # A 50ms poll keeps the nest's socket busy, and the menu's own commit then
   # waits behind it. A wider gap lets the layer finish mapping before the click.
-  for i in $(seq 1 20); do
+  # Ten seconds, not five: with every slot running a dock of its own the shell
+  # inside the nest can take a moment to map the layer, and the point is only
+  # meaningful once it exists.
+  for i in $(seq 1 40); do
     screen_w="$(dock_layer_box x-mode-dock-menu 2>/dev/null | awk '{print $3}')"
     [ -n "$screen_w" ] && [ "$screen_w" -ge 100 ] && break
     screen_w=""
     sleep 0.25
   done
-  [ -n "$screen_w" ] || fail "the dock menu did not open"
+  if [ -z "$screen_w" ]; then
+    # The message a bare "did not open" never had: what was on screen when it
+    # gave up. Without it a failure like this is only guesswork.
+    echo "dock box: $(dock_box 2>/dev/null || echo none)" >&2
+    echo "pointer_extent: $(pointer_extent 2>/dev/null)" >&2
+    echo "layers: $(nest_ctl layers -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin) or {}
+except Exception:
+    data = {}
+names = []
+for out in data.values():
+    for layers in ((out or {}).get("levels") or {}).values():
+        for l in layers or []:
+            names.append(str(l.get("namespace")))
+print(" ".join(names) or "none")')" >&2
+    fail "the dock menu did not open"
+  fi
   python3 -c "
 rows = [int(x) for x in '$3'.split()]
 idx = $2
@@ -1176,6 +1281,58 @@ print(card_x + card_w // 2, card_y + offset + rows[idx] // 2)
 "
 }
 
+# Open the dock's menu on an icon and wait for the menu to be there. The
+# right-click does not always open it -- the same right-click on the same icon
+# sometimes leaves no menu at all, which the dump of a pre-step-1 tree shows just
+# as it shows it here -- so the click is tried again, which is what a person does
+# with an icon that did not answer. A menu that never comes fails with the state
+# it gave up looking at.
+dock_menu_open() { # ICON_INDEX
+  local i j px py w
+  for i in 1 2 3; do
+    read -r px py <<<"$(dock_icon_point "$1")"
+    pointer_click "$px" "$py" right
+    for j in $(seq 1 8); do
+      w="$(dock_layer_box x-mode-dock-menu 2>/dev/null | awk '{print $3}')"
+      [ -n "$w" ] && [ "$w" -ge 100 ] && return 0
+      sleep 0.25
+    done
+  done
+  local names
+  names="$(nest_ctl layers -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin) or {}
+except Exception:
+    data = {}
+names = []
+for out in data.values():
+    for layers in ((out or {}).get("levels") or {}).values():
+        for l in layers or []:
+            names.append(str(l.get("namespace")))
+print(" ".join(names) or "none")')"
+  fail "the dock menu did not open on icon $1 (dock box: $(dock_box 2>/dev/null || echo none), layers: $names)"
+}
+
+# Click a row of the dock's menu and wait for the menu to go away: picking a row
+# takes the menu down on the next turn, so a menu still up is a click that never
+# reached the overlay. That happens when the overlay's input region lags its map
+# by a commit -- the click lands on the window under the cursor and nothing
+# happens -- so the same click is tried again, which is what a person does with a
+# menu that did not take it. A row that does nothing at all still fails, and the
+# message says where the menu was when it gave up.
+dock_menu_click() { # X Y
+  local i j
+  for i in 1 2 3; do
+    pointer_click "$1" "$2"
+    for j in $(seq 1 8); do
+      [ -z "$(dock_layer_box x-mode-dock-menu 2>/dev/null)" ] && return 0
+      sleep 0.2
+    done
+  done
+  fail "the dock menu did not take the click at $1,$2 (still up: $(dock_layer_box x-mode-dock-menu 2>/dev/null))"
+}
+
 # --- pointer -----------------------------------------------------------------
 
 # Logical monitor size: warpAbsolute normalises against it, and window geometry
@@ -1189,51 +1346,73 @@ scale = m.get('scale') or 1
 print(f\"{round(m['width'] / scale)}x{round(m['height'] / scale)}\")"
 }
 
-pointer() {
-  WAYLAND_DISPLAY="$(nest_display)" X_MODE_POINTER_EXTENT="$(pointer_extent)" \
-    "$POINTER_BIN" "$@"
+# One virtual pointer for the whole scenario, through the tool's hold mode. A
+# fresh process per click is a fresh pointer *device*, and on a loaded host
+# Hyprland drops the first events of a device it has only just created: the click
+# lands nowhere, and the scenario then fails on an assertion that says nothing
+# about why. The hold process answers "ok" per command, so a caller cannot run
+# ahead of it either, and a button a scenario pressed stays down for the next
+# call.
+#
+# The extent the tool divides by is fixed when it starts, so it is started again
+# when a scenario has changed the monitor layout under it.
+pointer_session() { # EXTENT
+  if [ -n "${POINTER_UP:-}" ]; then
+    [ "$POINTER_EXTENT_UP" = "$1" ] && return 0
+    pointer_stop
+  fi
+  POINTER_UP=1
+  POINTER_EXTENT_UP="$1"
+  coproc POINTER { WAYLAND_DISPLAY="$(nest_display)" X_MODE_POINTER_EXTENT="$1" "$POINTER_BIN" hold; }
 }
 
-pointer_move() { pointer move "$1" "$2"; }
-pointer_click() { pointer click "$1" "$2" "${3:-left}"; }
-pointer_drag() { pointer drag "$1" "$2" "$3" "$4" "${5:-left}"; }
-pointer_press() { pointer button "${1:-left}" press; }
-pointer_release() { pointer button "${1:-left}" release; }
+# Ending the tool is closing its stdin (it reads until EOF); the write end is
+# what has to go.
+pointer_stop() {
+  [ -n "${POINTER_UP:-}" ] || return 0
+  printf 'exit\n' >&"${POINTER[1]}" 2>/dev/null || true
+  eval "exec ${POINTER[1]}>&-" 2>/dev/null || true
+  eval "exec ${POINTER[0]}<&-" 2>/dev/null || true
+  POINTER_UP=""
+  POINTER_EXTENT_UP=""
+}
+
+pointer_hold() { # VERB ARGS...
+  local reply
+  if [ $# -eq 0 ] || [ -z "$1" ]; then
+    # An empty point means a geometry helper above gave nothing; saying so here
+    # keeps it from reaching the tool as a bare verb, whose answer ("unknown
+    # command") points at the wrong thing entirely.
+    fail "the pointer was asked to do nothing (empty command)"
+  fi
+  pointer_session "$(pointer_extent)"
+  printf '%s\n' "$*" >&"${POINTER[1]}" || { pointer_stop; return 1; }
+  if ! read -r -t 10 reply <&"${POINTER[0]}"; then
+    pointer_stop
+    fail "the nest's pointer did not answer '$*'"
+  fi
+}
+
+pointer_move() { pointer_hold move "$1" "$2"; }
+pointer_click() { pointer_hold click "$1" "$2" "${3:-left}"; }
+pointer_drag() { pointer_hold drag "$1" "$2" "$3" "$4" "${5:-left}"; }
+pointer_press() { pointer_hold press "${1:-left}"; }
+pointer_release() { pointer_hold release "${1:-left}"; }
 
 # --- screenshots --------------------------------------------------------------
 # What a scenario cannot ask Hyprland about, because it is only pixels: whether a
 # titlebar, a tab or the snap preview was actually drawn. grim talks to the nest,
 # so the picture is of the nested compositor and not of the desktop the user is
 # sitting in front of.
-# grim blocks until the nest presents a frame. A covered nest presents one when
-# the host rule is applied while grim is already waiting; a frame that lands
-# before grim subscribes is missed, and another does not follow. The attempt
-# is capped so a missed poke fails the test instead of hanging the run. The
-# rule stays rendering: turning it off here is what left every later layer
-# commit in that nest uncommitted.
+# The nest renders to its own output, which always presents, so a frame is there
+# for the asking: grim used to need the host rule applied while it was already
+# waiting, because a covered nested window presents nothing.
 nest_screenshot() { # FILE
-  local attempt gpid
-  for attempt in 1 2 3 4; do
-    env WAYLAND_DISPLAY="$(nest_display)" timeout 4 grim "$1" >/dev/null 2>&1 &
-    gpid=$!
-    sleep 0.2
-    nest_host_rule true
-    if wait "$gpid"; then
-      nest_host_lower
-      return 0
-    fi
+  local attempt
+  for attempt in 1 2 3; do
+    env WAYLAND_DISPLAY="$(nest_display)" timeout 6 grim "$1" >/dev/null 2>&1 && return 0
   done
-  nest_host_lower
   fail "grim could not capture the nest"
-}
-
-# Used to push every nest under the other windows after a screenshot. That
-# covers them, and a covered window on this workspace never gets a frame, so
-# the dock inside stops committing. A titlebar click then hits whatever is
-# painted on top of those pixels, which is Chrome or Zed. Leave the stacking
-# alone: the nests stay where they mapped, and only a click focuses one.
-nest_host_lower() {
-  :
 }
 
 # Number of pixels that differ between two shots. magick prints the count
@@ -1255,9 +1434,8 @@ key() {
 }
 
 # A gesture that has to pause in the middle (open a window, read geometry) needs
-# the button to stay down across commands. A process per command cannot do that:
-# the virtual pointer dies with the process and takes the held button with it. So
-# those scenarios drive one long-lived `pointer hold` instead.
+# the button to stay down across commands, which is what the one long-lived
+# pointer gives for free. These drive it by verb.
 #
 #   pointer_begin
 #   pointer_do "move 100 100"
@@ -1266,22 +1444,13 @@ key() {
 #   pointer_do "release left"
 #   pointer_end
 pointer_begin() {
-  coproc POINTER_HOLD { pointer hold; }
+  pointer_session "$(pointer_extent)"
   trap pointer_end EXIT
-  pointer_do "sleep 0"
 }
 
-pointer_do() {
-  printf '%s\n' "$1" >&"${POINTER_HOLD[1]}"
-  read -r -u "${POINTER_HOLD[0]}" _ || true
-}
+pointer_do() { pointer_hold "$@"; }
 
-pointer_end() {
-  [ -n "${POINTER_HOLD_PID:-}" ] || return 0
-  printf 'exit\n' >&"${POINTER_HOLD[1]}" 2>/dev/null || true
-  wait "$POINTER_HOLD_PID" 2>/dev/null || true
-  POINTER_HOLD_PID=""
-}
+pointer_end() { pointer_stop; }
 
 # Grab CLASS by its titlebar and let go at (X, Y): the gesture a user makes to
 # snap a window, rather than a call to the pack's snap function.

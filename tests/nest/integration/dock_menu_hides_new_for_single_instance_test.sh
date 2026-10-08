@@ -23,14 +23,14 @@ dock_start
 open_window foot
 dock_settle
 
-read -r px py <<<"$(dock_icon_point 0)"
-pointer_click "$px" "$py" right
-settle
+dock_menu_open 0
 
 read -r rx ry <<<"$(dock_menu_row_point 0 3 "26 7 26 26")"
-pointer_click "$rx" "$ry"
-settle
-
+dock_menu_click "$rx" "$ry"
+# The click has to reach the shell inside the nest, and with five docks running
+# that can take a moment, so what is waited for is what the row is supposed to
+# do -- not a clock. A row that is not Quit never closes anything.
+wait_until 8 '[ "$(count_class foot)" = 0 ]'
 assert_eq "$(count_class foot)" 0 "a single-instance app has no New row, so that row is Quit"
 
 dock_stop

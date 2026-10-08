@@ -64,27 +64,28 @@ make, or a message from a tool it ran, is exactly what swallowing would hide.
 
 `nest_clean()` runs between files, so a selected scenario is as isolated as it
 is in a full run. The run starts one nest per worker (`NEST_JOBS`, default 3;
-`NEST_JOBS=1` keeps a single nest). `NEST_WORKSPACE=4` maps those windows on
-workspace 4 and leaves the view where it is. The workspace has to be the one
-on screen: a window whose workspace is not visible is suspended, and the nest
-stops committing. With a number set, the windows are not pinned, because a
-pinned window is drawn on every workspace. A scenario that fails is run once
-more on the same nest, and a failure that comes back is reported.
+`NEST_JOBS=1` keeps a single nest). `NEST_WORKSPACE=4` parks each nest's window
+on workspace 4 and leaves the view where it is. A scenario that fails is run
+once more on the same nest, and a failure that comes back is reported.
 
-The nest is a window on this desktop. Its class is `aquamarine` (the wayland
-backend's app id). The pack keeps that class, and `Hyprland`, out of same-app
-groups, so several nests stay separate windows. A runtime window rule on that
-class keeps a nest from taking focus when it appears, and pins it. A covered
-window on this workspace gets no frames: the unfocused-render timer skips any
-window whose workspace is visible, so a nest that ends up under another app
-never finishes starting. The pin keeps it above the rest of the desktop. A
-1px corner layer commits ten times a second as a backstop for a nest something
-else has still covered; the layer goes away with the rule. A click on the
-titlebar focuses that nest. A nest that maps later does not hand focus back.
-The windows are staggered by a titlebar each, so the click lands on the one it
-is aimed at. The runner removes the rule when it exits. A screenshot reapplies
-the rule while grim is waiting, which is what produces the frame grim is
-blocked on.
+The nest runs on a host compositor: the live session by default
+(`NEST_HOST=session`), or a headless weston (`NEST_HOST=weston`, needs `weston`
+installed), which takes the live session out of the run entirely. Either way the
+host decides nothing about the nest's geometry or its frames. When the nest is up
+it makes its own headless output at `NEST_MODE` (900x1000@60 at scale 2, the
+450x500 logical desktop the scenarios' numbers are written for) and the host's
+output is disabled -- Hyprland drops a disabled monitor from `monitors -j`, so
+the nest has exactly one, the bar binds that one and windows open on it. Frames
+come from that output's own timer, so a nest the host has covered or unfocused
+still presents; that is why there is no pin, no keep-presenting layer and no host
+mode to wait out any more.
+
+In session mode the nest is a window on this desktop. Its class is `aquamarine`
+(the wayland backend's app id); the pack keeps that class, and `Hyprland`, out of
+same-app groups, so several nests stay separate windows. A runtime window rule on
+that class keeps a nest from taking the user's focus or clicks while a run is
+going on. The window draws nothing (its output is disabled); it is only what the
+wayland backend needs to exist. The runner removes the rule when it exits.
 
 Each nest has its own runtime directory, `/tmp/xmn-<slot>`. The name is that
 short on purpose: Hyprland's event socket path has to fit in 107 bytes, and
@@ -434,11 +435,12 @@ moving on the second one. And the right half stops short of the dock inset, so
 its x is left of the midpoint: compare against `snap right` or check the side,
 not `mw/2`.
 
-The nest is a host window, so its logical size follows the host scale: the
-900x1000 the harness asks for is 450x500 at scale 2. A hard-coded coordinate
-can therefore land off the screen, and a warp past the edge is clamped, so the
-click quietly hits nothing. When a scenario has to place a window itself, take
-the size from `pointer_extent` and use fractions of it.
+The nest has one output whose size and scale the harness sets, so its logical
+size is fixed: 900x1000 at scale 2 is a 450x500 desktop, and that is what the
+scenarios' numbers are written for. A hard-coded coordinate can still land off
+the screen, and a warp past the edge is clamped, so the click quietly hits
+nothing. When a scenario has to place a window itself, take the size from
+`pointer_extent` and use fractions of it.
 
 `nest/pointer_test.sh` guards the tool itself: if the protocol disappears or a
 warp stops reaching `input.mouse.move`, the window does not move and every
@@ -452,12 +454,12 @@ pixels — the titlebar is drawn into the window's own render pass, so there is 
 layer or property to ask about.
 
 Two things to know. grim captures the output in physical pixels while the geometry
-helpers are logical, so a region has to be scaled by the monitor's scale. And grim
-against a nested compositor sometimes fails to get a buffer, and a shot taken
-mid-frame is not what a comparison wants, so `nest_screenshot` settles and retries,
-and a test should take a shot it does not look at before the one it compares.
-Comparisons want a band that changes and a control band that does not, or a torn
-frame reads as a change.
+helpers are logical, so a region has to be scaled by the monitor's scale (the
+nest's own output is 900x1000 at scale 2, like the window it replaced). And a
+shot taken mid-frame is not what a comparison wants, so `nest_screenshot`
+retries, and a test should take a shot it does not look at before the one it
+compares. Comparisons want a band that changes and a control band that does not,
+or a torn frame reads as a change.
 
 ## The keyboard
 

@@ -9,12 +9,10 @@ open_window foot
 open_window kitty
 dock_settle
 
-read -r px py <<<"$(dock_icon_point 0)"
-pointer_click "$px" "$py" right
-settle
+dock_menu_open 0
 
 read -r rx ry <<<"$(dock_menu_row_point 0 5 "26 7 26 7 26 26")"
-pointer_click "$rx" "$ry"
+dock_menu_click "$rx" "$ry"
 # The quit dispatch is itself a hyprctl. A tight poll fills the nest's socket
 # and the close sits behind it until this wait gives up.
 foot_gone() { [ "$(count_class foot)" = 0 ]; }
