@@ -19,8 +19,11 @@
 --
 -- A target is a list of chords, sent in order: { { mods = "CTRL", key = "U" } }.
 -- The key is the name `send_shortcut` takes (or "code:N"), and mods is its
--- "CTRL SHIFT" spelling. An empty list means "nothing to do here" and the
--- caller passes the key through untouched.
+-- "CTRL SHIFT" spelling. The compositor sends a chord as the keycode of that
+-- name, so it is the physical key whatever the layout says; the one name it has
+-- no keycode for is the compose key, `Multi_key`, which goes as the name (see
+-- TYPOGRAPHY). An empty list means "nothing to do here" and the caller passes
+-- the key through untouched.
 --
 -- Pure data plus pure lookups (tests/unit/textkeys_test.lua); binding and
 -- sending live in x-mode.lua.
@@ -112,6 +115,27 @@ local NAVIGATE = {
   },
 }
 
+-- The typography a Mac's layout carries. On macOS `⌥-` is a dash because the
+-- layout says so; here the key is not a layout level but a keymap *compose*
+-- sequence, which is keymap data too. The one sequence that reads the same in
+-- every layout is the em dash's: `-` is the minus key wherever the desktop is.
+-- (The en dash's `Multi_key - - .` is not -- a layout may put `.` behind Shift,
+-- and the Russian one does, on 7 -- so the pack, which owns a key and spells the
+-- same thing for it everywhere, has only the em dash.)
+--
+-- A compose key is not something the pack can assume: it is the user's input
+-- option (`compose:caps` in Omarchy's own input config). compose_key() below
+-- says whether the desktop has one; x-mode.lua asks it at press time and leaves
+-- these keys to the app when there is none, because sending Multi_key at a
+-- keymap that has no such key is a Hyprland error on every press.
+local TYPOGRAPHY = {
+  {
+    id = "ALT+minus", keys = "ALT + minus", label = "Type an em dash",
+    needs = "compose",
+    same = { chord("", "Multi_key"), chord("", "minus"), chord("", "minus"), chord("", "minus") },
+  },
+}
+
 local PLAN = {}
 local BY_ID = {}
 
@@ -128,6 +152,9 @@ local function add(entry, fallback)
     label = entry.label,
     terminal = terminal,
     gui = gui,
+    -- What has to be in the keymap for the entry to be sendable at all; nil is
+    -- "nothing" (see compose_key).
+    needs = entry.needs,
   }
   PLAN[#PLAN + 1] = e
   BY_ID[e.id] = e
@@ -144,6 +171,9 @@ for _, e in ipairs(DELETE) do
 end
 for _, e in ipairs(NAVIGATE) do
   add(e)
+end
+for _, e in ipairs(TYPOGRAPHY) do
+  add(e, e.same)
 end
 
 -- The whole set, in bind order. Read-only as far as callers are concerned.
@@ -162,6 +192,18 @@ function M.chords(id, is_terminal)
     return e.terminal
   end
   return e.gui
+end
+
+-- Whether the desktop's keymap has a compose key to send at all. Hyprland's
+-- input options spell it `compose:<key>` (`compose:caps` is Omarchy's own
+-- default); the odd one out is `lv3:ralt_switch_multikey`, which also puts
+-- Multi_key in the keymap but says lv3. Anything else is not one, and no options
+-- at all means the keymap has no compose key.
+function M.compose_key(options)
+  if type(options) ~= "string" then
+    return false
+  end
+  return options:find("compose:", 1, true) ~= nil or options:find("lv3:ralt_switch_multikey", 1, true) ~= nil
 end
 
 -- Omarchy tags terminal windows "terminal" (see default/hypr/apps/terminals.lua),

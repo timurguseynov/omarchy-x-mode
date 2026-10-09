@@ -1180,6 +1180,15 @@ end)
 -- longer reach the app as Ctrl+Left/Right (the Super-as-Ctrl plan reads the
 -- live bind table, sees them taken and leaves them alone) and why Omarchy's
 -- window transparency has to move off Cmd+Backspace.
+--
+-- The typography a Mac's layout carries is in the same table: the pack cannot
+-- send a character its keymap does not have, so the dash goes as the *compose*
+-- sequence the keymap does have and everything else is unchanged -- the same
+-- send, which is also what keeps the held Option out of the app. A virtual
+-- keyboard cannot stand in for it: wtype types through the seat, so the held
+-- Option is still in the app's modifier state and a terminal reads the dash as
+-- Alt+dash and prefixes Escape (measured in the nest: an em dash arrived as
+-- 1b e2 80 94, and a tap meant to clear the modifier did not hold).
 -- One sequence of chords at a time: the bind repeats while the key is held (see
 -- the bind loop below), and a sequence is longer than the repeat interval -- two
 -- chords and their 80ms gap. A new Shift+Home landing inside the previous pair
@@ -1198,12 +1207,14 @@ local function send_chords(list, w)
   -- stuck/repeating synthetic key Omarchy's clipboard sends key state by hand
   -- to avoid (hyprland discussion 14099). Sending it by hand also keeps a
   -- synthetic Shift from being left held for the next keystroke.
+  -- A chord whose key the pack has no keycode for goes as its name: the compose
+  -- key is the one such key -- which physical key carries Multi_key is the
+  -- user's input option, so there is no code to hard-code -- and Hyprland
+  -- resolves the name in the keymap it just checked had one. Every other chord
+  -- stays a keycode, so it is the physical key whatever the layout says.
   local function send(c)
     local code = supermap.key_code(c.key)
-    if code == nil then
-      return
-    end
-    local key = "code:" .. tostring(code)
+    local key = code ~= nil and ("code:" .. tostring(code)) or c.key
     hl.dispatch(hl.dsp.send_key_state({ mods = c.mods, key = key, state = "down", window = w }))
     hl.timer(function()
       hl.dispatch(hl.dsp.send_key_state({ mods = c.mods, key = key, state = "up", window = w }))
@@ -1233,13 +1244,30 @@ local function send_chords(list, w)
   end, { timeout = (#list - 1) * 80 + 60, type = "oneshot" })
 end
 
-local function text_chord(id)
+-- Whether the desktop's keymap has a compose key at all. The typography
+-- entries need one (see textkeys.lua), and it is the user's input option: read
+-- live, so an edit to it takes effect on the next press.
+local function compose_key()
+  local ok, options = pcall(hl.get_config, "input:kb_options")
+  if not ok then
+    return false
+  end
+  return textkeys.compose_key(options)
+end
+
+local function text_chord(e)
   return function()
     local w = hl.get_active_window()
     if w == nil then
       return { pass_event = true }
     end
-    local chords = textkeys.chords(id, textkeys.is_terminal(w.tags))
+    if e.needs == "compose" and not compose_key() then
+      -- Nothing in the keymap to spell the character with, so the key stays
+      -- the app's: sending Multi_key at a keymap that has no such key is a
+      -- Hyprland error on every press and types nothing anyway.
+      return { pass_event = true }
+    end
+    local chords = textkeys.chords(e.id, textkeys.is_terminal(w.tags))
     if chords == nil or #chords == 0 then
       -- Nothing to send in this context (readline has no selection to
       -- extend), so the key stays the app's rather than being swallowed.
@@ -1259,7 +1287,7 @@ for _, e in ipairs(textkeys.plan()) do
   -- a Super-as-Ctrl bind left over from the previous config evaluation.
   hl.unbind(e.keys)
   note_pack_key(e.keys)
-  pcall(o.bind, e.keys, e.label, text_chord(e.id), { repeating = true })
+  pcall(o.bind, e.keys, e.label, text_chord(e), { repeating = true })
 end
 
 -- Cmd+Backspace is "delete to the start of the line" on macOS, so Omarchy's

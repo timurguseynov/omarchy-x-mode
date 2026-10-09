@@ -6,6 +6,9 @@
 -- someone is in a shell, so it is pinned here.
 local repo = os.getenv("X_MODE_REPO") or "."
 local textkeys = dofile(repo .. "/hypr/x-mode/textkeys.lua")
+-- The keycodes the compositor sends a chord as, so a chord can be checked to be
+-- one the pack can spell at all.
+local supermap = dofile(repo .. "/hypr/x-mode/supermap.lua")
 
 local failures = 0
 local function check(name, got, want)
@@ -102,6 +105,39 @@ for _, e in ipairs(textkeys.plan()) do
   local target = e.keys:gsub("%s+", "")
   check("loop." .. e.id, spell(e.gui) == target or spell(e.terminal) == target, false)
 end
+
+-- The typography: on a Mac the layout has `⌥-` as a dash, and the pack spells
+-- the character with the keymap's compose sequence instead (the key it owns is
+-- the left Option, which is Alt -- the shortcut modifier, not the level-3 key
+-- that selects a layout's extra characters). `-` is the minus key in every
+-- layout, so the em dash is the same sequence wherever the desktop is; the en
+-- dash's sequence ends in `.`, which a layout may put behind Shift (the Russian
+-- one does, on 7), so it is not here.
+check("dash.gui", spell(by_id["ALT+minus"].gui), "Multi_key minus minus minus")
+check("dash.terminal", spell(by_id["ALT+minus"].terminal), "Multi_key minus minus minus")
+check("dash.needs", by_id["ALT+minus"].needs, "compose")
+
+-- Every chord is sent as a keycode, so the entry has to be a key the pack has
+-- one for; the compose key is the one name it has none for (which key carries
+-- Multi_key is the user's input option, so there is no code to hard-code).
+-- Anything else here would be a typo that turns into a Hyprland error at press
+-- time instead of the no-op it used to be.
+for _, e in ipairs(textkeys.plan()) do
+  for _, list in ipairs({ e.terminal, e.gui }) do
+    for _, c in ipairs(list) do
+      check("chord.known." .. e.id .. "." .. c.key, c.key == "Multi_key" or supermap.key_code(c.key) ~= nil, true)
+    end
+  end
+end
+
+-- compose_key() decides whether the pack can spell those characters at all: it
+-- is the user's input option, and Omarchy's own default is compose:caps.
+check("compose.caps", textkeys.compose_key("compose:caps"), true)
+check("compose.mixed", textkeys.compose_key("shift:both_capslock_cancel,compose:menu"), true)
+check("compose.multikey", textkeys.compose_key("lv3:ralt_switch_multikey"), true)
+check("compose.none", textkeys.compose_key("shift:both_capslock_cancel"), false)
+check("compose.empty", textkeys.compose_key(""), false)
+check("compose.nil", textkeys.compose_key(nil), false)
 
 -- chords(id, is_terminal) is what the compositor calls at press time.
 check("chords.terminal", spell(textkeys.chords("ALT+LEFT", true)), "ALT+B")
