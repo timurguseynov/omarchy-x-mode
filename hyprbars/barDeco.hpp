@@ -117,7 +117,11 @@ class CHyprBar : public IHyprWindowDecoration {
     int                        tabHeight();
     bool                       grouped();
     bool                       alwaysTabbar();
+    bool                       compactTabs();
     bool                       wantsTabbar();
+    // Extra reserved px under the titlebar. Zero in compact mode: the tabs
+    // live in the titlebar row instead of a second strip.
+    int                        extraTabHeight();
     bool                       groupCurrent();
     int                        tabAt(const Vector2D& coords, bool& closeHit);
     // Drag a tab sideways to reorder it. CGroup only exposes swapWithNext /
@@ -126,6 +130,7 @@ class CHyprBar : public IHyprWindowDecoration {
     void                       updateTabDrag(const Vector2D& coords);
     void                       renderTabs(CBox* barBox, const float scale, const float a);
 
+    bool      m_bLastCompactTabs = false;
     bool      m_bTabDragPending = false;
     bool      m_bTabDragging    = false;
     int       m_iTabDragFrom    = -1;

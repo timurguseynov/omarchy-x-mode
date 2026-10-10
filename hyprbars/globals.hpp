@@ -29,8 +29,9 @@ extern UP<CDragSession> g_pDragSession;
 struct SGlobalState {
     std::vector<SHyprButton>  buttons;
     std::vector<WP<CHyprBar>> bars;
-    uint32_t                  nobarRuleIdx       = 0;
+    uint32_t                  nobarRuleIdx        = 0;
     uint32_t                  alwaysTabbarRuleIdx = 0;
+    uint32_t                  compactTabsRuleIdx  = 0;
     uint32_t                  barColorRuleIdx    = 0;
     uint32_t                  titleColorRuleIdx  = 0;
 
@@ -48,6 +49,7 @@ struct SGlobalState {
         // in code; the C++ snap engine and Lua grouping read the same value.
         SP<Config::Values::CIntValue>        tabHeight;
         SP<Config::Values::CBoolValue>       tabCloseActiveOnly;
+        SP<Config::Values::CBoolValue>       compactTabs;
         SP<Config::Values::CIntValue>        xModeDockInset;
         SP<Config::Values::CIntValue>        xModeBarTopMemoryMs;
         SP<Config::Values::CIntValue>        xModeSnapMargin;

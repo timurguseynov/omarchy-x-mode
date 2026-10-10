@@ -67,6 +67,7 @@ hl.plugin.hyprbars.add_button({
 | `inactive_button_color` | color | button bg when the window isn’t focused | |
 | `on_double_click` | str | command on double-click of the bar (unset by X Mode) | |
 | `tab_close_active_only` | bool | tab ✕ only on the focused group’s current tab | `false` |
+| `compact_tabs` | bool | put group tabs in the titlebar (Chrome-like), instead of a second row | `false` |
 
 ### Snap / grouping (X Mode)
 
@@ -105,6 +106,7 @@ Dynamic rules:
 
 - `hyprbars:no_bar` — hide the titlebar (and tabs) on matching windows
 - `hyprbars:always_tabbar` — keep the tab strip even for a single window
+- `hyprbars:compact_tabs` — one Chrome-like titlebar row (limited-width tabs, leftover drags the window)
 - `hyprbars:bar_color` — override bar background
 - `hyprbars:title_color` — override title color
 
@@ -112,7 +114,7 @@ Dynamic rules:
 o.window({ class = "chromium" }, { ["hyprbars:no_bar"] = true })
 ```
 
-X Mode’s settings panel writes `no_bar` and `always_tabbar` for you via the per-app toggles. The tab strip’s `+` opens another window of that app.
+X Mode’s settings panel writes `no_bar`, `always_tabbar` and `compact_tabs` for you via the desktop and per-app toggles. The tab strip’s `+` opens another window of that app.
 
 ## License
 

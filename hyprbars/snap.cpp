@@ -103,16 +103,28 @@ static double frameInset() {
     return sc<double>(g_pGlobalState->config.xModeDockInset->value());
 }
 
+static bool windowHasEffect(PHLWINDOW w, uint32_t idx) {
+    return w && w->m_ruleApplicator && idx && w->m_ruleApplicator->m_otherProps.props.contains(idx);
+}
+
+bool Snap::compactTabs(PHLWINDOW w) {
+    if (!g_pGlobalState)
+        return false;
+    if (windowHasEffect(w, g_pGlobalState->compactTabsRuleIdx))
+        return true;
+    return g_pGlobalState->config.compactTabs && g_pGlobalState->config.compactTabs->value();
+}
+
 int Snap::chromeH(PHLWINDOW w) {
-    if (w && w->m_ruleApplicator && g_pGlobalState) {
-        if (w->m_ruleApplicator->m_otherProps.props.contains(g_pGlobalState->nobarRuleIdx))
-            return 0;
-    }
+    if (windowHasEffect(w, g_pGlobalState->nobarRuleIdx))
+        return 0;
     int h = sc<int>(g_pGlobalState->config.barHeight->value());
     bool tabs = !w || (w->m_group && w->m_group->size() > 0);
-    if (!tabs && w && w->m_ruleApplicator && g_pGlobalState->alwaysTabbarRuleIdx)
-        tabs = w->m_ruleApplicator->m_otherProps.props.contains(g_pGlobalState->alwaysTabbarRuleIdx);
-    if (tabs)
+    if (!tabs)
+        tabs = windowHasEffect(w, g_pGlobalState->alwaysTabbarRuleIdx);
+    // Compact mode puts the tabs in the titlebar, so the second row is not
+    // reserved. Snap, grouping and Lua all ask this number.
+    if (tabs && !compactTabs(w))
         h += sc<int>(g_pGlobalState->config.tabHeight->value());
     return h;
 }

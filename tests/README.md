@@ -129,6 +129,8 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/alt_tab_no_resize_test.sh` | Alt+Tab leaves the geometry alone |
 | `integration/alt_tab_switches_group_tab_test.sh` | Alt+Tab and Alt+Shift+Tab move through a group's tabs |
 | `integration/always_tabbar_single_tab_test.sh` | alwaysTabbar pushes a lone window down by the tabbar |
+| `integration/compact_tabs_layout_test.sh` | compact tabs stay one row, cap at 240px, leftover drags the window |
+| `integration/compact_tabs_per_app_test.sh` | a per-app compactTabs rule, including alwaysTabbar and shrinking tabs |
 | `integration/arrange_counts_group_once_test.sh` | a group of tabs takes one half, not two |
 | `integration/arrange_fades_test.sh` | the arrange fades the windows out first and reveals them at full opacity |
 | `integration/arrange_tiling_to_tabs_test.sh` | five tiled windows all fade, gather into tabs and come back together |
@@ -272,7 +274,7 @@ that needs arguments, like a zenity dialog), `nest_clean`, `win_geom`, `visible_
 `group_size`, `group_order`, `active_class`, `active_address`,
 `active_tab_index`, `group_tab`, `topmost`, `bind_count`, `bind_count_desc`,
 `snap`, `bar_top`, `bar_height`, `tab_height`, `tab_point`, `tab_close_point`,
-`plus_point`, `viewed_workspace`, `gaps_out`, `border_size`, `plugin_option`,
+`plus_point`, `compact_strip`, `compact_tab_point`, `compact_plus_point`, `compact_drag_point`, `viewed_workspace`, `gaps_out`, `border_size`, `plugin_option`,
 `nest_ctl`, `nest_socket`, `nest_display`, `titlebar_point`, `drag_to`,
 `place_frac`, `nest_screenshot`, `image_diff`, the `pointer_*` and `dock_*`
 families below, and `assert_eq/ne/ge/le/between`.
@@ -290,7 +292,9 @@ Three things about the tabbar, all found the hard way:
 - The tabbar is the band directly above the window box and one `tab_height`
   tall. The `+` button owns the last 34px of the width and the rest splits
   evenly, so `tab_point CLASS I N` and `tab_close_point CLASS I N` give the
-  middle of a tab and of its close button (the last 24px of the tab).
+  middle of a tab and of its close button (the last 24px of the tab). Compact
+  tabs (`compact_strip` / `compact_tab_point`) sit in the titlebar instead:
+  they cap at 240px, then the `+` and a 48px drag handle.
 - Both members of a group report `hidden: false`, so the current tab cannot be
   found that way; `active_tab_index` matches the active window's address against
   the tab order instead. A click on a background tab focuses it, so the index has

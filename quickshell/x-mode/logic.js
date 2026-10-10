@@ -82,6 +82,7 @@ function emptyAppCfg() {
     return {
         chrome: false,
         alwaysTabbar: false,
+        compactTabs: false,
         ctrlAsSuper: undefined,
         ctrlCShift: undefined,
         ctrlClick: undefined,
@@ -146,6 +147,7 @@ function parseApps(raw) {
                     set[String(k).toLowerCase()] = {
                         chrome: e.chrome !== false,
                         alwaysTabbar: !!e.alwaysTabbar,
+                        compactTabs: !!e.compactTabs,
                         // Three states each: true is Always on, false is Always off,
                         // and absent follows the desktop. The panel writes only the
                         // pinned ones, so a file that predates this reads as the
@@ -449,13 +451,14 @@ function panelCfgFor(appsCfg, cls) {
     var key = String(cls || "").toLowerCase()
     var e = (appsCfg || {})[key]
     if (!e)
-        return { chrome: true, alwaysTabbar: false, ctrlAsSuper: undefined, ctrlCShift: undefined, ctrlClick: undefined, digitTabs: undefined, ctrlTabSwitch: undefined, ctrlAsSuperKeys: [], ctrlAsSuperKeysOff: [] }
+        return { chrome: true, alwaysTabbar: false, compactTabs: false, ctrlAsSuper: undefined, ctrlCShift: undefined, ctrlClick: undefined, digitTabs: undefined, ctrlTabSwitch: undefined, ctrlAsSuperKeys: [], ctrlAsSuperKeysOff: [] }
     var keys = copyOccupiedKeys(e.ctrlAsSuperKeys)
     var keysOff = copyOccupiedKeys(e.ctrlAsSuperKeysOff)
     foldLegacyCtrlW(e, keys, keysOff)
     return {
         chrome: e.chrome !== false,
         alwaysTabbar: !!e.alwaysTabbar,
+        compactTabs: !!e.compactTabs,
         ctrlAsSuper: triFlag(e.ctrlAsSuper),
         ctrlCShift: triFlag(e.ctrlCShift),
         ctrlClick: triFlag(e.ctrlClick),
@@ -485,11 +488,11 @@ function mergePanelCfg(appsCfg, cls, cfg) {
         if (cfg[KEY_FLAG_NAMES[i]] !== undefined)
             pinned = true
     }
-    if (cfg.chrome !== false && !cfg.alwaysTabbar && !pinned && keys.length === 0 && keysOff.length === 0) {
+    if (cfg.chrome !== false && !cfg.alwaysTabbar && !cfg.compactTabs && !pinned && keys.length === 0 && keysOff.length === 0) {
         delete next[key]
         return next
     }
-    var row = { chrome: cfg.chrome !== false, alwaysTabbar: !!cfg.alwaysTabbar }
+    var row = { chrome: cfg.chrome !== false, alwaysTabbar: !!cfg.alwaysTabbar, compactTabs: !!cfg.compactTabs }
     for (var j = 0; j < KEY_FLAG_NAMES.length; j++) {
         var name = KEY_FLAG_NAMES[j]
         if (cfg[name] !== undefined)
@@ -706,7 +709,7 @@ function parseThemeAccents(toml) {
 // the steal list is the ids it takes.
 function globalScopeCfg(keys) {
     var k = keys || {}
-    var cfg = { chrome: true, alwaysTabbar: false, ctrlAsSuperKeys: copyOccupiedKeys(k.steal), ctrlAsSuperKeysOff: [] }
+    var cfg = { chrome: true, alwaysTabbar: false, compactTabs: false, ctrlAsSuperKeys: copyOccupiedKeys(k.steal), ctrlAsSuperKeysOff: [] }
     for (var i = 0; i < KEY_FLAG_NAMES.length; i++)
         cfg[KEY_FLAG_NAMES[i]] = !!k[KEY_FLAG_NAMES[i]]
     return cfg

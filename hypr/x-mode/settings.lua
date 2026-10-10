@@ -14,10 +14,11 @@ function M.apps_section(raw)
   return raw:match('"apps"%s*:%s*(%b{})') or raw:match('"apps"%s*:%s*(%b[])') or ""
 end
 
--- { "class": { "chrome": true, "alwaysTabbar": false,
+-- { "class": { "chrome": true, "alwaysTabbar": false, "compactTabs": false,
 --   "ctrlAsSuper": false, "ctrlCShift": false, "ctrlClick": false,
 --   "digitTabs": false, "ctrlAsSuperKeys": [] } }.
--- Missing chrome means on; the rest missing means off.
+-- Missing chrome means on; the rest missing means off. compactTabs is also a
+-- desktop option; the per-app flag ORs with it (chrome off still wins).
 -- A legacy array of classes means chrome off.
 -- A per-app flag in three states: true, false, or absent (which is not the same
 -- as false -- it means "whatever the desktop says").
@@ -67,6 +68,7 @@ function M.parse_apps(raw)
     cfg[string.lower(cls)] = {
       chrome = chrome,
       always_tabbar = always,
+      compact_tabs = body:find('"compactTabs"%s*:%s*true') ~= nil,
       -- Three-state, per flag: an explicit true or false is an override that wins
       -- over the desktop's, and absent follows the desktop. One value, so an app
       -- that wants the opposite of the desktop does not need a second field.
@@ -84,6 +86,7 @@ function M.parse_apps(raw)
       cfg[string.lower(cls)] = {
         chrome = false,
         always_tabbar = false,
+        compact_tabs = false,
         ctrl_as_super = nil,
         ctrl_c_shift = nil,
         ctrl_click = nil,
@@ -193,6 +196,9 @@ function M.parse_options(raw)
     native_scroll = raw:find('"nativeScroll"%s*:%s*true') ~= nil,
     no_gaps = raw:find('"noGaps"%s*:%s*true') ~= nil,
     workspaces_fkeys = raw:find('"workspacesOnFkeys"%s*:%s*true') ~= nil,
+    -- One Chrome-like titlebar row instead of titlebar + tabbar. Scoped to the
+    -- options block so an app class cannot set it for the desktop.
+    compact_tabs = opts:find('"compactTabs"%s*:%s*true') ~= nil,
     -- The one option whose default is on: Omarchy keeps its Calculator on
     -- Ctrl+Cmd+Q, macOS puts Lock Screen there, and the pack ships the Mac key.
     -- Absent means on; only an explicit false gives the key back.
@@ -207,19 +213,24 @@ function M.merge(options_raw, apps_raw)
   return '{"options":' .. (options_raw or "{}") .. ',"apps":' .. (apps_raw or "{}") .. '}'
 end
 
--- The two window-rule effects the app config drives: chrome off (no titlebar at
--- all) and always-tabbar. chrome off wins, so a class with both only gets the
--- first.
+-- The window-rule effects the app config drives: chrome off (no titlebar at
+-- all), always-tabbar, and compact tabs (one Chrome-like row). chrome off wins,
+-- so a class with chrome off gets none of the others.
 function M.desired_rules(cfg)
-  local nobar, always = {}, {}
+  local nobar, always, compact = {}, {}, {}
   for cls, e in pairs(cfg or {}) do
     if e.chrome == false then
       nobar[cls] = true
-    elseif e.always_tabbar then
-      always[cls] = true
+    else
+      if e.always_tabbar then
+        always[cls] = true
+      end
+      if e.compact_tabs then
+        compact[cls] = true
+      end
     end
   end
-  return nobar, always
+  return nobar, always, compact
 end
 
 -- The `class` match value for a window rule, from an app key. Hyprland matches

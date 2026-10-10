@@ -30,6 +30,9 @@ namespace Snap {
     int                gapOut();
     int                border();
     int                chromeH(PHLWINDOW w);
+    // Titlebar and tabs share one row (plugin:hyprbars:compact_tabs or the
+    // hyprbars:compact_tabs window rule). Chrome is then only the titlebar.
+    bool               compactTabs(PHLWINDOW w);
 
     // Make gapOut(), border(), the dock inset and the bar top report these
     // instead of the live numbers, so a window can be matched against the zone

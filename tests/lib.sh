@@ -823,6 +823,59 @@ plus_point() { # CLASS -> "X Y", the + button on the tabbar
   python3 -c "print(round($bx + $bw - 17), round($by - $(tab_height) / 2))"
 }
 
+# Compact Chrome-like strip (hyprbars/barDeco.cpp): tabs sit in the titlebar
+# after the close button (padding + 12 + button padding), prefer 240px, shrink
+# so 34px of + and 48px of drag handle still fit. Numbers must match the plugin.
+compact_strip() { # CLASS TABS -> "left tabw plusx plusw bh"
+  local bx by bw pad bpad bh
+  read -r bx by bw _ _ <<<"$(visible_geom "$1")"
+  pad="$(nest_query option plugin:hyprbars:bar_padding 2)"
+  bpad="$(nest_query option plugin:hyprbars:bar_button_padding 2)"
+  bh="$(bar_height)"
+  python3 -c "
+bx, by, bw, n, pad, bpad, bh = $bx, $by, $bw, $2, $pad, $bpad, $bh
+plus_w, max_w, drag_min, btn = 34.0, 240.0, 48.0, 12.0
+left = pad + btn + bpad
+avail = max(0.0, bw - left - plus_w - drag_min)
+tabw = min(max_w, avail / n) if n else 0.0
+plusx = left + tabw * n
+print(left, tabw, plusx, plus_w, bh)
+"
+}
+
+compact_tab_point() { # CLASS INDEX TABS -> "X Y"
+  local bx by bw left tabw plusx plusw bh
+  read -r bx by bw _ _ <<<"$(visible_geom "$1")"
+  read -r left tabw plusx plusw bh <<<"$(compact_strip "$1" "$3")"
+  python3 -c "
+import math
+bx, by, i, tabw, left, bh = $bx, $by, $2, $tabw, $left, $bh
+print(math.floor(bx + left + i * tabw + tabw / 2), math.floor(by - bh / 2))
+"
+}
+
+compact_plus_point() { # CLASS TABS -> "X Y"
+  local bx by bw left tabw plusx plusw bh
+  read -r bx by bw _ _ <<<"$(visible_geom "$1")"
+  read -r left tabw plusx plusw bh <<<"$(compact_strip "$1" "$2")"
+  python3 -c "
+import math
+bx, by, plusx, plusw, bh = $bx, $by, $plusx, $plusw, $bh
+print(round(bx + plusx + plusw / 2), math.floor(by - bh / 2))
+"
+}
+
+compact_drag_point() { # CLASS TABS -> "X Y", in the leftover handle after +
+  local bx by bw left tabw plusx plusw bh
+  read -r bx by bw _ _ <<<"$(visible_geom "$1")"
+  read -r left tabw plusx plusw bh <<<"$(compact_strip "$1" "$2")"
+  python3 -c "
+import math
+bx, by, plusx, plusw, bh = $bx, $by, $plusx, $plusw, $bh
+print(math.floor(bx + plusx + plusw + 24), math.floor(by - bh / 2))
+"
+}
+
 # Index of the current tab, in tab order. Taken from the active window: both
 # members of a group report hidden:false in hyprctl, so "the visible one" is not
 # something this can lean on.

@@ -57,6 +57,7 @@ Panel {
 
   property bool nativeScroll: false
   property bool noGaps: false
+  property bool compactTabs: false
   property bool workspacesOnFkeys: false
   // The card is capped so it never spills past the popup. The app list gets a
   // taller cap than the per-app card: with the fixed content above it, the 480
@@ -161,13 +162,18 @@ Panel {
     writeSettings("hyprctl reload >/dev/null")
   }
 
+  function setCompactTabs(value) {
+    root.compactTabs = !!value
+    writeSettings("hyprctl reload >/dev/null")
+  }
+
   // The panel's whole state in one file, so the options and the app list can
   // never drift apart. `followUp` is the hyprctl call the change needs.
   function writeSettings(followUp) {
     var apps = {}
     for (var k in appsCfg) {
       var e = appsCfg[k]
-      var row = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar }
+      var row = { chrome: e.chrome !== false, alwaysTabbar: !!e.alwaysTabbar, compactTabs: !!e.compactTabs }
       var pinned = false
       for (var j = 0; j < Logic.KEY_FLAG_NAMES.length; j++) {
         var name = Logic.KEY_FLAG_NAMES[j]
@@ -184,12 +190,12 @@ Panel {
         row.ctrlAsSuperKeysOff = keysOff
       // Only what was set: an unset flag has to stay unset, or it would read as a
       // pin once the desktop has an answer of its own.
-      if (e.chrome !== false && !e.alwaysTabbar && !pinned && keys.length === 0 && keysOff.length === 0)
+      if (e.chrome !== false && !e.alwaysTabbar && !e.compactTabs && !pinned && keys.length === 0 && keysOff.length === 0)
         continue
       apps[k] = row
     }
     var json = JSON.stringify({
-      options: { nativeScroll: root.nativeScroll, noGaps: root.noGaps, workspacesOnFkeys: root.workspacesOnFkeys, lockScreenKey: root.lockKey, keys: root.globalKeys },
+      options: { nativeScroll: root.nativeScroll, noGaps: root.noGaps, compactTabs: root.compactTabs, workspacesOnFkeys: root.workspacesOnFkeys, lockScreenKey: root.lockKey, keys: root.globalKeys },
       apps: apps
     })
     // Atomic (see Logic.stateWriteCommand): the panel watches this file, and an
@@ -258,6 +264,7 @@ Panel {
       var o = (d && d.options) || {}
       root.nativeScroll = !!o.nativeScroll
       root.noGaps = !!o.noGaps
+      root.compactTabs = !!o.compactTabs
       root.workspacesOnFkeys = !!o.workspacesOnFkeys
       root.globalKeys = Logic.migrateGlobalKeys(o.keys)
       root.lockKey = !(o.lockScreenKey === false)
@@ -267,6 +274,7 @@ Panel {
     onLoadFailed: {
       root.nativeScroll = false
       root.noGaps = false
+      root.compactTabs = false
       root.workspacesOnFkeys = false
       root.globalKeys = ({})
       root.lockKey = true
@@ -801,6 +809,17 @@ Panel {
         onToggled: root.setOptions(root.nativeScroll, !root.noGaps, root.workspacesOnFkeys)
       }
 
+      SwitchRow {
+        id: compactTabsRow
+        width: parent.width
+        visible: root.view === "main"
+        label: "Compact tabs"
+        description: "One Chrome-like row; leftover drags the window"
+        checked: root.compactTabs
+        rowEnabled: root.xModeOn
+        onToggled: root.setCompactTabs(!root.compactTabs)
+      }
+
       // The keys screen is several rows long, so the main panel gets an entry
       // like an app's card does, and the scope is decided by where it was opened.
       LinkRow {
@@ -919,6 +938,15 @@ Panel {
             checked: root.cfgFor(root.openCls).alwaysTabbar
             rowEnabled: root.cfgFor(root.openCls).chrome
             onToggled: root.setFlag("alwaysTabbar", !root.cfgFor(root.openCls).alwaysTabbar)
+          }
+
+          SwitchRow {
+            width: parent.width
+            label: "Compact tabs"
+            description: "One Chrome-like row; leftover drags the window"
+            checked: root.cfgFor(root.openCls).compactTabs
+            rowEnabled: root.cfgFor(root.openCls).chrome
+            onToggled: root.setFlag("compactTabs", !root.cfgFor(root.openCls).compactTabs)
           }
 
           LinkRow {

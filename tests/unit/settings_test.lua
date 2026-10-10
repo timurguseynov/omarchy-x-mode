@@ -25,6 +25,13 @@ local d = settings.parse_options('{"options":{},"apps":{}}')
 check("opt.defaults", d.native_scroll, false)
 check("opt.defaults2", d.no_gaps, false)
 check("opt.defaults3", d.workspaces_fkeys, false)
+check("opt.defaults.compactTabs", d.compact_tabs, false)
+
+local ct = settings.parse_options('{"options":{"compactTabs":true},"apps":{}}')
+check("opt.compactTabs", ct.compact_tabs, true)
+-- An app cannot set the desktop option: compactTabs lives under options.
+local ctapp = settings.parse_options('{"options":{},"apps":{"foot":{"compactTabs":true}}}')
+check("opt.compactTabs.not-an-app", ctapp.compact_tabs, false)
 
 local f = settings.parse_options('{"options":{"workspacesOnFkeys":true},"apps":{}}')
 check("opt.workspacesOnFkeys", f.workspaces_fkeys, true)
@@ -69,6 +76,7 @@ check("apps.count", count(cfg), 2)
 check("apps.options-not-a-class", cfg["options"], nil)
 check("apps.chromium.chrome", cfg["chromium"].chrome, false)
 check("apps.chromium.alwaysTabbar", cfg["chromium"].always_tabbar, true)
+check("apps.chromium.compactTabs", cfg["chromium"].compact_tabs, false)
 check("apps.zed.chrome", cfg["zed"].chrome, true)
 check("apps.zed.alwaysTabbar", cfg["zed"].always_tabbar, true)
 
@@ -170,17 +178,27 @@ local merged = settings.merge('{"nativeScroll":true}', '{"chromium":{"chrome":fa
 check("merge.options", settings.parse_options(merged).native_scroll, true)
 check("merge.apps", settings.parse_apps(settings.apps_section(merged))["chromium"].chrome, false)
 
--- The rule effects the app config drives. chrome off wins over always-tabbar.
-local nobar, always = settings.desired_rules({
-  chromium = { chrome = false, always_tabbar = true },
-  zed = { chrome = true, always_tabbar = true },
-  foot = { chrome = true, always_tabbar = false },
+-- The rule effects the app config drives. chrome off wins over always-tabbar
+-- and compact tabs.
+local nobar, always, compact = settings.desired_rules({
+  chromium = { chrome = false, always_tabbar = true, compact_tabs = true },
+  zed = { chrome = true, always_tabbar = true, compact_tabs = true },
+  foot = { chrome = true, always_tabbar = false, compact_tabs = true },
+  kitty = { chrome = true, always_tabbar = false, compact_tabs = false },
 })
 check("rules.nobar.chromium", nobar["chromium"], true)
 check("rules.always.chromium", always["chromium"], nil)
+check("rules.compact.chromium", compact["chromium"], nil)
 check("rules.always.zed", always["zed"], true)
+check("rules.compact.zed", compact["zed"], true)
 check("rules.nobar.zed", nobar["zed"], nil)
-check("rules.foot", nobar["foot"] == nil and always["foot"] == nil, true)
+check("rules.compact.foot", compact["foot"], true)
+check("rules.always.foot", always["foot"], nil)
+check("rules.kitty", nobar["kitty"] == nil and always["kitty"] == nil and compact["kitty"] == nil, true)
+
+local ctonly = settings.parse_apps(settings.apps_section('{"options":{},"apps":{"Foot":{"compactTabs":true}}}'))
+check("apps.foot.compactTabs", ctonly["foot"].compact_tabs, true)
+check("apps.foot.alwaysTabbar.default", ctonly["foot"].always_tabbar, false)
 
 -- A rule's class match: case-insensitive (the stored keys are lowercased) and
 -- with the class's regex metacharacters escaped, so an app id with dots or a

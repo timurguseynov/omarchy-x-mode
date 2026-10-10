@@ -70,6 +70,7 @@ The main card:
 * **X Mode** on or off
 * **Native scroll** — natural (reversed) touchpad scrolling
 * **No gaps** — windows sit flush
+* **Compact tabs** — one Chrome-like titlebar row for every app
 * **Shortcuts** — the default for every app
 * **Apps** — open one to change its titlebar and shortcuts
 
@@ -77,6 +78,7 @@ An app’s card:
 
 * **Titlebar and grouping**
 * **Always show tabbar** — including `+` for a single window
+* **Compact tabs** — one Chrome-like row; leftover space drags the window
 * **Shortcuts** — this app only
 
 Each shortcut can stay with the desktop or go to the app, for everyone or for one app. From the main card the list is the default; from an app it is that app. A row there follows the default until you pin it Always on (green) or Always off (red) — so an editor can keep `⌘1`…`6` while titlebar tabs keep them everywhere else.

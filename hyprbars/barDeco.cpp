@@ -31,6 +31,7 @@
 #include "snap.hpp"
 #include "BarPassElement.hpp"
 
+#include <algorithm>
 #include <climits>
 #include <cmath>
 #include <cstdio>
@@ -156,8 +157,16 @@ bool CHyprBar::alwaysTabbar() {
     return PWINDOW->m_ruleApplicator->m_otherProps.props.contains(g_pGlobalState->alwaysTabbarRuleIdx);
 }
 
+bool CHyprBar::compactTabs() {
+    return Snap::compactTabs(m_pWindow.lock());
+}
+
 bool CHyprBar::wantsTabbar() {
     return grouped() || alwaysTabbar();
+}
+
+int CHyprBar::extraTabHeight() {
+    return (wantsTabbar() && !compactTabs()) ? tabHeight() : 0;
 }
 
 int CHyprBar::tabHeight() {
@@ -182,7 +191,7 @@ SDecorationPositioningInfo CHyprBar::getPositioningInfo() {
     // something forced a full recalc (a new tab, a shadow, ...). Only the current
     // member paints (draw() still checks groupCurrent()); the reserved space is
     // shared by the whole group anyway.
-    const auto                 TOTAL      = HEIGHT + (wantsTabbar() ? tabHeight() : 0);
+    const auto                 TOTAL      = HEIGHT + extraTabHeight();
 
     SDecorationPositioningInfo info;
     info.policy         = m_hidden ? DECORATION_POSITION_ABSOLUTE : DECORATION_POSITION_STICKY;
@@ -361,7 +370,7 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
 
     const bool BUTTONSRIGHT = ALIGNBUTTONS != "left";
 
-    if (!VECINRECT(COORDS, 0, 0, assignedBoxGlobal().w, HEIGHT + (wantsTabbar() ? tabHeight() : 0) - 1)) {
+    if (!VECINRECT(COORDS, 0, 0, assignedBoxGlobal().w, HEIGHT + extraTabHeight() - 1)) {
 
         if (m_bDraggingThis) {
             if (m_bTouchEv)
@@ -710,9 +719,65 @@ void CHyprBar::renderBarButtonsText(CBox* barBox, const float scale, const float
     }
 }
 
-static constexpr double TAB_PLUS_W      = 34.0;
+static constexpr double TAB_PLUS_W     = 34.0;
 // Positive shifts the + right inside its slot. Tweak this, not the draw math.
-static constexpr double TAB_PLUS_NUDGE  = 0.0;
+static constexpr double TAB_PLUS_NUDGE = 0.0;
+static constexpr double TAB_CLOSE_W    = 24.0;
+// Chrome-like compact strip (Chromium TabStyle / TabStripLayoutHelper):
+// tabs prefer a standard width (~232–240) and do not stretch to fill the bar;
+// when they would overflow they shrink equally; leftover after the + is the
+// window-drag handle. We also keep TAB_DRAG_MIN px even when the strip is full.
+static constexpr double TAB_MAX_W      = 240.0;
+static constexpr double TAB_DRAG_MIN   = 48.0;
+
+struct TabStrip {
+    bool   compact = false;
+    int    n       = 0;
+    double y       = 0;
+    double h       = 0;
+    double left    = 0;
+    double tabW    = 0;
+    double plusX   = 0;
+};
+
+static double buttonStripWidth() {
+    const auto pad  = g_pGlobalState->config.barPadding->value();
+    const auto bpad = g_pGlobalState->config.barButtonPadding->value();
+    double     w    = pad;
+    for (auto& b : g_pGlobalState->buttons)
+        w += b.size + bpad;
+    return w;
+}
+
+static TabStrip makeTabStrip(PHLWINDOW w, double barW, int barH, int tabH, bool compact) {
+    TabStrip s;
+    s.n       = w && w->m_group ? (int)w->m_group->windows().size() : 1;
+    if (s.n < 1)
+        s.n = 1;
+    s.compact = compact;
+    if (compact) {
+        // Mac titlebar: close on the left, tabs, +, then a drag handle.
+        const bool   buttonsRight = g_pGlobalState->config.barButtonsAlignment->value() != "left";
+        const double strip        = buttonStripWidth();
+        const double pad          = g_pGlobalState->config.barPadding->value();
+        s.y                       = 0;
+        s.h                       = barH;
+        s.left                    = buttonsRight ? pad : strip;
+        const double rightReserve = (buttonsRight ? strip : 0) + TAB_DRAG_MIN;
+        const double avail        = std::max(0.0, barW - s.left - TAB_PLUS_W - rightReserve);
+        s.tabW                    = avail / s.n;
+        if (s.tabW > TAB_MAX_W)
+            s.tabW = TAB_MAX_W;
+        s.plusX = s.left + s.tabW * s.n;
+    } else {
+        s.y     = barH;
+        s.h     = tabH;
+        s.left  = 0;
+        s.tabW  = (barW - TAB_PLUS_W) / s.n;
+        s.plusX = barW - TAB_PLUS_W;
+    }
+    return s;
+}
 
 int CHyprBar::tabAt(const Vector2D& coords, bool& closeHit) {
     closeHit = false;
@@ -721,28 +786,27 @@ int CHyprBar::tabAt(const Vector2D& coords, bool& closeHit) {
         return -1;
 
     const auto HEIGHT = g_pGlobalState->config.barHeight->value();
-    if (coords.y < HEIGHT || coords.y >= HEIGHT + tabHeight())
-        return -1;
-
-    const double W = assignedBoxGlobal().w;
+    const auto W      = assignedBoxGlobal().w;
     if (W < 1)
         return -1;
 
-    if (coords.x >= W - TAB_PLUS_W)
-        return -2; // + button: open another window of this app
-
-    const int N = PWINDOW->m_group ? (int)PWINDOW->m_group->windows().size() : 1;
-    if (N <= 0)
+    const TabStrip s = makeTabStrip(PWINDOW, W, HEIGHT, tabHeight(), compactTabs());
+    if (coords.y < s.y || coords.y >= s.y + s.h)
         return -1;
 
-    const double TABW = (W - TAB_PLUS_W) / N;
-    int          idx  = coords.x / TABW;
+    if (coords.x >= s.plusX && coords.x < s.plusX + TAB_PLUS_W)
+        return -2; // + button: open another window of this app
+
+    if (coords.x < s.left || coords.x >= s.plusX || s.tabW < 1)
+        return -1;
+
+    int idx = (int)((coords.x - s.left) / s.tabW);
     if (idx < 0)
         idx = 0;
-    if (idx >= N)
-        idx = N - 1;
+    if (idx >= s.n)
+        idx = s.n - 1;
 
-    if (coords.x >= idx * TABW + TABW - 24) {
+    if (coords.x >= s.left + idx * s.tabW + s.tabW - TAB_CLOSE_W) {
         // With tab_close_active_only the ✕ only acts on the current tab of a
         // focused group; anywhere else the click focuses/switches instead, so it
         // cannot close a tab the user was not looking at.
@@ -839,7 +903,8 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
     const double W = assignedBoxGlobal().w;
     if (W < 1)
         return;
-    const double TABW = N > 0 ? (W - TAB_PLUS_W) / N : 0;
+    const TabStrip s    = makeTabStrip(PWINDOW, W, HEIGHT, tabHeight(), compactTabs());
+    const double   TABW = s.tabW;
     // The title texture is cached per bar (only the current member draws the
     // tabbar), so the key must include the geometry that decides the ellipsis:
     // each window's bar would otherwise keep the truncation of an older N/width
@@ -849,8 +914,10 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
     // Tabs follow the titlebar weight; the same weight for every tab.
     const int TAB_WEIGHT = g_pGlobalState->config.barTextWeight->value().m_value;
 
-    CBox rowBox = {barBox->x, barBox->y + (int)(HEIGHT * scale), (int)(W * scale), (int)(tabHeight() * scale)};
-    g_pHyprOpenGL->renderRect(rowBox, CHyprColor(ROW.r, ROW.g, ROW.b, ROW.a * a), {});
+    if (!s.compact) {
+        CBox rowBox = {barBox->x, barBox->y + (int)(s.y * scale), (int)(W * scale), (int)(s.h * scale)};
+        g_pHyprOpenGL->renderRect(rowBox, CHyprColor(ROW.r, ROW.g, ROW.b, ROW.a * a), {});
+    }
 
     for (int i = 0; i < N; i++) {
         auto m = members[i].lock();
@@ -858,7 +925,7 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
             continue;
 
         const bool ISACTIVE = (N <= 1) || (m == CURRENT);
-        CBox       tabBox   = {barBox->x + (int)(i * TABW * scale), barBox->y + (int)(HEIGHT * scale), (int)(TABW * scale) - 1, (int)(tabHeight() * scale)};
+        CBox       tabBox   = {barBox->x + (int)((s.left + i * TABW) * scale), barBox->y + (int)(s.y * scale), (int)(TABW * scale) - 1, (int)(s.h * scale)};
         g_pHyprOpenGL->renderRect(tabBox, ISACTIVE ? CHyprColor(BASE.r, BASE.g, BASE.b, BASE.a * a) : CHyprColor(TABIN.r, TABIN.g, TABIN.b, TABIN.a * a), {});
 
         const std::string title = m->m_title;
@@ -889,7 +956,7 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
         }
     }
 
-    CBox plusBox = {barBox->x + (int)((W - TAB_PLUS_W) * scale), barBox->y + (int)(HEIGHT * scale), (int)(TAB_PLUS_W * scale), (int)(tabHeight() * scale)};
+    CBox plusBox = {barBox->x + (int)(s.plusX * scale), barBox->y + (int)(s.y * scale), (int)(TAB_PLUS_W * scale), (int)(s.h * scale)};
     g_pHyprOpenGL->renderRect(plusBox, CHyprColor(TABIN.r, TABIN.g, TABIN.b, TABIN.a * a), {});
     const double arm    = std::round(8.0 * scale);
     const double thick  = std::max(1.0, std::round(1.5 * scale));
@@ -911,6 +978,16 @@ void CHyprBar::draw(PHLMONITOR pMonitor, const float& a) {
     const auto ENABLED = g_pGlobalState->config.enabled->value() && xModeEnabled();
     if (m_bLastEnabledState != ENABLED)
         applyEnabled();
+
+    // Compact mode changes the reserved height (the second row goes away), and
+    // the positioner caches extents, so a toggle has to reposition. Plugin
+    // config can change without a reload (refresh_options); the window rule
+    // path already repositions from updateRules.
+    const bool compactNow = compactTabs() && wantsTabbar();
+    if (compactNow != m_bLastCompactTabs) {
+        m_bLastCompactTabs = compactNow;
+        applyEnabled();
+    }
 
     // The tabbar now reserves the same extents for every group member
     // (getPositioningInfo() no longer depends on the current tab), so a tab
@@ -947,6 +1024,7 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     const auto  INACTIVECOLOR     = g_pGlobalState->config.inactiveButtonColor->value();
 
     const auto TABCLOSEACTIVEONLY = g_pGlobalState->config.tabCloseActiveOnly->value();
+    const bool COMPACTTABS        = compactTabs() && wantsTabbar();
 
     if (INACTIVECOLOR > 0 || TABCLOSEACTIVEONLY) {
         bool currentWindowFocus = PWINDOW == Desktop::focusState()->window();
@@ -1044,8 +1122,9 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     else
         g_pHyprOpenGL->renderRect(titleBarBox, color, {.round = scaledRounding, .roundingPower = m_pWindow->roundingPower()});
 
-    // render title
-    if (ENABLETITLE && (m_szLastTitle != PWINDOW->m_title || m_bWindowSizeChanged || !m_pTextTex || m_pTextTex->m_texID == 0 || m_bTitleColorChanged)) {
+    // render title. Compact tabs use the titlebar row, so the centred title
+    // would sit on top of them.
+    if (ENABLETITLE && !COMPACTTABS && (m_szLastTitle != PWINDOW->m_title || m_bWindowSizeChanged || !m_pTextTex || m_pTextTex->m_texID == 0 || m_bTitleColorChanged)) {
         m_szLastTitle = PWINDOW->m_title;
         renderBarTitle(BARBUF, pMonitor->m_scale);
     }
@@ -1060,7 +1139,7 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     }
 
     CBox textBox = {titleBarBox.x, titleBarBox.y, (int)BARBUF.x, (int)(HEIGHT * pMonitor->m_scale)};
-    if (ENABLETITLE && m_pTextTex) {
+    if (ENABLETITLE && !COMPACTTABS && m_pTextTex) {
         const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
         const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
         const auto ALIGN            = g_pGlobalState->config.barTextAlign->value();
@@ -1081,12 +1160,13 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
         g_pHyprOpenGL->renderTexture(m_pTextTex, titleBox, {.a = a});
     }
 
+    // Tabs first so the close button stays on top of a compact strip.
+    renderTabs(&textBox, pMonitor->m_scale, a);
+
     renderBarButtons(&textBox, pMonitor->m_scale, a);
     m_bButtonsDirty = false;
 
     g_pHyprOpenGL->scissor(nullptr);
-
-    renderTabs(&textBox, pMonitor->m_scale, a);
 
     renderBarButtonsText(&textBox, pMonitor->m_scale, a);
 

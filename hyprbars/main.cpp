@@ -555,6 +555,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_pGlobalState                    = makeUnique<SGlobalState>();
     g_pGlobalState->nobarRuleIdx        = Desktop::Rule::windowEffects()->registerEffect("hyprbars:no_bar");
     g_pGlobalState->alwaysTabbarRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprbars:always_tabbar");
+    g_pGlobalState->compactTabsRuleIdx  = Desktop::Rule::windowEffects()->registerEffect("hyprbars:compact_tabs");
     g_pGlobalState->barColorRuleIdx   = Desktop::Rule::windowEffects()->registerEffect("hyprbars:bar_color");
     g_pGlobalState->titleColorRuleIdx = Desktop::Rule::windowEffects()->registerEffect("hyprbars:title_color");
 
@@ -614,6 +615,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_pGlobalState->config.tabHeight = makeShared<Config::Values::CIntValue>("plugin:hyprbars:tab_height", "Height of the group tabbar", 24);
     g_pGlobalState->config.tabCloseActiveOnly =
         makeShared<Config::Values::CBoolValue>("plugin:hyprbars:tab_close_active_only", "Only show and act on the close button of the current tab, and only while the group has focus", false);
+    g_pGlobalState->config.compactTabs =
+        makeShared<Config::Values::CBoolValue>("plugin:hyprbars:compact_tabs", "Put group tabs in the titlebar (Chrome-like), instead of a second row", false);
     g_pGlobalState->config.xModeDockInset =
         makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_dock_inset", "Right snap inset: dock card plus half of gaps_out (set by x-mode.lua)", 45);
     g_pGlobalState->config.xModeBarTopMemoryMs = makeShared<Config::Values::CIntValue>(
@@ -658,6 +661,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.onDoubleClick);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.tabHeight);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.tabCloseActiveOnly);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.compactTabs);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeDockInset);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeBarTopMemoryMs);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapMargin);
@@ -752,4 +756,5 @@ APICALL EXPORT void PLUGIN_EXIT() {
     Desktop::Rule::windowEffects()->unregisterEffect(g_pGlobalState->titleColorRuleIdx);
     Desktop::Rule::windowEffects()->unregisterEffect(g_pGlobalState->nobarRuleIdx);
     Desktop::Rule::windowEffects()->unregisterEffect(g_pGlobalState->alwaysTabbarRuleIdx);
+    Desktop::Rule::windowEffects()->unregisterEffect(g_pGlobalState->compactTabsRuleIdx);
 }

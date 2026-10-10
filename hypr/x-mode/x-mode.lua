@@ -1422,7 +1422,9 @@ end
 --                      "ctrlClick": false, "digitTabs": false,
 --                      "ctrlAsSuperKeys": [] } } }
 -- chrome=false → no titlebar/tabbar/grouping. alwaysTabbar → tab strip even
--- when the window is not grouped. ctrlAsSuper → unbound Super+key reaches the
+-- when the window is not grouped. compactTabs → one Chrome-like titlebar row
+-- (tabs of limited width, leftover drags the window) instead of titlebar +
+-- tabbar; the same flag in options turns it on for every app. ctrlAsSuper → unbound Super+key reaches the
 -- app as Ctrl+key; digitTabs → the
 -- freed Super+1..0 are the pack's own tabs for this class (reserved: the app
 -- never sees the digit); ctrlAsSuperKeys →
@@ -1537,6 +1539,7 @@ end
 
 local nobar_applied = {}
 local always_applied = {}
+local compact_applied = {}
 
 local function set_rule(name, cls, effect, on)
   -- The stored key is lowercased, but Hyprland matches a rule's class as a
@@ -1558,9 +1561,10 @@ local function apply_apps()
   apps_cfg = load_apps()
   sync_apps_off()
   apply_ctrl_c_shift()
-  local wanted_nobar, wanted_always = settings.desired_rules(apps_cfg)
+  local wanted_nobar, wanted_always, wanted_compact = settings.desired_rules(apps_cfg)
   local add_nobar, drop_nobar = settings.rule_diff(wanted_nobar, nobar_applied)
   local add_always, drop_always = settings.rule_diff(wanted_always, always_applied)
+  local add_compact, drop_compact = settings.rule_diff(wanted_compact, compact_applied)
   for _, cls in ipairs(add_nobar) do
     set_rule("x-mode-nobar-", cls, "hyprbars:no_bar", true)
   end
@@ -1573,8 +1577,15 @@ local function apply_apps()
   for _, cls in ipairs(drop_always) do
     set_rule("x-mode-always-tabbar-", cls, "hyprbars:always_tabbar", false)
   end
+  for _, cls in ipairs(add_compact) do
+    set_rule("x-mode-compact-tabs-", cls, "hyprbars:compact_tabs", true)
+  end
+  for _, cls in ipairs(drop_compact) do
+    set_rule("x-mode-compact-tabs-", cls, "hyprbars:compact_tabs", false)
+  end
   nobar_applied = wanted_nobar
   always_applied = wanted_always
+  compact_applied = wanted_compact
 end
 
 local function ungroup_where(pred)
@@ -1641,7 +1652,7 @@ function x_mode.refresh_apps_off()
   regroup_chrome_on()
 end
 
--- Desktop options (native scroll, Ctrl+1..0 tab switching, no gaps, workspaces
+-- Desktop options (native scroll, compact tabs, Ctrl+1..0 tab switching, no gaps, workspaces
 -- on F1..F10), read from settings.json. Ctrl+1..0 switches group tabs when the
 -- focused app has chrome/titlebar on; otherwise the key is passed through to the
 -- app. Off by default, so those shortcuts reach the app. No gaps zeroes the
@@ -1652,6 +1663,7 @@ end
 local native_scroll = false
 local ctrl_tab_binds = {}
 local no_gaps = false
+local compact_tabs = false
 -- Workspace switching on Super+F1..F10 instead of Super+1..0.
 local workspaces_fkeys = false
 local workspace_key_binds = {}
@@ -1660,6 +1672,7 @@ local function load_options()
   local o = settings.parse_options(read_settings())
   native_scroll = o.native_scroll
   no_gaps = o.no_gaps
+  compact_tabs = o.compact_tabs
   workspaces_fkeys = o.workspaces_fkeys
   lock_key = o.lock_key
   key_flags = o.key_flags
@@ -1711,6 +1724,21 @@ local function apply_native_scroll()
       input = {
         natural_scroll = native_scroll,
         touchpad = { natural_scroll = native_scroll },
+      },
+    })
+  end)
+end
+
+-- One Chrome-like titlebar row for every app. Per-app compactTabs is a window
+-- rule (apply_apps); this is the desktop-wide plugin config those windows
+-- inherit when they have no rule of their own.
+local function apply_compact_tabs()
+  pcall(function()
+    hl.config({
+      plugin = {
+        hyprbars = {
+          compact_tabs = compact_tabs,
+        },
       },
     })
   end)
@@ -2112,6 +2140,7 @@ end
 function x_mode.refresh_options()
   load_options()
   apply_native_scroll()
+  apply_compact_tabs()
   apply_ctrl_tab_switch()
   apply_no_gaps()
   apply_workspace_keys()
@@ -2124,6 +2153,7 @@ end
 
 load_options()
 apply_native_scroll()
+apply_compact_tabs()
 apply_ctrl_tab_switch()
 apply_no_gaps()
 apply_workspace_keys()
