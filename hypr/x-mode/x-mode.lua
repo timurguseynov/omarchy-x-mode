@@ -204,6 +204,9 @@ hl.config({
   },
   group = {
     auto_group = false,
+    -- Hyprland's default puts a new tab after the current one. Append instead:
+    -- a window opened while looking at an earlier tab still lands at the end.
+    insert_after_current = false,
     -- Never mix apps in one group: disable dragging windows/groupbars into
     -- other groups. Same-app auto-grouping (join_same_app below) is
     -- programmatic and unaffected.

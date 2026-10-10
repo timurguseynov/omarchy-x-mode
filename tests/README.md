@@ -187,6 +187,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/lone_group_below_bar_test.sh` | a lone window turned into a group of one is pushed back below the bar |
 | `integration/maximize_top_slop_test.sh` | the top band maximizes only inside the slop |
 | `integration/maximize_via_two_bindings_test.sh` | Super+Alt+F and Ctrl+Alt+Up maximize alike |
+| `integration/new_tab_appends_test.sh` | a new same-app window is the last tab, not the slot after the current one |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/no_gaps_free_window_stays_test.sh` | No gaps re-lays out a snapped window and leaves a free one alone |
 | `integration/no_gaps_keeps_border_test.sh` | No gaps collapses the gaps, keeps the 1px border, and restores both |
