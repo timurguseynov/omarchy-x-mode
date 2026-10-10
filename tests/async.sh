@@ -83,9 +83,17 @@ case "${1:-}" in
       while kill -0 "$pid" 2>/dev/null; do sleep 2; done
     fi
     # The run reports itself when it ends: `<log>.status` with the same text
-    # `status` prints, plus the log path. The pi extension
-    # .pi/extensions/test-status.ts turns it into a message.
-    { printf 'log: %s\n' "$log"; status_text "$label" "$log"; } > "$log.status"
+    # `status` prints, plus the log path. A pi session that started the run
+    # has PI_SESSION_ID in the environment (the bash tool injects it); that
+    # line is how .pi/extensions/test-status.ts tells this session's run from
+    # Goose's, or another pi session's, and only then turns it into a message.
+    {
+      if [ -n "${PI_SESSION_ID:-}" ]; then
+        printf 'session: %s\n' "$PI_SESSION_ID"
+      fi
+      printf 'log: %s\n' "$log"
+      status_text "$label" "$log"
+    } > "$log.status"
     ;;
   status)
     label="${2:-}"

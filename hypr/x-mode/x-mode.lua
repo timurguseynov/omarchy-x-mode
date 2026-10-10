@@ -204,6 +204,9 @@ hl.config({
   },
   group = {
     auto_group = false,
+    -- Hyprland's default puts a new tab after the current one. Append instead:
+    -- a window opened while looking at an earlier tab still lands at the end.
+    insert_after_current = false,
     -- Never mix apps in one group: disable dragging windows/groupbars into
     -- other groups. Same-app auto-grouping (join_same_app below) is
     -- programmatic and unaffected.
@@ -629,8 +632,22 @@ local function window_at_cursor()
   end
   return hit
 end
+-- Does the app switcher (below) hold the pointer right now? It is set with the
+-- rest of the switcher's state, and declared here because the Ctrl+click bind
+-- below has to know. The row is drawn over the windows, and a click on one of its
+-- icons is a click on the icon: the window the icon covers must not be read as
+-- the click's target. It was, whenever that window carried the flag -- the click
+-- went to it as a Ctrl+click and the row never saw it, so clicking an icon did
+-- nothing exactly when a flagged app (the browser) was under the row.
+local switcher_active = false
+
 local function super_ctrl_click(button)
   return function()
+    -- The switcher is up: the click belongs to its row (a layer surface takes
+    -- the pointer over a window), so the event only has to be let through.
+    if switcher_active then
+      return { pass_event = true }
+    end
     -- Titlebar / empty space: let the click through (hyprbars, focus).
     -- The window under the cursor, not the focused one: Cmd+click a link in
     -- a background window should still be Ctrl+click there.
@@ -683,10 +700,10 @@ hl.layer_rule({
 -- ---------------------------------------------------------------------------
 -- The preview overlay (Quickshell, Switcher.qml) is driven by a command file,
 -- like the snap preview: "show <active-class> <class>..." while cycling, "hide"
--- when Super is released.
+-- when Super is released. `switcher_active` is declared above the Ctrl+click
+-- bind, which is the one other place that has to know the row holds the pointer.
 local SWITCHER_PATH = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/omarchy-switcher.cmd"
 local last_switcher = ""
-local switcher_active = false
 
 local function switcher_write(line)
   if line == last_switcher then
@@ -1166,6 +1183,15 @@ end)
 -- longer reach the app as Ctrl+Left/Right (the Super-as-Ctrl plan reads the
 -- live bind table, sees them taken and leaves them alone) and why Omarchy's
 -- window transparency has to move off Cmd+Backspace.
+--
+-- The typography a Mac's layout carries is in the same table: the pack cannot
+-- send a character its keymap does not have, so the dash goes as the *compose*
+-- sequence the keymap does have and everything else is unchanged -- the same
+-- send, which is also what keeps the held Option out of the app. A virtual
+-- keyboard cannot stand in for it: wtype types through the seat, so the held
+-- Option is still in the app's modifier state and a terminal reads the dash as
+-- Alt+dash and prefixes Escape (measured in the nest: an em dash arrived as
+-- 1b e2 80 94, and a tap meant to clear the modifier did not hold).
 -- One sequence of chords at a time: the bind repeats while the key is held (see
 -- the bind loop below), and a sequence is longer than the repeat interval -- two
 -- chords and their 80ms gap. A new Shift+Home landing inside the previous pair
@@ -1184,12 +1210,14 @@ local function send_chords(list, w)
   -- stuck/repeating synthetic key Omarchy's clipboard sends key state by hand
   -- to avoid (hyprland discussion 14099). Sending it by hand also keeps a
   -- synthetic Shift from being left held for the next keystroke.
+  -- A chord whose key the pack has no keycode for goes as its name: the compose
+  -- key is the one such key -- which physical key carries Multi_key is the
+  -- user's input option, so there is no code to hard-code -- and Hyprland
+  -- resolves the name in the keymap it just checked had one. Every other chord
+  -- stays a keycode, so it is the physical key whatever the layout says.
   local function send(c)
     local code = supermap.key_code(c.key)
-    if code == nil then
-      return
-    end
-    local key = "code:" .. tostring(code)
+    local key = code ~= nil and ("code:" .. tostring(code)) or c.key
     hl.dispatch(hl.dsp.send_key_state({ mods = c.mods, key = key, state = "down", window = w }))
     hl.timer(function()
       hl.dispatch(hl.dsp.send_key_state({ mods = c.mods, key = key, state = "up", window = w }))
@@ -1219,13 +1247,30 @@ local function send_chords(list, w)
   end, { timeout = (#list - 1) * 80 + 60, type = "oneshot" })
 end
 
-local function text_chord(id)
+-- Whether the desktop's keymap has a compose key at all. The typography
+-- entries need one (see textkeys.lua), and it is the user's input option: read
+-- live, so an edit to it takes effect on the next press.
+local function compose_key()
+  local ok, options = pcall(hl.get_config, "input:kb_options")
+  if not ok then
+    return false
+  end
+  return textkeys.compose_key(options)
+end
+
+local function text_chord(e)
   return function()
     local w = hl.get_active_window()
     if w == nil then
       return { pass_event = true }
     end
-    local chords = textkeys.chords(id, textkeys.is_terminal(w.tags))
+    if e.needs == "compose" and not compose_key() then
+      -- Nothing in the keymap to spell the character with, so the key stays
+      -- the app's: sending Multi_key at a keymap that has no such key is a
+      -- Hyprland error on every press and types nothing anyway.
+      return { pass_event = true }
+    end
+    local chords = textkeys.chords(e.id, textkeys.is_terminal(w.tags))
     if chords == nil or #chords == 0 then
       -- Nothing to send in this context (readline has no selection to
       -- extend), so the key stays the app's rather than being swallowed.
@@ -1245,7 +1290,7 @@ for _, e in ipairs(textkeys.plan()) do
   -- a Super-as-Ctrl bind left over from the previous config evaluation.
   hl.unbind(e.keys)
   note_pack_key(e.keys)
-  pcall(o.bind, e.keys, e.label, text_chord(e.id), { repeating = true })
+  pcall(o.bind, e.keys, e.label, text_chord(e), { repeating = true })
 end
 
 -- Cmd+Backspace is "delete to the start of the line" on macOS, so Omarchy's
@@ -1585,8 +1630,8 @@ local apply_ctrl_tab_switch
 --                     Ctrl+C bind hangs off a flag being on anywhere;
 --   apply_super_ctrl  the Super-as-Ctrl map, which apply_apps does not touch;
 --   apply_ctrl_tab_switch  the Ctrl+1..0 binds. Missing here is why pinning
---                     "Ctrl+1..0 switches tabs" for one app wrote the file and
---                     did nothing until some other click happened to reload.
+--                     "⌃1..0 switch tabs" for one app wrote the file and did
+--                     nothing until some other click happened to reload.
 function x_mode.refresh_apps_off()
   apply_apps()
   apply_super_ctrl()

@@ -123,13 +123,15 @@ with `status`, do not `sleep` before a check, and do not wait for it in a call.
 
 `tests/async.sh run` writes `<log>.status` the moment a run ends: the same text
 `status` prints (state, summary lines, counts, the failing scenarios) plus the
-log path. The project extension `.pi/extensions/test-status.ts` watches those
-files and sends that text as a message that starts a turn, so **the run reports
-itself**: the agent starts a run, stops, and resumes on its own when the report
-arrives -- no timer, no poll, no token. The user's token (`готово` when the run
-is green, `+` when there is something in it for the agent) is only the fallback
-for when the watcher is not loaded, such as a session started before the
-extension was added.
+log path, and a `session:` stamp when a pi session started the run. The project
+extension `.pi/extensions/test-status.ts` watches those files and sends that
+text as a message that starts a turn **only when the stamp is this session**, so
+**the run reports itself** and a run Goose or another session started does not:
+the agent starts a run, stops, and resumes on its own when the report arrives --
+no timer, no poll, no token. The user's token (`готово` when the run is green,
+`+` when there is something in it for the agent) is only the fallback for when
+the watcher is not loaded, such as a session started before the extension was
+added.
 
 Once a run has reported itself (or been reported), the agent may read the log,
 the status file and the run's counts -- that is looking at a finished run, not

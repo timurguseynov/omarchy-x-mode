@@ -47,9 +47,11 @@ bash tests/async.sh status suite
 ```
 
 The `run` also writes `<log>.status` when the run ends: the same text `status`
-prints, plus the log path. `.pi/extensions/test-status.ts` watches those files and
-sends one as a message that starts a turn, so a finished run reaches an agent
-session by itself instead of being polled for.
+prints, plus the log path, and a `session:` stamp when a pi session started it.
+`.pi/extensions/test-status.ts` watches those files and sends one as a message
+that starts a turn only when the stamp is this session, so a finished run
+reaches the agent that started it -- not Goose, and not another pi session --
+instead of being polled for.
 
 Nest scenarios can be picked by name, whole or in part:
 
@@ -185,6 +187,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/lone_group_below_bar_test.sh` | a lone window turned into a group of one is pushed back below the bar |
 | `integration/maximize_top_slop_test.sh` | the top band maximizes only inside the slop |
 | `integration/maximize_via_two_bindings_test.sh` | Super+Alt+F and Ctrl+Alt+Up maximize alike |
+| `integration/new_tab_appends_test.sh` | a new same-app window is the last tab, not the slot after the current one |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/no_gaps_free_window_stays_test.sh` | No gaps re-lays out a snapped window and leaves a free one alone |
 | `integration/no_gaps_keeps_border_test.sh` | No gaps collapses the gaps, keeps the 1px border, and restores both |
@@ -213,6 +216,7 @@ bar and the dock), a terminal to open test windows (`foot`, `kitty`), and Qt's
 | `integration/super_w_closes_window_test.sh` | Super+W closes the window and keeps the focus in the group |
 | `integration/super_w_ctrl_w_test.sh` | a class that steals Cmd+W gets Ctrl+W instead of the pack closing it, and a file that still carries the older `ctrlW` flag keeps doing the same |
 | `integration/super_w_single_window_test.sh` | and closes an ungrouped window on its own |
+| `integration/switcher_click_flagged_test.sh` | a click on an icon switches apps while the row is over a Ctrl+click window |
 | `integration/switcher_cycles_apps_test.sh` | Super+Tab cycles apps and writes the switcher's command file |
 | `integration/switcher_mru_order_test.sh` | the switcher's next app is the one used before this one |
 | `integration/tab_close_active_only_test.sh` | only the current tab's close button closes |
