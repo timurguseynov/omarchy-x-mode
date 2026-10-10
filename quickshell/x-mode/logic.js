@@ -772,32 +772,34 @@ function setGlobalSteal(keys, id, on) {
     return next
 }
 
-// The "for every app" entry row: what is in force, or that nothing is.
+// One vocabulary for both "Shortcuts" rows: everything a row can turn on is a
+// shortcut here. The row says how much is on, not which -- a card is read at a
+// glance, and the split between the rows that flip a switch and the rows that
+// hand one key over is the screen's business, not a word to teach the row.
+function shortcutCount(n) {
+    return n === 1 ? "1 shortcut" : n + " shortcuts"
+}
+
+// What the main panel's row says: what is on for every app.
 function globalKeysSummary(keys) {
     var k = keys || {}
-    var n = 0
+    var n = copyOccupiedKeys(k.steal).length
     for (var i = 0; i < KEY_FLAG_NAMES.length; i++) {
         if (k[KEY_FLAG_NAMES[i]])
             n++
     }
-    var keysN = copyOccupiedKeys(k.steal).length
-    if (n === 0 && keysN === 0)
+    if (n === 0)
         return "Nothing set for every app"
-    var parts = []
-    if (n)
-        parts.push(n === 1 ? "1 shortcut" : n + " shortcuts")
-    if (keysN)
-        parts.push(keysN === 1 ? "1 key" : keysN + " keys")
-    return parts.join(", ") + " for every app"
+    return shortcutCount(n) + " for every app"
 }
 
-// The card's entry row: how many shortcuts are in force for this app, and how
-// many of them are pinned rather than following the desktop.
+// The card's entry row: how many shortcuts are in force for this app, and
+// whether any of them is the app's own answer rather than the desktop's.
 function appKeysSummary(cfg, forced) {
     var c = cfg || {}
     var f = forced || {}
-    var on = 0
-    var pinned = 0
+    var on = (c.ctrlAsSuperKeys || []).length
+    var pinned = (c.ctrlAsSuperKeysOff || []).length
     for (var i = 0; i < KEY_FLAG_NAMES.length; i++) {
         var st = keyFlagState(c, f, KEY_FLAG_NAMES[i])
         if (st.checked)
@@ -805,20 +807,11 @@ function appKeysSummary(cfg, forced) {
         if (st.pinned)
             pinned++
     }
-    var keysN = (c.ctrlAsSuperKeys || []).length
-    var keysOffN = (c.ctrlAsSuperKeysOff || []).length
-    var parts = []
-    if (on)
-        parts.push(on === 1 ? "1 shortcut" : on + " shortcuts")
-    if (keysN)
-        parts.push(keysN === 1 ? "1 key" : keysN + " keys")
-    if (pinned || keysOffN)
-        parts.push("pinned here")
-    if (parts.length === 0)
-        return "Off: Super keys reach the app as they are"
-    if (on === 0 && keysN === 0 && (pinned || keysOffN))
-        return "Off here: pinned against the desktop"
-    return parts.join(", ")
+    if (on === 0 && pinned === 0)
+        return "Off: keys go to the app"
+    if (on === 0)
+        return "All off, pinned"
+    return shortcutCount(on) + (pinned ? ", pinned" : "")
 }
 
 // Settings-panel running list: one row per app class with the best-focus

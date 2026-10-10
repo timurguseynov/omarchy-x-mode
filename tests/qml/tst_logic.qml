@@ -492,17 +492,17 @@ TestCase {
         compare(Logic.globalKeysSummary({}), "Nothing set for every app")
         compare(Logic.globalKeysSummary({ ctrlClick: true }), "1 shortcut for every app")
         compare(Logic.globalKeysSummary({ ctrlClick: true, ctrlAsSuper: true }), "2 shortcuts for every app")
-        compare(Logic.globalKeysSummary({ steal: ["Q"] }), "1 key for every app")
-        compare(Logic.globalKeysSummary({ ctrlClick: true, steal: ["Q", "TAB"] }), "1 shortcut, 2 keys for every app")
+        compare(Logic.globalKeysSummary({ steal: ["Q"] }), "1 shortcut for every app")
+        compare(Logic.globalKeysSummary({ ctrlClick: true, steal: ["Q", "TAB"] }), "3 shortcuts for every app")
         compare(Logic.hasGlobalSteal({ steal: ["Q"] }, "Q"), true)
         compare(Logic.hasGlobalSteal({ steal: ["Q"] }, "TAB"), false)
         compare(Logic.hasGlobalSteal({}, "Q"), false)
 
-        compare(Logic.appKeysSummary({}, {}), "Off: Super keys reach the app as they are")
-        compare(Logic.appKeysSummary({ ctrlClick: true }, {}), "1 shortcut, pinned here")
-        compare(Logic.appKeysSummary({ ctrlClick: true, ctrlAsSuperKeys: ["Q"] }, {}), "1 shortcut, 1 key, pinned here")
+        compare(Logic.appKeysSummary({}, {}), "Off: keys go to the app")
+        compare(Logic.appKeysSummary({ ctrlClick: true }, {}), "1 shortcut, pinned")
+        compare(Logic.appKeysSummary({ ctrlClick: true, ctrlAsSuperKeys: ["Q"] }, {}), "2 shortcuts, pinned")
         compare(Logic.appKeysSummary({}, { ctrlClick: true }), "1 shortcut", "inherited from the desktop, so not pinned")
-        compare(Logic.appKeysSummary({ ctrlClick: false }, { ctrlClick: true }), "Off here: pinned against the desktop")
+        compare(Logic.appKeysSummary({ ctrlClick: false }, { ctrlClick: true }), "All off, pinned")
     }
 
     function test_occupiedKeys() {
