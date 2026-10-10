@@ -506,7 +506,7 @@ Panel {
         id: krowsWorkspaceKeysRow
         width: parent.width
         label: "Workspaces on F1..F10"
-        description: "⌘F1..F10 switch workspaces; the freed digits follow Shortcuts"
+        description: "Frees ⌘1..0 for tabs"
         checked: root.workspacesOnFkeys
         rowEnabled: root.xModeOn
         onToggled: root.setOptions(root.nativeScroll, root.noGaps, !root.workspacesOnFkeys)
@@ -516,7 +516,7 @@ Panel {
         id: krowsLockKeyRow
         width: parent.width
         label: "⌃⌘Q locks the screen"
-        description: "Takes Omarchy's Calculator key; off gives it back"
+        description: "Takes Omarchy's Calculator key"
         checked: root.lockKey
         rowEnabled: root.xModeOn
         onToggled: root.setLockKey(!root.lockKey)
@@ -529,11 +529,11 @@ Panel {
     }
 
     readonly property var flagRows: [
-      { flag: "ctrlAsSuper", label: "Super as Ctrl", description: "Keys Omarchy does not already use" },
-      { flag: "digitTabs", label: "⌘1..0 for the pack's tabs", description: krows.workspacesOnFkeys ? "Reserved: no tab of that number means the key does nothing" : "Needs Workspaces on F1..F10, which frees the digits" },
-      { flag: "ctrlTabSwitch", label: "⌃1..0 switches tabs", description: "Jump to a titlebar tab; off, the shortcut goes to the app" },
+      { flag: "ctrlAsSuper", label: "Super as Ctrl", description: "⌘T, ⌘R, ⌘L reach the app" },
+      { flag: "digitTabs", label: "⌘1..0 switch tabs", description: "Needs Workspaces on F1..F10" },
+      { flag: "ctrlTabSwitch", label: "⌃1..0 switch tabs", description: "Works without F1..F10" },
       { flag: "ctrlClick", label: "⌘-click as ⌃-click", description: "Links, multi-select" },
-      { flag: "ctrlCShift", label: "⌃C as ⌃⇧C", description: "Interrupt in a terminal; ⌘C still copies" }
+      { flag: "ctrlCShift", label: "⌃C as ⌃⇧C", description: "Interrupt in a terminal" }
     ]
 
     // Green, red, or nothing: the theme's own colours for the two pinned states, out
@@ -784,7 +784,7 @@ Panel {
         width: parent.width
         visible: root.view === "main"
         label: "Native scroll"
-        description: "Natural (reversed) touchpad scrolling"
+        description: "Reversed touchpad scrolling"
         checked: root.nativeScroll
         rowEnabled: root.xModeOn
         onToggled: root.setOptions(!root.nativeScroll, root.noGaps, root.workspacesOnFkeys)
@@ -795,7 +795,7 @@ Panel {
         width: parent.width
         visible: root.view === "main"
         label: "No gaps"
-        description: "Remove the space between windows and their borders"
+        description: "No space between windows"
         checked: root.noGaps
         rowEnabled: root.xModeOn
         onToggled: root.setOptions(root.nativeScroll, !root.noGaps, root.workspacesOnFkeys)
@@ -907,7 +907,7 @@ Panel {
           SwitchRow {
             width: parent.width
             label: "Titlebar and grouping"
-            description: "Mac titlebar, tabs, same-app groups"
+            description: "Mac titlebar and tabs"
             checked: root.cfgFor(root.openCls).chrome
             onToggled: root.setFlag("chrome", !root.cfgFor(root.openCls).chrome)
           }
@@ -915,7 +915,7 @@ Panel {
           SwitchRow {
             width: parent.width
             label: "Always show tabbar"
-            description: "Tab strip with + even for a single window"
+            description: "Tab strip with + on one window"
             checked: root.cfgFor(root.openCls).alwaysTabbar
             rowEnabled: root.cfgFor(root.openCls).chrome
             onToggled: root.setFlag("alwaysTabbar", !root.cfgFor(root.openCls).alwaysTabbar)

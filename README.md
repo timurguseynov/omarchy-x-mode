@@ -89,8 +89,8 @@ The every-app list starts with:
 Then the same rows in both lists:
 
 * **Super as Ctrl** — Super+letter becomes Ctrl+letter, so `⌘T`, `⌘R`, `⌘L` work like Command on a Mac
-* **`⌘1`…`0` for titlebar tabs** — needs Workspaces on F1…F10
-* **`⌃1`…`0` switches tabs** — off, those keys go to the app
+* **`⌘1`…`0` switch tabs** — needs Workspaces on F1…F10
+* **`⌃1`…`0` switch tabs** — works without it; off, they switch the app’s own tabs (browser, editor)
 * **`⌘`-click as `⌃`-click**
 * **`⌃C` as `⌃⇧C`** — interrupt in a terminal; `⌘C` still copies
 * Keys the desktop already uses (`⌘Q` quit, `⌘W` close, `⌘F` fullscreen, `⌘Tab` the switcher, …). Turn one on and the app gets it as Ctrl instead (`⌘W` closes a tab inside the app)

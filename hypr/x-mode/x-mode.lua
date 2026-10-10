@@ -1630,8 +1630,8 @@ local apply_ctrl_tab_switch
 --                     Ctrl+C bind hangs off a flag being on anywhere;
 --   apply_super_ctrl  the Super-as-Ctrl map, which apply_apps does not touch;
 --   apply_ctrl_tab_switch  the Ctrl+1..0 binds. Missing here is why pinning
---                     "Ctrl+1..0 switches tabs" for one app wrote the file and
---                     did nothing until some other click happened to reload.
+--                     "⌃1..0 switch tabs" for one app wrote the file and did
+--                     nothing until some other click happened to reload.
 function x_mode.refresh_apps_off()
   apply_apps()
   apply_super_ctrl()
