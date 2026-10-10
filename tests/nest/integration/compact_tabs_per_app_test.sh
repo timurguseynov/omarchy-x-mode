@@ -24,7 +24,7 @@ assert_eq "$y2" "$y" "a per-app compact group keeps one chrome row"
 
 # Three tabs in a narrow box have to shrink below the 240px cap, and still
 # leave the drag handle.
-place_frac foot 10 20 28 50
+place_frac foot 10 20 40 50
 read -r _ _ bw _ _ <<<"$(visible_geom foot)"
 open_window foot 3
 assert_eq "$(group_size foot)" 3 "three windows share the group"
@@ -32,5 +32,5 @@ read -r left tabw plusx plusw bh <<<"$(compact_strip foot 3)"
 python3 -c "
 tabw, plusx, plusw, bw = float('$tabw'), float('$plusx'), float('$plusw'), float('$bw')
 assert tabw < 240, f'narrow tabs must shrink, got {tabw}'
-assert plusx + plusw + 40 <= bw + 1, f'shrunken tabs ate the drag handle: plusx={plusx} plusw={plusw} bw={bw}'
+assert plusx + plusw + 72 <= bw + 1, f'shrunken tabs ate the drag handle: plusx={plusx} plusw={plusw} bw={bw}'
 "

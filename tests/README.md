@@ -294,7 +294,7 @@ Three things about the tabbar, all found the hard way:
   evenly, so `tab_point CLASS I N` and `tab_close_point CLASS I N` give the
   middle of a tab and of its close button (the last 24px of the tab). Compact
   tabs (`compact_strip` / `compact_tab_point`) sit in the titlebar instead:
-  they cap at 240px, then the `+` and a 48px drag handle.
+  they cap at 240px, then the `+` and a 72px drag handle.
 - Both members of a group report `hidden: false`, so the current tab cannot be
   found that way; `active_tab_index` matches the active window's address against
   the tab order instead. A click on a background tab focuses it, so the index has

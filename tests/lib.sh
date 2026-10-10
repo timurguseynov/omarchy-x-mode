@@ -825,7 +825,7 @@ plus_point() { # CLASS -> "X Y", the + button on the tabbar
 
 # Compact Chrome-like strip (hyprbars/barDeco.cpp): tabs sit in the titlebar
 # after the close button (padding + 12 + button padding), prefer 240px, shrink
-# so 34px of + and 48px of drag handle still fit. Numbers must match the plugin.
+# so 34px of + and 72px of drag handle still fit. Numbers must match the plugin.
 compact_strip() { # CLASS TABS -> "left tabw plusx plusw bh"
   local bx by bw pad bpad bh
   read -r bx by bw _ _ <<<"$(visible_geom "$1")"
@@ -834,7 +834,7 @@ compact_strip() { # CLASS TABS -> "left tabw plusx plusw bh"
   bh="$(bar_height)"
   python3 -c "
 bx, by, bw, n, pad, bpad, bh = $bx, $by, $bw, $2, $pad, $bpad, $bh
-plus_w, max_w, drag_min, btn = 34.0, 240.0, 48.0, 12.0
+plus_w, max_w, drag_min, btn = 34.0, 240.0, 72.0, 12.0
 left = pad + btn + bpad
 avail = max(0.0, bw - left - plus_w - drag_min)
 tabw = min(max_w, avail / n) if n else 0.0

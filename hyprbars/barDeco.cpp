@@ -728,7 +728,56 @@ static constexpr double TAB_CLOSE_W    = 24.0;
 // when they would overflow they shrink equally; leftover after the + is the
 // window-drag handle. We also keep TAB_DRAG_MIN px even when the strip is full.
 static constexpr double TAB_MAX_W      = 240.0;
-static constexpr double TAB_DRAG_MIN   = 48.0;
+static constexpr double TAB_DRAG_MIN   = 72.0;
+
+// + (add) and × (close): same pixel-grid stroke, same size, one midline.
+// Arm and thickness stay odd so both arms share one center pixel — an even
+// length made the + one pixel longer on one side. The + is a step larger.
+static constexpr double TAB_PLUS_ARM  = 9.0;
+static constexpr double TAB_CLOSE_ARM = 7.0;
+
+static double tabGlyphMidY(CBox* barBox, double rowY, double rowH, float scale) {
+    return std::round(barBox->y + (int)(rowY * scale) + (int)(rowH * scale) / 2.0);
+}
+
+static void tabGlyphMetrics(float scale, double logicalArm, int& arm, int& thick) {
+    arm   = (int)std::round(logicalArm * scale);
+    thick = (int)std::max(1.0, std::round(1.0 * scale));
+    if (arm < 1)
+        arm = 1;
+    if ((arm % 2) == 0)
+        arm += 1;
+    if ((thick % 2) == 0)
+        thick -= 1;
+    if (thick < 1)
+        thick = 1;
+}
+
+static void plotGlyphWalk(int x, int y, int thick, const CHyprColor& col) {
+    g_pHyprOpenGL->renderRect(CBox{(double)x, (double)y, 1, (double)thick}, col, {});
+}
+
+static void drawTabPlus(double cx, double cy, float scale, const CHyprColor& col) {
+    int arm = 0, thick = 0;
+    tabGlyphMetrics(scale, TAB_PLUS_ARM, arm, thick);
+    const int midX = (int)std::round(cx);
+    const int midY = (int)std::round(cy);
+    g_pHyprOpenGL->renderRect(CBox{(double)(midX - arm / 2), (double)(midY - thick / 2), (double)arm, (double)thick}, col, {});
+    g_pHyprOpenGL->renderRect(CBox{(double)(midX - thick / 2), (double)(midY - arm / 2), (double)thick, (double)arm}, col, {});
+}
+
+static void drawTabClose(double cx, double cy, float scale, const CHyprColor& col) {
+    int arm = 0, thick = 0;
+    tabGlyphMetrics(scale, TAB_CLOSE_ARM, arm, thick);
+    const int midX = (int)std::round(cx);
+    const int midY = (int)std::round(cy);
+    const int half = arm / 2;
+    const int o0   = -(thick / 2);
+    for (int i = -half; i <= half; ++i) {
+        plotGlyphWalk(midX + i, midY + i + o0, thick, col);
+        plotGlyphWalk(midX + i, midY - i + o0, thick, col);
+    }
+}
 
 struct TabStrip {
     bool   compact = false;
@@ -913,6 +962,7 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
     const int TAB_MAXW = (int)(TABW * scale) - (int)(28 * scale);
     // Tabs follow the titlebar weight; the same weight for every tab.
     const int TAB_WEIGHT = g_pGlobalState->config.barTextWeight->value().m_value;
+    const double glyphY  = tabGlyphMidY(barBox, s.y, s.h, scale);
 
     if (!s.compact) {
         CBox rowBox = {barBox->x, barBox->y + (int)(s.y * scale), (int)(W * scale), (int)(s.h * scale)};
@@ -942,30 +992,18 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
             g_pHyprOpenGL->renderTexture(it->second, titleBox, {.a = a});
         }
 
-        if (!CLOSEACTIVEONLY || (WINDOWFOCUSED && ISACTIVE)) {
-            const std::string xkey = "x:" + std::to_string(TAB_FONT) + ":" + std::to_string((int)(16 * scale));
-            auto              xit  = m_tabTexs.find(xkey);
-            if (xit == m_tabTexs.end()) {
-                auto tex = g_pHyprRenderer->renderText("✕", CLOSE, TAB_FONT, false, FONT, (int)(16 * scale));
-                xit      = m_tabTexs.emplace(xkey, tex).first;
-            }
-            if (xit->second && xit->second->m_texID != 0) {
-                CBox xBox = {tabBox.x + tabBox.w - (int)(18 * scale), tabBox.y + (int)std::round((tabBox.h - xit->second->m_size.y) / 2.0), xit->second->m_size.x, xit->second->m_size.y};
-                g_pHyprOpenGL->renderTexture(xit->second, xBox, {.a = a});
-            }
-        }
+        if (!CLOSEACTIVEONLY || (WINDOWFOCUSED && ISACTIVE))
+            drawTabClose(tabBox.x + tabBox.w - (TAB_CLOSE_W * scale) / 2.0, glyphY, scale, CHyprColor(CLOSE.r, CLOSE.g, CLOSE.b, CLOSE.a * a));
     }
 
     CBox plusBox = {barBox->x + (int)(s.plusX * scale), barBox->y + (int)(s.y * scale), (int)(TAB_PLUS_W * scale), (int)(s.h * scale)};
-    g_pHyprOpenGL->renderRect(plusBox, CHyprColor(TABIN.r, TABIN.g, TABIN.b, TABIN.a * a), {});
-    const double arm    = std::round(8.0 * scale);
-    const double thick  = std::max(1.0, std::round(1.5 * scale));
-    const double cx     = plusBox.x + plusBox.w / 2.0 + TAB_PLUS_NUDGE * scale;
-    const double cy     = plusBox.y + plusBox.h / 2.0;
+    // Compact: the + sits on the titlebar, so it must not paint a tab-colored
+    // chip — the drag handle to its right is the bar color. The two-row tabbar
+    // keeps a slot on the darker row.
+    if (!s.compact)
+        g_pHyprOpenGL->renderRect(plusBox, CHyprColor(TABIN.r, TABIN.g, TABIN.b, TABIN.a * a), {});
     const CHyprColor plusCol{TEXT.r, TEXT.g, TEXT.b, TEXT.a * a};
-    // Snap the bars to whole pixels so the thin strokes stay crisp.
-    g_pHyprOpenGL->renderRect(CBox{std::round(cx - arm / 2.0), std::round(cy - thick / 2.0), arm, thick}, plusCol, {});
-    g_pHyprOpenGL->renderRect(CBox{std::round(cx - thick / 2.0), std::round(cy - arm / 2.0), thick, arm}, plusCol, {});
+    drawTabPlus(plusBox.x + plusBox.w / 2.0 + TAB_PLUS_NUDGE * scale, glyphY, scale, plusCol);
 }
 
 void CHyprBar::applyEnabled() {

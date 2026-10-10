@@ -26,7 +26,7 @@ read -r left tabw plusx plusw bh <<<"$(compact_strip foot 2)"
 python3 -c "
 left, tabw, plusx, plusw, w = float('$left'), float('$tabw'), float('$plusx'), float('$plusw'), float('$w')
 assert tabw <= 240.01, f'tabs must not stretch past 240px, got {tabw}'
-assert plusx + plusw + 48 <= w + 1, f'no drag handle after the +: plusx={plusx} plusw={plusw} w={w}'
+assert plusx + plusw + 72 <= w + 1, f'no drag handle after the +: plusx={plusx} plusw={plusw} w={w}'
 assert tabw * 2 + left + plusw < w, f'tabs filled the bar: left={left} tabw={tabw} w={w}'
 "
 
