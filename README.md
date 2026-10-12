@@ -74,6 +74,7 @@ The main card:
 * **Native scroll** — natural (reversed) touchpad scrolling
 * **No gaps** — windows sit flush
 * **Compact tabs** — tabs in the titlebar, for every app
+* **Show dock** — the app column on the right edge; off hides it and gives its screen space back to the snap zones
 * **Shortcuts** — the default for every app
 * **Apps** — open one to change its titlebar and shortcuts
 
