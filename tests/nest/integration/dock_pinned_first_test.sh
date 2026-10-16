@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A pinned app comes before the running ones, so with kitty pinned the first icon
-# is kitty even though foot sorts before it alphabetically.
+# is kitty even though foot comes before it in the running column (opened first).
 #
 # The order is read off the dock's own report (`omarchy-x-mode.dock-order`),
 # which the card writes when its published list changes -- the card's box says

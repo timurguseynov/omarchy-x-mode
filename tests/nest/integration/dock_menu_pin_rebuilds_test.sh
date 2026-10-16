@@ -12,7 +12,7 @@ dock_settle
 
 assert_eq "$(dock_box | awk '{print $4}')" 72 "two running apps, no pins"
 
-# Icon 1 is kitty (foot sorts first). Pin it.
+# Icon 1 is kitty (opened second: the running column is in launch order). Pin it.
 read -r px py <<<"$(dock_icon_point 1)"
 pointer_click "$px" "$py" right
 settle

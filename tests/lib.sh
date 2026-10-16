@@ -634,6 +634,10 @@ nest_clean() {
   # reason: a leftover single-instance entry changes the dock's menu for the
   # class it names, which shifts the rows the menu tests click on.
   rm -f "$NEST_STATE/home/.config/omarchy/x-mode-dock.json"
+  # The dock's remembered running order lives there too: a leftover column would
+  # decide the order the next dock test sees, and its order assertions would then
+  # be about the previous scenario's apps.
+  rm -f "$NEST_STATE/home/.config/omarchy/x-mode-dock-order.json"
   rm -rf "$NEST_STATE/home/.local/share/applications"
   # Omarchy's permanent toggles are files it sources on every load, so one a
   # scenario plants (the gaps toggle, to watch the pack retire it) would decide the

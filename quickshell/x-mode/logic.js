@@ -891,8 +891,9 @@ function rectsIntersect(a, b) {
     return a.x < b.x + bw && a.x + aw > b.x && a.y < b.y + bh && a.y + ah > b.y
 }
 
-// Pin-list equality: a new array resizes the dock card, so the caller skips
-// the assign when the list is the same.
+// Plain list equality (pins, the remembered launch order): a new array resizes
+// the dock card or rewrites a state file, so the caller skips the assign when
+// the list is the same.
 function samePins(a, b) {
     if (!a || !b || a.length !== b.length)
         return false
@@ -904,13 +905,17 @@ function samePins(a, b) {
 }
 
 // Dock model: group Hyprland clients by class, pinned first in pin order,
-// then the running rest sorted. Skips unmapped, hidden and empty-class
+// then the running rest in `order` -- the remembered launch order, oldest
+// first, so a new app lands at the bottom (reconcileDockOrder below keeps it).
+// A class the order does not know (a cold start, or a window that just
+// appeared) sorts after the known ones, which is also what makes a run
+// without a state file reproducible. Skips unmapped, hidden and empty-class
 // clients. Each entry is { cls, pinned, running, bestAddr, addrs, ws, wins }
 // where bestAddr is the window with the lowest focusHistoryID, ws maps
 // workspace id -> { addr, title, focus } and wins lists { addr, title, ws,
 // focus }. Pure: no QtQuick, no Hyprland, no side effects (the caller clears
 // its own "launching" flags and decides whether the sig changed).
-function buildDockApps(clients, pinned) {
+function buildDockApps(clients, pinned, order) {
     var byClass = {}
     var list = clients || []
     for (var i = 0; i < list.length; i++) {
@@ -963,11 +968,61 @@ function buildDockApps(clients, pinned) {
         if (!seen[k])
             rest.push(k)
     }
-    rest.sort()
+    // Slot from the remembered order. Unknown classes go after every known one,
+    // and among themselves by name, so several appearing in one event burst
+    // (the compositor's own order is not a thing to rely on) have a stable
+    // place in the column.
+    var slot = {}
+    var ord = order || []
+    for (var o = 0; o < ord.length; o++) {
+        if (slot[ord[o]] === undefined)
+            slot[ord[o]] = o
+    }
+    rest.sort(function(a, b) {
+        var ia = slot[a]
+        var ib = slot[b]
+        if (ia === undefined)
+            return ib === undefined ? (a < b ? -1 : a > b ? 1 : 0) : 1
+        if (ib === undefined)
+            return -1
+        return ia - ib
+    })
     for (var j = 0; j < rest.length; j++) {
         var rk = rest[j]
         out.push({ cls: rk, pinned: false, running: true, bestAddr: byClass[rk].bestAddr, addrs: byClass[rk].addrs, ws: byClass[rk].ws, wins: byClass[rk].wins })
     }
+    return out
+}
+
+// The unpinned column's launch order: `prev` is the order from the last build
+// (or the state file), `classes` the classes running and unpinned now. A class
+// that went away drops out, so an app that quits and comes back is new and
+// goes to the bottom instead of back into its old slot; a class the order has
+// not seen is appended, sorted, so a burst of new windows has a stable order.
+// Returns the list to remember for the next build.
+function reconcileDockOrder(prev, classes) {
+    var running = {}
+    var list = classes || []
+    for (var i = 0; i < list.length; i++)
+        running[list[i]] = true
+    var out = []
+    var seen = {}
+    var old = prev || []
+    for (var j = 0; j < old.length; j++) {
+        var c = old[j]
+        if (running[c] && !seen[c]) {
+            seen[c] = true
+            out.push(c)
+        }
+    }
+    var added = []
+    for (var k in running) {
+        if (!seen[k])
+            added.push(k)
+    }
+    added.sort()
+    for (var m = 0; m < added.length; m++)
+        out.push(added[m])
     return out
 }
 

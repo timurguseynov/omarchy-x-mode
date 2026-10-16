@@ -645,6 +645,50 @@ TestCase {
         compare(after[1].pinned, false)
     }
 
+    function test_buildDockApps_run_order() {
+        // kitty before foot is the reverse of the class sort, so the column says
+        // which of the two orders the model used.
+        var clients = [
+            { address: "0x1", "class": "kitty", mapped: true, title: "k", workspace: { id: 1 }, focusHistoryID: 0 },
+            { address: "0x2", "class": "foot", mapped: true, title: "f", workspace: { id: 1 }, focusHistoryID: 1 }
+        ]
+        compare(Logic.buildDockApps(clients, [], []).map(function(a) { return a.cls }).join(","), "foot,kitty",
+                "with no remembered order the class sort is still the fallback")
+        compare(Logic.buildDockApps(clients, [], ["kitty", "foot"]).map(function(a) { return a.cls }).join(","),
+                "kitty,foot", "the remembered launch order wins over the sort")
+        // A class the order does not know goes after every one it does, sorted,
+        // so a burst of new windows has a stable order.
+        compare(Logic.buildDockApps(clients, [], ["zzz"]).map(function(a) { return a.cls }).join(","), "foot,kitty")
+    }
+
+    function test_buildDockApps_order_keeps_pins_first() {
+        var clients = [
+            { address: "0x1", "class": "foot", mapped: true, title: "f", workspace: { id: 1 }, focusHistoryID: 0 },
+            { address: "0x2", "class": "kitty", mapped: true, title: "k", workspace: { id: 1 }, focusHistoryID: 1 }
+        ]
+        var apps = Logic.buildDockApps(clients, ["kitty"], ["kitty", "foot"])
+        compare(apps[0].cls, "kitty", "the pin list decides the pinned slot, not the launch order")
+        compare(apps[0].pinned, true)
+        compare(apps[1].cls, "foot")
+        compare(apps[1].pinned, false)
+    }
+
+    function test_reconcileDockOrder_new_at_the_bottom() {
+        // New classes are appended sorted, whatever order the caller hands them
+        // over in: several appearing in one build must not depend on the burst.
+        compare(Logic.reconcileDockOrder([], ["kitty", "foot"]).join(","), "foot,kitty")
+        compare(Logic.reconcileDockOrder(["kitty"], ["kitty", "foot"]).join(","), "kitty,foot",
+                "a class that appeared is appended")
+        compare(Logic.reconcileDockOrder(null, ["kitty"]).join(","), "kitty", "a missing order is empty")
+        // A class that quit drops out, so launching it again is a new app and
+        // lands at the bottom instead of back in its old slot.
+        compare(Logic.reconcileDockOrder(["kitty", "foot"], ["foot"]).join(","), "foot")
+        compare(Logic.reconcileDockOrder(["foot"], ["kitty", "foot"]).join(","), "foot,kitty")
+        // Several new classes in one build are appended sorted, not in the
+        // order the model happened to hand them over.
+        compare(Logic.reconcileDockOrder(["foot"], ["foot", "zed", "kitty"]).join(","), "foot,kitty,zed")
+    }
+
     function test_dockAppsSig_covers_titles() {
         var a = Logic.buildDockApps(mkClients(), [])
         var b = Logic.buildDockApps(mkClients(), [])

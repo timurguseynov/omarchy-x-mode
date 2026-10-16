@@ -27,6 +27,12 @@ Item {
   // the callback never arrives, so the card stays one icon tall.
   property var clientBuf: []
   property var pinned: []
+  // The running column's launch order, oldest first, so a new app joins the
+  // bottom of the column (logic.js buildDockApps, kept by reconcileDockOrder).
+  // Persisted next to the pin list, so a shell restart keeps the column instead
+  // of re-sorting it alphabetically.
+  property var classOrder: []
+  property bool classOrderLoaded: false
   property var apps: []
   property string appsSig: ""
   // Apps we just launched (via the dock) that have not appeared yet, so repeated
@@ -63,6 +69,7 @@ Item {
   readonly property bool emptyDock: pinnedApps.length === 0 && runningApps.length === 0
 
   readonly property string pinnedPath: Quickshell.env("HOME") + "/.config/omarchy/x-mode-dock.json"
+  readonly property string classOrderPath: Quickshell.env("HOME") + "/.config/omarchy/x-mode-dock-order.json"
   // What the card is actually showing, one class per line, next to the other
   // files the pack keeps in the runtime directory. The card's box says how many
   // icons there are but not which, and the order is what the click helpers
@@ -110,7 +117,25 @@ Item {
   // logic.js so it is unit tested without a compositor. Only the side
   // effects stay here: clearing "launching" and publishing apps/sig.
   function rebuildApps() {
-    var out = Logic.buildDockApps(clients, pinned)
+    var out = Logic.buildDockApps(clients, pinned, classOrder)
+    // Remember today's running column. A class that quit drops out below and a
+    // class that just appeared is appended at the end, which is what keeps a
+    // new app at the bottom; the model placed it there already, so what is
+    // remembered is the order the card is showing.
+    var running = []
+    for (var r = 0; r < out.length; r++) {
+      if (!out[r].pinned && out[r].running)
+        running.push(out[r].cls)
+    }
+    var next = Logic.reconcileDockOrder(classOrder, running)
+    if (!Logic.samePins(next, classOrder)) {
+      classOrder = next
+      // Only once the state file has been read: the first rebuild runs before
+      // the FileView has loaded, and writing here would replace the remembered
+      // order with the alphabetical fallback on every start.
+      if (classOrderLoaded)
+        classOrderFile.setText(JSON.stringify(next) + "\n")
+    }
     for (var i = 0; i < out.length; i++) {
       // The app appeared: it is no longer "launching".
       if (out[i].running && root.launching[out[i].cls] !== undefined)
@@ -576,6 +601,37 @@ Item {
     id: orderFile
     path: root.orderPath
     printErrors: false
+  }
+
+  // The remembered launch order. The report above says what the card shows now,
+  // this is what it should show next time: a shell restart (a theme switch, a
+  // logout) reads it back instead of re-sorting the column alphabetically.
+  FileView {
+    id: classOrderFile
+    path: root.classOrderPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      root.classOrderLoaded = true
+      var next = []
+      try {
+        var d = JSON.parse(text())
+        if (Array.isArray(d))
+          next = d
+      } catch (e) {}
+      if (root.samePins(root.classOrder, next))
+        return
+      root.classOrder = next
+      root.rebuildApps()
+    }
+    // No file yet, or a read that raced our own write: remember the column as
+    // it stands. Without this the flag would stay false and the state file
+    // would never be written on a machine that has none.
+    onLoadFailed: {
+      root.classOrderLoaded = true
+      root.rebuildApps()
+    }
   }
 
   // Tabbar +. Ignore the leftover on first load so a previous session's file

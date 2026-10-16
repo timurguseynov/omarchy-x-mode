@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Clicking a dock icon focuses and raises that app. The dock lists one icon per
-# class, sorted, with the pinned ones first, so the icon for kitty is the one
-# after foot.
+# class, pinned first and the running ones in launch order, so the icon for kitty
+# is the one after foot (kitty is opened second).
 . "$(dirname "$0")/../../lib.sh"
 
 dock_start
