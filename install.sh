@@ -82,6 +82,19 @@ copy_tree() { # src_dir dst_dir
   manifest_add "$2"
 }
 
+# Remove one of our shell plugins and the backup the CLI leaves behind.
+# `omarchy plugin remove` deletes a plugin folder outright only when it is a
+# symlink or a git checkout; ours is a plain copy, so it moves the folder to
+# .<id>.bak.<ts> instead -- one backup per install or uninstall, 172 of them
+# after a few months of `./uninstall.sh && ./install.sh`. Those are copies of
+# this pack, whose source is this repo, nothing reads them (the plugin scanner
+# skips hidden folders) and they sit in Omarchy's own plugin directory, so drop
+# the backups of our own ids. Plain rm when the CLI is not there at all.
+plugin_remove() { # id
+  omarchy plugin remove "$1" --yes >/dev/null 2>&1 || rm -rf "$PLUGINS_DIR/$1"
+  rm -rf "${PLUGINS_DIR:?}/.$1.bak."* 2>/dev/null || true
+}
+
 plugin_enabled() { # id
   python3 - "$CONFIG/omarchy/shell.json" "$1" <<'PY'
 import json, sys
@@ -156,7 +169,7 @@ print(json.dumps(out))
   log "installing shell plugins"
   # Migrate from the old two-plugin layout (tim.dock + tim.snap-preview).
   for old in tim.dock tim.snap-preview; do
-    omarchy plugin remove "$old" --yes >/dev/null 2>&1 || true
+    plugin_remove "$old"
     rm -rf "$PLUGINS_DIR/$old"
   done
   for d in "$HERE"/quickshell/*/; do
@@ -221,7 +234,7 @@ print(json.dumps(out))
 do_uninstall() {
   log "disabling/removing shell plugins"
   for id in x-mode tim.dock tim.snap-preview; do
-    omarchy plugin remove "$id" --yes >/dev/null 2>&1 || rm -rf "$PLUGINS_DIR/$id"
+    plugin_remove "$id"
   done
   omarchy-shell -q shell rescanPlugins 2>/dev/null || true
 
