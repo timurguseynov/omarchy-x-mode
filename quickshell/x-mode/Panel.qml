@@ -59,6 +59,11 @@ Panel {
   property bool noGaps: false
   property bool compactTabs: false
   property bool workspacesOnFkeys: false
+  // The right-edge dock. On unless the file turned it off: the option arrived
+  // after the dock, so a file written before it keeps its dock. Both halves
+  // follow it -- the dock hides its layer, the pack drops the snap inset -- and
+  // only an explicit false takes the dock away.
+  property bool dockOn: true
   // The card is capped so it never spills past the popup. The app list gets a
   // taller cap than the per-app card: with the fixed content above it, the 480
   // left room for barely two rows before the list had to scroll.
@@ -167,6 +172,11 @@ Panel {
     writeSettings("hyprctl reload >/dev/null")
   }
 
+  function setDock(value) {
+    root.dockOn = !!value
+    writeSettings("hyprctl reload >/dev/null")
+  }
+
   // The panel's whole state in one file, so the options and the app list can
   // never drift apart. `followUp` is the hyprctl call the change needs.
   function writeSettings(followUp) {
@@ -195,7 +205,7 @@ Panel {
       apps[k] = row
     }
     var json = JSON.stringify({
-      options: { nativeScroll: root.nativeScroll, noGaps: root.noGaps, compactTabs: root.compactTabs, workspacesOnFkeys: root.workspacesOnFkeys, lockScreenKey: root.lockKey, keys: root.globalKeys },
+      options: { nativeScroll: root.nativeScroll, noGaps: root.noGaps, compactTabs: root.compactTabs, workspacesOnFkeys: root.workspacesOnFkeys, lockScreenKey: root.lockKey, dock: root.dockOn, keys: root.globalKeys },
       apps: apps
     })
     // Atomic (see Logic.stateWriteCommand): the panel watches this file, and an
@@ -266,6 +276,8 @@ Panel {
       root.noGaps = !!o.noGaps
       root.compactTabs = !!o.compactTabs
       root.workspacesOnFkeys = !!o.workspacesOnFkeys
+      // Absent means on: a file written before the option keeps its dock.
+      root.dockOn = !(o.dock === false)
       root.globalKeys = Logic.migrateGlobalKeys(o.keys)
       root.lockKey = !(o.lockScreenKey === false)
       root.appsCfg = Logic.parseApps((d && d.apps) || {})
@@ -276,6 +288,7 @@ Panel {
       root.noGaps = false
       root.compactTabs = false
       root.workspacesOnFkeys = false
+      root.dockOn = true
       root.globalKeys = ({})
       root.lockKey = true
       root.appsCfg = {}
@@ -820,6 +833,17 @@ Panel {
         checked: root.compactTabs
         rowEnabled: root.xModeOn
         onToggled: root.setCompactTabs(!root.compactTabs)
+      }
+
+      SwitchRow {
+        id: dockRow
+        width: parent.width
+        visible: root.view === "main"
+        label: "Show dock"
+        description: "The app column on the right"
+        checked: root.dockOn
+        rowEnabled: root.xModeOn
+        onToggled: root.setDock(!root.dockOn)
       }
 
       // The keys screen is several rows long, so the main panel gets an entry

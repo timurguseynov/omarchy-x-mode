@@ -349,10 +349,25 @@ end
 -- x-mode-dock layer below, so a change to the card moves the zones with it.
 -- Until that layer exists (the shell starts after this config) the last width
 -- it had is used, and this one only before it has ever been seen.
+-- The panel's "Show dock" row turns the card -- and so this inset -- off with
+-- the dock: the zones then end at the outer gap, as if no dock were there. The
+-- flag is forward-declared here (load_options, far below, is what reads it) and
+-- asked through DOCK_INSET at every publish, so the option is never a copy.
+local dock_on = true
 local DOCK_CARD_FALLBACK = 40
 local dock_card = DOCK_CARD_FALLBACK
+-- The card width is only part of the inset while the dock is shown: with the
+-- option off there is no card to clear, and the inset is the outer gap alone.
+-- Read here rather than at the callers so the no-gap pass (which publishes the
+-- card on its own) cannot put a width back behind the option's back.
+local function DOCK_INSET()
+  if not dock_on then
+    return 0
+  end
+  return dock_card
+end
 local function DOCK_PULL()
-  return dock_card + math.floor(GAP_OUT() / 2)
+  return DOCK_INSET() + math.floor(GAP_OUT() / 2)
 end
 local GROUP_MIN_W       = cfg_int("plugin:hyprbars:x_mode_group_min_width", 400)
 local GROUP_MIN_H       = cfg_int("plugin:hyprbars:x_mode_group_min_height", 300)
@@ -496,6 +511,9 @@ layout.init({
   dock_card = function()
     return dock_card
   end,
+  -- What the right inset actually counts, which the no-gap pass publishes and
+  -- so has to be the option's answer and not the last card the dock had.
+  dock_inset = DOCK_INSET,
   -- The frame numbers the pack publishes. layout.lua asks for them instead of
   -- keeping a copy: a frame that moved is what asks for a re-apply, so the
   -- numbers it compares have to be the ones the plugin was actually told.
@@ -1674,6 +1692,7 @@ local function load_options()
   no_gaps = o.no_gaps
   compact_tabs = o.compact_tabs
   workspaces_fkeys = o.workspaces_fkeys
+  dock_on = o.dock
   lock_key = o.lock_key
   key_flags = o.key_flags
   global_steal = o.global_steal

@@ -44,6 +44,11 @@ Item {
   // to turn an icon's window-local Y into a screen Y for the menu.
   property real dockPanelTop: 0
   property bool xModeOn: true
+  // The panel's "Show dock" option. The dock's own half of it: the layer is
+  // hidden while it is off, and the card stops counting for the snap inset
+  // because no layer is there to be read. Default on, so a file written before
+  // the option existed keeps its dock.
+  property bool dockOn: true
   // Pinned-icon drag reorder (Mac dock style). Track by class so Repeater
   // reshuffles do not flash the icon back to its old slot on drop.
   property string dragCls: ""
@@ -675,6 +680,31 @@ Item {
       root.xModeOn = on
   }
 
+  // The panel's settings file, for the one option the dock reads itself. Same
+  // torn-read rule as everything else here: a read that is not an answer keeps
+  // what the dock is showing.
+  function applySettingsLine(raw) {
+    var d = Logic.readJsonAnswer(raw)
+    if (d === null)
+      return
+    var o = (d && d.options) || {}
+    var next = !(o.dock === false)
+    if (next === root.dockOn)
+      return
+    root.dockOn = next
+    if (!next && root.menuOpen)
+      root.closeMenu()
+  }
+
+  FileView {
+    id: settingsFile
+    path: (Quickshell.env("HOME") || "") + "/.config/hypr/x-mode.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.applySettingsLine(text())
+  }
+
   FileView {
     path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode.state"
     watchChanges: true
@@ -744,7 +774,7 @@ Item {
         PanelWindow {
           id: panel
           screen: modelData
-          visible: root.xModeOn
+          visible: root.xModeOn && root.dockOn
           anchors {
             top: true
             right: true

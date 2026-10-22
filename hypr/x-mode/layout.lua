@@ -539,8 +539,9 @@ function M.zoned_hits(target)
   end
 
   if #rest > 0 then
-    -- No gaps means gaps_out is 0, so the inset is the dock card alone.
-    hl.config({ plugin = { hyprbars = { x_mode_dock_inset = ctx.dock_card() } } })
+    -- No gaps means gaps_out is 0, so the inset is the dock card alone -- or
+    -- nothing at all while the dock is off.
+    hl.config({ plugin = { hyprbars = { x_mode_dock_inset = ctx.dock_inset() } } })
     for _, w in ipairs(rest) do
       local ok, kind = pcall(p.zone, w, { gap = 0, border = 1 })
       if ok and type(kind) == "string" and kind ~= "" and target ~= "no-gap" then
