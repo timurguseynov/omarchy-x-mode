@@ -6,8 +6,18 @@
 -- $X_MODE_STATE state directory for the nest
 -- helpers.lua defines the `o.*` the pack uses; nothing else from Omarchy is
 -- needed for the desktop layer itself.
+--
+-- helpers.lua loads its own modules with require("default.hypr.paths"), and only
+-- bootstrap.lua puts $OMARCHY_PATH/?.lua on package.path, so the bootstrap has to
+-- run first: the live config starts with the same dofile (~/.config/hypr/
+-- hyprland.lua), and this is the one line that makes the nest load the way the
+-- desktop does. Without it the config dies inside helpers.lua, and every
+-- statement below -- the geometry, the planted binds, the pack itself -- is
+-- skipped, which shows up as nest scenarios failing (or passing on the plugin
+-- alone, with no pack loaded).
 o = o or {}
-dofile("/usr/share/omarchy/default/hypr/helpers.lua")
+dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/bootstrap.lua")
+dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/helpers.lua")
 
 hl.config({
   -- The same general values Omarchy's looknfeel.lua sets, so the snap geometry

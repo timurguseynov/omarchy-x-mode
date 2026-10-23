@@ -57,3 +57,55 @@ assert_eq "$(head -n1 "$LOG.status" | grep -c '^session: ')" 0 \
 grep -q '^log: ' "$LOG.status" || fail "an unstamped status file still has the log path"
 
 echo "  ok   async.sh stamps a status file only when a pi session started the run"
+
+# The installer must never write over, or delete, a .so Hyprland has loaded.
+# Hyprland maps the plugin into its own address space and runs its code in place,
+# so the file has to be gone from the compositor's memory before it is touched:
+# a plain `./uninstall.sh && ./install.sh` used to delete the loaded .so with the
+# pack's Lua still calling into it, and the next focus change segfaulted the
+# compositor and took the whole session down (coredump 1419, 2026-10-24).
+#
+# Checked by reading the scripts, not by running them: the failure is a dead
+# compositor, and an assertion cannot outlive it. What is pinned is the order
+# the incident broke -- unwire, reload, unload, then copy or remove.
+INSTALL="$REPO_DIR/install.sh"
+BUILD="$REPO_DIR/hyprbars/build.sh"
+
+# build.sh produces the artifact in the repo; only install.sh places it, and it
+# never names the installed directory or $HOME.
+if grep -qE '^[^#]*(DEST=|\$\{?HOME)' "$BUILD"; then
+  fail "hyprbars/build.sh writes into the installed plugin directory: it would write over a loaded .so"
+fi
+grep -qE '^\s*install -m644 .*hyprbars\.so.*\$HYPRBARS_SO' "$INSTALL" \
+  || fail "install.sh no longer copies the plugin into place"
+
+line_of() { # PATTERN FILE
+  grep -nE -- "$1" "$2" | head -n1 | cut -d: -f1
+}
+
+# do_uninstall: the sentinel comes out and Hyprland reloads before the plugin is
+# unloaded, and the shell plugins (whose layer surfaces walk the input path into
+# the pack's Lua) go last.
+uninstall_block="$TMP/do_uninstall.sh"
+sed -n '/^do_uninstall() {/,/^}/p' "$INSTALL" > "$uninstall_block"
+unwire=$(line_of 'sentinel_remove "\$HYPR/hyprland\.lua"' "$uninstall_block")
+reload=$(line_of 'hyprctl reload' "$uninstall_block")
+unload=$(line_of 'hyprctl plugin unload "\$HYPRBARS_SO"' "$uninstall_block")
+shells=$(line_of 'plugin_remove "\$id"' "$uninstall_block")
+for v in unwire reload unload shells; do
+  [ -n "${!v}" ] || fail "do_uninstall lost its $v step"
+done
+[ "$unwire" -lt "$reload" ] || fail "do_uninstall reloads before it unwires the pack: the Lua state still points into the plugin"
+[ "$reload" -lt "$unload" ] || fail "do_uninstall unloads the plugin before reloading without the pack"
+[ "$unload" -lt "$shells" ] || fail "do_uninstall removes the shell plugins before the plugin is unloaded"
+
+# do_install: the copy happens after the unload, never over a mapped file.
+install_block="$TMP/do_install.sh"
+sed -n '/^do_install() {/,/^}/p' "$INSTALL" > "$install_block"
+load_unload=$(line_of 'hyprctl plugin unload "\$HYPRBARS_SO"' "$install_block")
+copy=$(line_of 'install -m644 .*\$HYPRBARS_SO' "$install_block")
+[ -n "$load_unload" ] || fail "do_install no longer unloads the old plugin"
+[ -n "$copy" ] || fail "do_install no longer copies the plugin into place"
+[ "$load_unload" -lt "$copy" ] || fail "do_install copies the plugin over a loaded .so"
+
+echo "  ok   the installer unloads the plugin before it copies or removes the .so"

@@ -315,8 +315,22 @@ nest_start() {
 
   # setsid makes this pid the process-group leader, so nest_stop can kill the
   # nest without the pattern match that would also kill every other slot.
+  #
+  # The XDG dirs are pinned to the nest's own home as well: HOME alone is not
+  # enough, because a variable inherited from the live session wins over it, and
+  # then a command run inside the nest reads (and writes) the user's config. That
+  # is how a screenshot started in a nest landed in the real ~/Pictures and why
+  # Omasnap, which reads its own config and picks a save directory, could look in
+  # a place the scenario never sees. OMASNAP_SCREENSHOT_DIR makes that directory
+  # the scenario's own, so "the key wrote a file" is a question about the pack and
+  # not about which release's default folder the tool picked.
   setsid env \
     HOME="$NEST_STATE/home" \
+    XDG_CONFIG_HOME="$NEST_STATE/home/.config" \
+    XDG_DATA_HOME="$NEST_STATE/home/.local/share" \
+    XDG_STATE_HOME="$NEST_STATE/home/.local/state" \
+    XDG_CACHE_HOME="$NEST_STATE/home/.cache" \
+    OMASNAP_SCREENSHOT_DIR="$NEST_STATE/home/Pictures" \
     WAYLAND_DISPLAY="$host_socket" \
     XDG_RUNTIME_DIR="$NEST_RUNTIME" \
     X_MODE_LUA="$NEST_LUA" \
@@ -1346,8 +1360,16 @@ image_diff() { # FILE_A FILE_B
 # --- keyboard ----------------------------------------------------------------
 # Press a chord in the nest, e.g. key super+alt+left, key alt+tab, key o. Only
 # chords are needed: a single name is a chord of one.
+#
+# A press that cannot be delivered is a failure, not a no-op. The virtual keyboard
+# tool reports its own errors (no seat, no zwp_virtual_keyboard, keymap refused)
+# and the caller used to throw them away, so a scenario went on to assert against
+# a window no key had reached -- which reads exactly like the pack ignoring the
+# key. One failed press in a loaded suite is what that looked like.
 key() {
-  WAYLAND_DISPLAY="$(nest_display)" "$KEYBOARD_BIN" "$@"
+  local out
+  out="$(WAYLAND_DISPLAY="$(nest_display)" "$KEYBOARD_BIN" "$@" 2>&1)"
+  [ $? = 0 ] || fail "could not press '$*': $out"
 }
 
 # A gesture that has to pause in the middle (open a window, read geometry) needs

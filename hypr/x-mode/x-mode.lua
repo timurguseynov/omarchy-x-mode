@@ -1075,14 +1075,60 @@ end)
 -- cyclenext, which we do not want). Set the group's active index directly:
 -- group.next() briefly focuses something else, and a follow-up focus would
 -- unfocus and refocus the window within one switch.
+--
+-- A window that has no group to step through -- the app's second window that is
+-- not a tab of the first, which is what Hyprland floats a dialog into and what
+-- hyprbars.groupable refuses a tab (KeePassXC's access prompt is a second window
+-- of the class of the vault it asks about) -- steps to the app's next window on
+-- the workspace instead of doing nothing: the keys then reach every window the
+-- app has, which Cmd+Tab cannot (it lists apps, and the app is already one
+-- entry). Order is most recently focused first, the same focus_history_id order
+-- the switcher uses, and it wraps.
+local function switch_app_window(next)
+  local w = hl.get_active_window()
+  if w == nil then
+    return false
+  end
+  local cls = window_class(w)
+  local space = ws_id(w)
+  local list = {}
+  for _, other in ipairs(as_list(hl.get_windows())) do
+    if other.address ~= nil and other.mapped ~= false and not other.hidden and window_class(other) == cls and ws_id(other) == space then
+      list[#list + 1] = other
+    end
+  end
+  local n = #list
+  if n < 2 then
+    return false
+  end
+  table.sort(list, function(a, b)
+    return (tonumber(a.focus_history_id) or 999999) < (tonumber(b.focus_history_id) or 999999)
+  end)
+  local idx = 1
+  for i, other in ipairs(list) do
+    if other.address == w.address then
+      idx = i
+      break
+    end
+  end
+  local target = list[mru.step(idx, n, next and 1 or -1)]
+  if target == nil or target.address == w.address then
+    return false
+  end
+  -- A focus dispatch raises too, so the window that comes up is drawn on top.
+  hl.dispatch(hl.dsp.focus({ window = target }))
+  return true
+end
+
 local function switch_group_tab(next)
   local w = hl.get_active_window()
-  if w == nil or w.group == nil then
+  if w == nil then
     return
   end
-  local members = w.group.members
+  local members = w.group and w.group.members or {}
   local n = #members
   if n < 2 then
+    switch_app_window(next)
     return
   end
   local cur = w.group.current

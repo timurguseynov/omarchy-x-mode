@@ -904,6 +904,75 @@ function samePins(a, b) {
     return true
 }
 
+// One spelling of a window address: Hyprland's events carry it as bare hex, its
+// JSON as 0x-hex. Everything that matches an event against the client list goes
+// through here, so a close is never missed for a formatting difference.
+function addressKey(addr) {
+    var s = String(addr || "").toLowerCase()
+    if (s === "")
+        return ""
+    if (s.indexOf("0x") !== 0)
+        s = "0x" + s
+    return s
+}
+
+// The dock's window list: Hyprland's client snapshot merged into what the dock
+// already holds, `touched` being the addresses an event handled while the query
+// was in flight.
+//
+// The snapshot is the authority on which windows exist. Removal used to be the
+// close event's job alone, so a close the dock did not see -- an event socket
+// that stalled, a window that went away while the shell was busy -- kept the app
+// in the column until the shell restarted: a dock listing KeePassXC, Steam and
+// two more with nothing behind them, while Hyprland's own list had none of them.
+// Now a row the snapshot does not have is gone.
+//
+// The exception is a row an event touched during the query: the snapshot was
+// taken before that event, so a window closed in the meantime must not come
+// back from it, and a window opened in the meantime is not in it yet.
+//
+// Rows are updated in place (the dock owns them) and the returned array is new,
+// so assigning it is one change. What the snapshot owns: `mapped`, `hidden`,
+// `workspace` and `focusHistoryID` are the fields the events do not carry, which
+// is what the periodic query is for.
+function mergeClientSnapshot(current, snapshot, touched) {
+    var hold = touched || {}
+    var snap = snapshot || []
+    var byAddr = {}
+    var i
+    for (i = 0; i < snap.length; i++)
+        byAddr[addressKey(snap[i].address)] = snap[i]
+
+    var next = []
+    var seen = {}
+    var cur = current || []
+    for (i = 0; i < cur.length; i++) {
+        var row = cur[i]
+        var id = addressKey(row.address)
+        seen[id] = true
+        var fresh = byAddr[id]
+        if (!fresh && !hold[id])
+            continue // the snapshot says it is gone
+        if (fresh && !hold[id]) {
+            row.mapped = fresh.mapped
+            row.hidden = fresh.hidden
+            if (fresh.workspace && typeof fresh.workspace.id === "number")
+                row.workspace = { id: fresh.workspace.id }
+            if (typeof fresh.focusHistoryID === "number")
+                row.focusHistoryID = fresh.focusHistoryID
+            if (!row.class)
+                row.class = fresh.class
+        }
+        next.push(row)
+    }
+    for (i = 0; i < snap.length; i++) {
+        var sid = addressKey(snap[i].address)
+        if (!seen[sid] && !hold[sid])
+            next.push(snap[i])
+    }
+    return next
+}
+
 // Dock model: group Hyprland clients by class, pinned first in pin order,
 // then the running rest in `order` -- the remembered launch order, oldest
 // first, so a new app lands at the bottom (reconcileDockOrder below keeps it).

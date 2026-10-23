@@ -154,8 +154,29 @@ print(json.dumps(out))
     log "disabled existing hyprbars (will re-enable on uninstall)"
   fi
 
+  # Hyprland runs the plugin's code in place from the .so, so the file may not be
+  # written over (or deleted) while it is loaded: see hyprbars/build.sh. The
+  # order below is the safe one, and it is what do_uninstall mirrors:
+  #   1. take the pack out of the Lua config, so nothing in Lua can call into the
+  #      plugin any more,
+  #   2. reload: the Lua state is rebuilt without x-mode.lua,
+  #   3. unload the old plugin,
+  #   4. copy the new .so while nothing maps it,
+  #   5. load it, and wire the pack back in at the end of the install.
+  # Doing 3 before 1 leaves the old Lua state holding closures into a plugin that
+  # is gone, and the next focus change calls into nothing. On a reinstall the
+  # config is still the previous one, so the unwiring has to happen here too.
+  if grep -q "^${X_MODE_BEGIN}$" "$HYPR/hyprland.lua" 2>/dev/null; then
+    log "unwiring x-mode before the plugin is replaced"
+    sentinel_remove "$HYPR/hyprland.lua"
+    hyprctl reload >/dev/null 2>&1 || true
+  fi
+
   log "loading patched hyprbars"
   hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
+  mkdir -p "$HYPRBARS_DIR"
+  install -m644 "$HERE/hyprbars/hyprbars.so" "$HYPRBARS_SO" \
+    || warn "could not copy the plugin to $HYPRBARS_SO"
   hyprctl plugin load "$HYPRBARS_SO" >/dev/null 2>&1 || warn "could not load hyprbars now (it will load on next login)"
   # No arrange marker here. This reload is the plugin's (on a fresh install the
   # pack's config is not wired in yet, on a reinstall it is still the previous
@@ -232,18 +253,28 @@ print(json.dumps(out))
 }
 
 do_uninstall() {
-  log "disabling/removing shell plugins"
-  for id in x-mode tim.dock tim.snap-preview; do
-    plugin_remove "$id"
-  done
-  omarchy-shell -q shell rescanPlugins 2>/dev/null || true
-
+  # The order here is the whole point. Hyprland runs the plugin's code in place
+  # from $HYPRBARS_SO, and the pack's Lua calls into it on every focus change
+  # (window.active -> hyprbars.raise). So: unwire the config, reload (the Lua
+  # state is rebuilt without the pack, and nothing in Lua points into the plugin
+  # any more), unload the plugin, and only then take the shell plugins away --
+  # their layer surfaces going unmapped is what walks the input path into that
+  # Lua. Unloading or deleting the .so first, with the pack still wired, is how a
+  # plain uninstall segfaulted the compositor and took the whole session down.
   log "unwiring x-mode from hyprland.lua"
   sentinel_remove "$HYPR/hyprland.lua"
+  hyprctl reload >/dev/null 2>&1 || true
 
   log "unloading patched hyprbars"
   # Deleting the .so does not unload it; unload explicitly so titlebars go away.
   hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
+  # If it is still loaded, its pages are mapped and removing the file would crash
+  # the compositor at the next call into it. Leave the file, and say so.
+  KEEP_SO=""
+  if hyprctl plugin list 2>/dev/null | grep -qF -- "$HYPRBARS_SO"; then
+    KEEP_SO="$HYPRBARS_SO"
+    warn "the plugin is still loaded; keeping $HYPRBARS_SO (removing a loaded .so crashes the compositor). It goes on the next login."
+  fi
 
   # Re-enable a stock hyprbars that was loaded before we replaced it.
   if [ -f "$PRIOR_HYPRBARS" ]; then
@@ -253,6 +284,12 @@ do_uninstall() {
       hyprctl plugin load "$prior" >/dev/null 2>&1 || warn "could not re-enable $prior"
     fi
   fi
+
+  log "disabling/removing shell plugins"
+  for id in x-mode tim.dock tim.snap-preview; do
+    plugin_remove "$id"
+  done
+  omarchy-shell -q shell rescanPlugins 2>/dev/null || true
 
   log "removing installed files"
   rm -f "$HYPR"/conf.d/5x-x-mode-*.lua 2>/dev/null || true
@@ -264,6 +301,8 @@ do_uninstall() {
   if [ -f "$X_MODE_MANIFEST" ]; then
     tac "$X_MODE_MANIFEST" | while IFS= read -r p; do
       [ -n "$p" ] || continue
+      # A plugin that is still loaded keeps its file: see the unload above.
+      [ -n "$KEEP_SO" ] && [ "$p" = "$KEEP_SO" ] && continue
       rm -rf -- "$p"
     done
   fi

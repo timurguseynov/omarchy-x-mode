@@ -592,6 +592,63 @@ TestCase {
         compare(Logic.samePins(null, ["a"]), false)
     }
 
+    // Hyprland writes an address as bare hex in a event and as 0x-hex in its
+    // JSON; a close that does not match its window is a window that never
+    // leaves the dock.
+    function test_addressKey() {
+        compare(Logic.addressKey("55F0"), "0x55f0", "the event's bare hex")
+        compare(Logic.addressKey("0x55F0"), "0x55f0", "the JSON's spelling")
+        compare(Logic.addressKey(""), "")
+        compare(Logic.addressKey(null), "")
+        compare(Logic.addressKey(undefined), "")
+    }
+
+    // The row a window leaves behind when its close never reached the dock: the
+    // snapshot does not list it, so it goes. This is the whole point of the
+    // merge -- removal used to be the close event's job alone.
+    function test_mergeClientSnapshot_drops_what_the_snapshot_lost() {
+        var cur = [
+            { address: "0x1", "class": "steam", mapped: true, hidden: false },
+            { address: "0x2", "class": "foot", mapped: true, hidden: false }
+        ]
+        var snap = [{ address: "0x2", "class": "foot", mapped: true, hidden: false, workspace: { id: 3 }, focusHistoryID: 4 }]
+        var out = Logic.mergeClientSnapshot(cur, snap, ({}))
+        compare(out.length, 1, "the closed app's row is gone")
+        compare(out[0].class, "foot", "the window that is still there stays")
+        compare(out[0].workspace.id, 3, "the snapshot still refreshes the workspace")
+        compare(out[0].focusHistoryID, 4, "and the focus history")
+    }
+
+    function test_mergeClientSnapshot_snapshot_refreshes_mapped_and_hidden() {
+        var cur = [{ address: "0x1", "class": "foot", mapped: true, hidden: false }]
+        var snap = [{ address: "0x1", mapped: false, hidden: true, workspace: { id: 2 }, focusHistoryID: 7 }]
+        var out = Logic.mergeClientSnapshot(cur, snap, ({}))
+        compare(out.length, 1)
+        compare(out[0].mapped, false, "mapped comes from the snapshot")
+        compare(out[0].hidden, true, "so does hidden")
+        compare(out[0].class, "foot", "a class the event gave is kept")
+    }
+
+    // A window touched by an event while the query was in flight is older in the
+    // snapshot than the event. The snapshot must not undo it.
+    function test_mergeClientSnapshot_touched_rows_keep_their_event_state() {
+        var snap = [{ address: "0x1", "class": "steam", mapped: true, workspace: { id: 1 } }]
+        compare(Logic.mergeClientSnapshot([], snap, { "0x1": true }).length, 0,
+                "a window closed during the query is not resurrected")
+
+        var opened = [{ address: "0x9", "class": "kitty", mapped: true, hidden: false, workspace: { id: 5 } }]
+        var merged = Logic.mergeClientSnapshot(opened, snap, { "0x9": true })
+        compare(merged.length, 2, "the window opened during the query is kept, and so is the snapshot's")
+        compare(merged[0].class, "kitty")
+        compare(merged[1].class, "steam")
+
+        var held = [{ address: "0x2", "class": "foot", mapped: true, hidden: false, workspace: { id: 1 } }]
+        var stale = [{ address: "0x2", "class": "foot", mapped: true, hidden: false, workspace: { id: 4 } }]
+        var kept = Logic.mergeClientSnapshot(held, stale, { "0x2": true })
+        compare(kept.length, 1)
+        compare(kept[0].workspace.id, 1, "a touched row keeps what its event said")
+    }
+
     function mkClients() {
         return [
             { address: "0x1", "class": "foot", mapped: true, title: "t1", workspace: { id: 1 }, focusHistoryID: 1 },

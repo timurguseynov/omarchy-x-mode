@@ -375,12 +375,7 @@ Item {
   property var touchedDuringQuery: ({})
 
   function normAddr(addr) {
-    var s = String(addr || "").toLowerCase()
-    if (s === "")
-      return ""
-    if (s.indexOf("0x") !== 0)
-      s = "0x" + s
-    return s
+    return Logic.addressKey(addr)
   }
 
   function splitEvent(data, n) {
@@ -520,6 +515,9 @@ Item {
     return changed
   }
 
+  // The merge itself is logic.js mergeClientSnapshot (unit tested): events say
+  // what changed, the snapshot says what exists. Both halves are needed -- a
+  // window it no longer lists is gone, even if the close event never arrived.
   function absorbClientSnapshot(raw) {
     var snap = []
     try {
@@ -527,48 +525,12 @@ Item {
       if (Array.isArray(d))
         snap = d
     } catch (e) {
+      // A query killed part-way leaves half a document. Keep what the dock has
+      // rather than treating a truncated list as "every window closed".
       return
     }
-    var bySnap = {}
-    var s
-    for (s = 0; s < snap.length; s++)
-      bySnap[normAddr(snap[s].address)] = snap[s]
-    var touched = root.touchedDuringQuery || {}
-    var next = []
-    var seen = {}
-    var i
-    for (i = 0; i < root.clientBuf.length; i++) {
-      var row = root.clientBuf[i]
-      var id = normAddr(row.address)
-      seen[id] = true
-      var fromSnap = bySnap[id]
-      // A close during the query leaves the window touched and already gone.
-      if (touched[id] && !row)
-        continue
-      if (fromSnap && !touched[id]) {
-        row.mapped = fromSnap.mapped
-        row.hidden = fromSnap.hidden
-        // movewindow can be missed while the nest is busy. The snapshot is
-        // the heal: a click then switches to the workspace the window is
-        // actually on, instead of treating it as already focused here.
-        if (fromSnap.workspace && typeof fromSnap.workspace.id === "number")
-          row.workspace = { id: fromSnap.workspace.id }
-        if (typeof fromSnap.focusHistoryID === "number")
-          row.focusHistoryID = fromSnap.focusHistoryID
-        if (!row.class)
-          row.class = fromSnap.class
-      }
-      next.push(row)
-    }
-    for (s = 0; s < snap.length; s++) {
-      var sid = normAddr(snap[s].address)
-      // Closed while the query ran: the event removed it and the snapshot
-      // still has the older copy.
-      if (!seen[sid] && !touched[sid])
-        next.push(snap[s])
-    }
+    root.clientBuf = Logic.mergeClientSnapshot(root.clientBuf, snap, root.touchedDuringQuery)
     root.touchedDuringQuery = ({})
-    root.clientBuf = next
     root.scheduleClientPublish()
   }
 
@@ -697,13 +659,28 @@ Item {
     onTriggered: pinnedFile.reload()
   }
 
-  // Slow reconcile for mapped/hidden. Events cover open, close, move,
+  // Slow reconcile for what the events do not carry: mapped, hidden, and which
+  // windows exist at all (a close event the dock never saw does not keep a
+  // window alive -- the query is the authority). Events cover open, close, move,
   // title and focus, so this does not have to run on every event.
   Timer {
     interval: 3000
     running: true
     repeat: true
     onTriggered: root.refreshClients()
+  }
+
+  // One hung query used to switch the periodic refresh off for good: the
+  // refresh returns while the process still counts as running, and nothing else
+  // ever asks again. A `hyprctl -j clients` that takes this long is dead, not
+  // slow; kill it and let the next tick ask again.
+  Timer {
+    interval: 5000
+    running: clientsProc.running
+    onTriggered: {
+      clientsProc.running = false
+      root.touchedDuringQuery = ({})
+    }
   }
 
   Connections {
