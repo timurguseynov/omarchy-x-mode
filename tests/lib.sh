@@ -174,8 +174,25 @@ build_xdgchild() {
 # every time a window inside it does. The second name covers a build that
 # still calls the toplevel Hyprland. Each update sends the whole rule: a
 # partial one replaces the rest.
+# hyprctl for the host, not for a nest. An agent session keeps
+# HYPRLAND_INSTANCE_SIGNATURE from the login it was started in. After the user
+# logs out and back in, that socket is gone and a plain hyprctl fails closed,
+# which used to abort the run before it printed a line. A signature that still
+# has a socket is left alone: once a nest is up, discovering "the" instance
+# would be a guess between the two.
+host_hyprctl() {
+  local runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" sig="${HYPRLAND_INSTANCE_SIGNATURE:-}"
+  if [ -n "$sig" ] && [ -S "$runtime/hypr/$sig/.socket.sock" ]; then
+    hyprctl "$@"
+    return
+  fi
+  # eval will not search. The oldest instance whose process is still alive is
+  # the host: a nest keeps its socket in its own runtime directory.
+  env -u HYPRLAND_INSTANCE_SIGNATURE hyprctl --instance 0 "$@"
+}
+
 nest_host_rule() { # true|false — render_unfocused
-  local render="${1:-false}" cls name pin=true ws_rule="unset"
+  local render="${1:-false}" cls name pin=true ws_rule="unset" err
   if [ -n "${NEST_WORKSPACE:-}" ]; then
     case "$NEST_WORKSPACE" in
       *[!0-9]*|0)
@@ -191,7 +208,7 @@ nest_host_rule() { # true|false — render_unfocused
       aquamarine) name="x-mode-nest" ;;
       *) name="x-mode-nest-hl" ;;
     esac
-    hyprctl eval "hl.window_rule({
+    err="$(host_hyprctl eval "hl.window_rule({
       name = \"${name}\",
       match = { class = \"${cls}\" },
       float = true,
@@ -202,7 +219,7 @@ nest_host_rule() { # true|false — render_unfocused
       no_initial_focus = true,
       focus_on_activate = false,
       render_unfocused = ${render},
-    })" >/dev/null || return 1
+    })" 2>&1)" || { echo "host window rule failed: $err" >&2; return 1; }
   done
 }
 
@@ -255,7 +272,7 @@ QML
   setsid qs -p "$cfg" > "$NEST_ROOT/host-tick.log" 2>&1 < /dev/null &
   echo $! > "$NEST_ROOT/host-tick.pid"
   for i in $(seq 1 30); do
-    hyprctl layers -j 2>/dev/null | python3 -c '
+    host_hyprctl layers -j 2>/dev/null | python3 -c '
 import json, sys
 data = json.load(sys.stdin) or {}
 for out in data.values():
@@ -287,8 +304,8 @@ nest_host_rule_on() {
 
 nest_host_rule_off() {
   nest_host_tick_stop
-  hyprctl eval 'hl.window_rule({ name = "x-mode-nest", enabled = false })' >/dev/null 2>&1 || true
-  hyprctl eval 'hl.window_rule({ name = "x-mode-nest-hl", enabled = false })' >/dev/null 2>&1 || true
+  host_hyprctl eval 'hl.window_rule({ name = "x-mode-nest", enabled = false })' >/dev/null 2>&1 || true
+  host_hyprctl eval 'hl.window_rule({ name = "x-mode-nest-hl", enabled = false })' >/dev/null 2>&1 || true
 }
 
 nest_start() {
@@ -526,7 +543,7 @@ nest_stop() {
 nest_place_window() {
   local pid="$1" addr="" i
   for i in $(seq 1 25); do
-    addr="$(hyprctl clients -j 2>/dev/null | python3 -c "
+    addr="$(host_hyprctl clients -j 2>/dev/null | python3 -c "
 import json, sys
 for c in json.load(sys.stdin):
     if c.get('pid') == $pid:
@@ -547,16 +564,16 @@ for c in json.load(sys.stdin):
   # The host rule already floats and sizes. These dispatches are the fallback
   # when that rule did not match, and they must not raise the window:
   # alter_zorder top is what pulled it over the desktop on every run.
-  hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"$w\" })" >/dev/null 2>&1 || true
+  host_hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"$w\" })" >/dev/null 2>&1 || true
   # The first configure the host sends can be 0x0 while it is busy mapping
   # several nests. The wayland backend then commits a fallback size, the host
   # rejects that mode, and the nest never gets an output. Keep resizing until
   # the window is actually the box the rule asked for.
   local sz=""
   for i in $(seq 1 15); do
-    hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 1000, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
-    hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
-    sz="$(hyprctl clients -j 2>/dev/null | python3 -c "
+    host_hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 1000, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
+    host_hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
+    sz="$(host_hyprctl clients -j 2>/dev/null | python3 -c "
 import json, sys
 for c in json.load(sys.stdin):
     if c.get('pid') == $pid:

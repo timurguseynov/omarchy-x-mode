@@ -35,6 +35,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <string_view>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -403,6 +404,30 @@ void CHyprBar::onTouchMove(Event::SCallbackInfo& info, ITouch::SMotionEvent e) {
     m_bDraggingThis = true;
 }
 
+// Omarchy's floating buttons name the window as %WINDOW% (address:0x…, the
+// same text hyprctl prints). Left as written, the command asks for a window
+// that does not exist, so close, maximize and minimize all do nothing.
+static std::string commandForWindow(const std::string& cmd, PHLWINDOW w) {
+    constexpr std::string_view token = "%WINDOW%";
+    if (!w || cmd.find(token) == std::string::npos)
+        return cmd;
+
+    const auto address = std::format("0x{:x}", reinterpret_cast<uintptr_t>(w.get()));
+    std::string out;
+    out.reserve(cmd.size() + address.size());
+    for (std::size_t from = 0;;) {
+        const auto at = cmd.find(token, from);
+        if (at == std::string::npos) {
+            out.append(cmd, from, std::string::npos);
+            break;
+        }
+        out.append(cmd, from, at - from);
+        out += address;
+        from = at + token.size();
+    }
+    return out;
+}
+
 void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch::SDownEvent> touchEvent, uint32_t button) {
     m_bTouchEv = touchEvent.has_value();
     if (m_bTouchEv)
@@ -532,7 +557,7 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
 
     if (!ON_DOUBLE_CLICK.empty() &&
         std::chrono::duration_cast<std::chrono::milliseconds>(Time::steadyNow() - m_lastMouseDown).count() < 400 /* Arbitrary delay I found suitable */) {
-        Config::Supplementary::executor()->spawn(ON_DOUBLE_CLICK);
+        Config::Supplementary::executor()->spawn(commandForWindow(ON_DOUBLE_CLICK, PWINDOW));
         m_bDragPending = false;
     } else {
         m_lastMouseDown = Time::steadyNow();
@@ -646,8 +671,7 @@ bool CHyprBar::doButtonPress(Config::INTEGER barPadding, Config::INTEGER barButt
         Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - barButtonPadding - b.size - offset : offset), (BARBUF.y - b.size) / 2.0}.floor();
 
         if (VECINRECT(COORDS, currentPos.x, currentPos.y, currentPos.x + b.size + barButtonPadding, currentPos.y + b.size)) {
-            // hit on close
-            g_pKeybindManager->m_dispatchers["exec"](b.cmd);
+            g_pKeybindManager->m_dispatchers["exec"](commandForWindow(b.cmd, m_pWindow.lock()));
             return true;
         }
 

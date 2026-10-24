@@ -2694,7 +2694,10 @@ end
 -- Super+Alt+F is this same snap: drop the mode, then place the floating box,
 -- which can be dragged. Mode 2 is real fullscreen and stays.
 local function release_hypr_maximize(w)
-  if w == nil then
+  if w == nil or not in_xmode(w) then
+    -- Omarchy's floating titlebar maximizes with this same mode. Undoing it
+    -- there makes her fullscreen button look dead. Only the pack's windows
+    -- are turned into its own snap.
     return
   end
   local internal = w.fullscreen or 0
