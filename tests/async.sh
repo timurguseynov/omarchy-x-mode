@@ -38,12 +38,52 @@ status_text() { # LABEL LOG
   else
     tail -3 "$log"
   fi
-  printf 'ok: %s  FAIL: %s  WARN: %s  NOT RUN: %s\n' \
-    "$(grep -ac $'\033\[32mok' "$log")" \
-    "$(grep -ac FAIL "$log")" \
-    "$(grep -ac 'hyprland reported an error' "$log")" \
-    "$(grep -ac 'NOT RUN' "$log")"
-  grep -a "FAIL" "$log" | head -5
+  # Counted from the verdicts, not from the lines: a scenario that failed in the
+  # main pass and passed on the retry pass at the end is reported as `ok … (retry)`,
+  # and its earlier FAIL line must not still make the run look red.
+  python3 - "$log" <<'PY'
+import re, sys
+
+strip = re.compile(r'\x1b\[[0-9;]*m')
+ok = fail = warn = notrun = 0
+resolved = set()
+fails = []
+for raw in open(sys.argv[1], errors='replace'):
+    line = strip.sub('', raw).rstrip('\n')
+    m = re.match(r'^  (ok|FAIL|NOT RUN) +(\S+)(?: +\(slot \d+\))?(?: +\(retry\))?$', line)
+    if m:
+        status, name = m.group(1), m.group(2)
+        retry = line.rstrip().endswith('(retry)')
+        if status == 'ok':
+            ok += 1
+            if retry:
+                resolved.add(name)
+        elif status == 'FAIL':
+            if retry:
+                fail += 1
+                fails.append(name)
+            else:
+                fails.append((name, retry))
+        else:
+            notrun += 1
+    elif 'hyprland reported an error' in line:
+        warn += 1
+# A main-pass FAIL whose scenario came back green on retry is not a failure, and one
+# scenario that failed twice is one failure, not two.
+real = []
+seen = set()
+for f in fails:
+    name = f[0] if isinstance(f, tuple) else f
+    if name in resolved or name in seen:
+        continue
+    seen.add(name)
+    real.append(name)
+fail = len(real)
+print('ok: %d  FAIL: %d  WARN: %d  NOT RUN: %d' % (ok, fail, warn, notrun))
+for name in real[:5]:
+    print('  ' + name)
+PY
+  grep -a "hyprland reported an error" "$log" | head -5
   # Hyprland's own errors: a parse that died and a Lua callback that threw. They
   # are not scenario failures, and they are not visible anywhere else -- the run
   # can be green while the pack's config threw halfway.

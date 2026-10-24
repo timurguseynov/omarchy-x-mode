@@ -203,6 +203,29 @@ plugin_remove() { # id
 }
 
 plugin_enabled() { # id
+  # The shell's registry is the answer, not shell.json: that file's `plugins`
+  # array carries per-plugin settings, and a plugin enabled through the registry
+  # need not appear in it at all. Asking the file said "not enabled" for a plugin
+  # that was -- which made every install warn, and once left x-mode disabled, so
+  # the dock and the bar widget were simply not there.
+  local answer
+  answer="$(omarchy-shell shell listPlugins 2>/dev/null)"
+  if [ -n "$answer" ]; then
+    printf '%s' "$answer" | python3 -c '
+import json, sys
+try:
+    plugins = json.load(sys.stdin)
+except Exception:
+    sys.exit(2)
+want = sys.argv[1]
+sys.exit(0 if any(p.get("id") == want and p.get("enabled") for p in plugins) else 1)' "$1"
+    case $? in
+      0) return 0 ;;
+      1) return 1 ;;
+    esac
+  fi
+  # No shell to ask (an install from a TTY with the shell down): the file is all
+  # there is.
   python3 - "$CONFIG/omarchy/shell.json" "$1" <<'PY'
 import json, sys
 try:

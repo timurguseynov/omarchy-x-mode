@@ -64,6 +64,17 @@ Pack code, in this repo:
   (`NEST_JOBS=5 NEST_WORKSPACE=5 tests/nest/run.sh <name>`), and only then change pack code. A fix with no
   test that failed first is a guess: the suite is the only thing that can tell a
   later edit from a regression.
+- A scenario that fails in a full run is the agent's to isolate, and it is chased
+  on its own -- `tests/async.sh run <label> bash tests/nest/run.sh <name>` -- not
+  by running the suite again. The whole run is not there to prove that the
+  scenarios work together: it is there to prove that what changed did not break
+  anything that is related to it (the grouping of the dock, the keys of a mode,
+  the plugin under an install). So a red scenario is read alone, first at its own
+  name and then against whatever it shares state with, and the full run comes back
+  as the last check before a commit, not as the way to investigate. The retry pass
+  at the end of a nest run (fresh nests, see `NEST_RETRY` in `tests/nest/run.sh`)
+  already rules out "it landed on a dirty nest"; a scenario that is red after that
+  is a real one, and a full run is not what tells you why.
 - Do not test by hand on the live session. If something needs to be checked
   there, say so and wait: the user will check it. If you need log output, ask
   for it instead of collecting it yourself.
