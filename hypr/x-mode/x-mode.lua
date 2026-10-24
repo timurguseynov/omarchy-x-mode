@@ -454,7 +454,15 @@ end
 -- it had is used, and this one only before it has ever been seen.
 local DOCK_CARD_FALLBACK = 40
 local dock_card = DOCK_CARD_FALLBACK
+-- Declared up here so the dock inset can see it. The panel's No gaps is filled
+-- in when the settings load; until then the desktop's own gap is the margin.
+local no_gaps = false
 local function DOCK_PULL()
+  -- The dock is only on xmode workspaces, and No gaps is only for those, so the
+  -- card sits on the screen edge instead of half a gap in.
+  if no_gaps then
+    return dock_card
+  end
   return dock_card + math.floor(GAP_OUT() / 2)
 end
 local GROUP_MIN_W       = cfg_int("plugin:hyprbars:x_mode_group_min_width", 400)
@@ -1903,14 +1911,13 @@ end
 -- Desktop options (native scroll, compact tabs, Ctrl+1..0 tab switching, no gaps, workspaces
 -- on F1..F10), read from settings.json. Ctrl+1..0 switches group tabs when the
 -- focused app has chrome/titlebar on; otherwise the key is passed through to the
--- app. Off by default, so those shortcuts reach the app. No gaps zeroes the
--- outer and inner gaps and keeps a hairline border. Workspaces on F1..F10 is
--- what gives the pack the Super+1..0 digits (see apply_workspace_keys) -- where
--- they are reserved, handed over or left alone per app; off is Omarchy's layout,
--- Cmd+1..0 on the workspaces.
+-- app. Off by default, so those shortcuts reach the app. No gaps is xmode only:
+-- the desktop's gaps stay, and an xmode workspace gets a rule that zeros its
+-- own. Workspaces on F1..F10 is what gives the pack the Super+1..0 digits (see
+-- apply_workspace_keys) -- where they are reserved, handed over or left alone
+-- per app; off is Omarchy's layout, Cmd+1..0 on the workspaces.
 local native_scroll = false
 local ctrl_tab_binds = {}
-local no_gaps = false
 local compact_tabs = false
 -- Workspace switching on Super+F1..F10 instead of Super+1..0.
 local workspaces_fkeys = false
@@ -1937,32 +1944,137 @@ local function flush_layout()
   end)
 end
 
+-- No gaps is the panel's switch for xmode workspaces only. general:gaps_* stay
+-- whatever Omarchy set, so dwindle, scrolling and her floating keep them. An
+-- xmode workspace gets a rule that zeros its own gaps and leaves a 1px border.
+-- The snap plugin reads that rule, so the zones move with it and nowhere else.
+local gap_rules = {}
+
+local function want_no_gap(id)
+  id = tonumber(id)
+  return no_gaps and id ~= nil and id >= 1 and modes.is_xmode(X_MODE_MODES, id)
+end
+
+local function no_gap_rule(id)
+  id = tonumber(id)
+  if id == nil or id < 1 then
+    return
+  end
+  local existing = gap_rules[id]
+  if existing ~= nil then
+    pcall(function()
+      existing:set_enabled(true)
+    end)
+  end
+  -- The border stays a hairline so two windows do not merge into one. The top
+  -- float gap is the titlebar: hyprbars draws it above the window box.
+  local edge = 1
+  local ok, rule = pcall(hl.workspace_rule, {
+    workspace = tostring(id),
+    gaps_in = 0,
+    gaps_out = 0,
+    border_size = edge,
+    float_gaps = {
+      top = TITLEBAR + edge,
+      left = edge,
+      right = edge,
+      bottom = edge,
+    },
+  })
+  if ok and rule ~= nil then
+    gap_rules[id] = rule
+  end
+end
+
+local function clear_gap_rule(id)
+  id = tonumber(id)
+  local rule = id ~= nil and gap_rules[id] or nil
+  if rule ~= nil then
+    pcall(function()
+      rule:set_enabled(false)
+    end)
+  end
+end
+
+local function each_workspace(fn)
+  local ok, list = pcall(hl.get_workspaces)
+  if not ok or type(list) ~= "table" then
+    return
+  end
+  if #list > 0 then
+    for _, ws in ipairs(list) do
+      fn(ws)
+    end
+  else
+    for _, ws in pairs(list) do
+      fn(ws)
+    end
+  end
+end
+
+local function sync_gap_rules()
+  local seen = {}
+  each_workspace(function(ws)
+    local id = tonumber(ws and ws.id)
+    if id == nil or id < 1 then
+      return
+    end
+    seen[id] = true
+    if want_no_gap(id) then
+      no_gap_rule(id)
+    else
+      clear_gap_rule(id)
+    end
+  end)
+  for id, _ in pairs(X_MODE_MODES.workspaces) do
+    local n = tonumber(id)
+    if n ~= nil and n >= 1 and not seen[n] then
+      seen[n] = true
+      if want_no_gap(n) then
+        no_gap_rule(n)
+      else
+        clear_gap_rule(n)
+      end
+    end
+  end
+  for id, _ in pairs(gap_rules) do
+    if not seen[id] then
+      clear_gap_rule(id)
+    end
+  end
+end
+
+local function xmode_hits(hits)
+  local out = {}
+  for _, hit in ipairs(hits) do
+    local id = tonumber(ws_id(hit.window))
+    if id ~= nil and modes.is_xmode(X_MODE_MODES, id) then
+      out[#out + 1] = hit
+    end
+  end
+  return out
+end
+
 -- The two-layout match a gaps change needs is layout.zoned_hits: it returns
 -- the windows in the *other* layout (matched against the live gaps, then, for
 -- whatever is left, against the no-gap layout), and the pass below applies them.
 local function apply_no_gaps()
   -- Name the zones while the windows are still in the layout they were snapped
-  -- in: change the gaps first and there is nothing left to compare against.
-  local hits = layout.zoned_hits(no_gaps and "no-gap" or "live")
-
-  if no_gaps then
-    pcall(function()
-      hl.config({
-        general = {
-          -- No gaps between windows; keep a hairline border so windows stay
-          -- separable.
-          gaps_in = 0,
-          gaps_out = 0,
-          border_size = 1,
-        },
-      })
-    end)
+  -- in. Turning the option off drops the rules first: those rules are the
+  -- no-gap layout, and matching against them would see a window that is
+  -- already there and leave it.
+  if not no_gaps then
+    sync_gap_rules()
   end
-  -- Snap, float_gaps and the dock inset all read the gap live. This also puts
-  -- the dock inset back after the no-gap pass above moved it.
+  local hits = layout.zoned_hits(no_gaps and "no-gap" or "live")
+  if no_gaps then
+    sync_gap_rules()
+  end
+  -- float_gaps stay the desktop's. The dock inset is the card alone while No
+  -- gaps is on, because the dock only shows on the workspaces this applies to.
   apply_gap_geometry()
   flush_layout()
-  layout.apply_hits(hits)
+  layout.apply_hits(xmode_hits(hits))
 end
 
 local function apply_native_scroll()
@@ -3032,6 +3144,9 @@ end
 -- deal -- restoring whatever box the previous layout left is how they came back
 -- stacked. On a load the boxes are already the pack's and nothing moves.
 local function enter_xmode(id, place)
+  if no_gaps then
+    no_gap_rule(id)
+  end
   for _, win in ipairs(windows_on(id)) do
     if win.mapped and not win.hidden then
       if not win.floating then
@@ -3055,6 +3170,9 @@ end
 -- And gives it back: a tab is the pack's, not Omarchy's, so the group goes, then
 -- the tag, and the window is tiled by whatever mode took the workspace over.
 local function leave_xmode(id)
+  -- Drop the no-gap rule before the windows tile, or dwindle lays them out
+  -- with the gaps this workspace just left behind.
+  clear_gap_rule(id)
   for _, win in ipairs(windows_on(id)) do
     if window_tagged(win, XMODE_TAG) then
       if win.group ~= nil then
@@ -3187,6 +3305,13 @@ assert_follow_mouse()
 hl.on("workspace.active", apply_active_mode)
 hl.on("monitor.focused", apply_active_mode)
 apply_active_mode()
+
+hl.on("workspace.created", function(ws)
+  local id = ws and tonumber(ws.id)
+  if want_no_gap(id) then
+    no_gap_rule(id)
+  end
+end)
 
 -- Where the pack hears about a mode change. Omarchy's own function runs first (its
 -- table, its rules, its tags); then the pack records the mode and hands the

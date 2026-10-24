@@ -806,7 +806,7 @@ Panel {
         width: parent.width
         visible: root.view === "main"
         label: "No gaps"
-        description: "No space between windows"
+        description: "On xmode workspaces"
         checked: root.noGaps
         rowEnabled: root.xModeOn
         onToggled: root.setOptions(root.nativeScroll, !root.noGaps, root.workspacesOnFkeys)

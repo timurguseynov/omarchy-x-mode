@@ -94,7 +94,11 @@ Item {
   // readonly: the inset test overrides it, and x-mode.lua reads the result off
   // the layer rather than keeping its own copy of this sum.
   property int cardWidth: iconSize + pad * 2
-  readonly property int dockGap: Style.gapsOut || 0
+  property bool noGaps: false
+  // No gaps is an xmode setting. The dock only shows there, so its screen
+  // margin goes away with the option instead of following general:gaps_out,
+  // which the other modes still use.
+  readonly property int dockGap: noGaps ? 0 : (Style.gapsOut || 0)
   // Empty dock still paints a one-icon card so it does not collapse to a pill.
   readonly property int minIconsHeight: iconSize
   // Dock corner radius, following the window rounding (decoration:rounding via
@@ -726,6 +730,26 @@ Item {
     // No file: an install that has not loaded the config yet, or a pack without the
     // publication. Show the dock rather than take it away.
     onLoadFailed: root.workspaceMode = ""
+  }
+
+  FileView {
+    id: gapsFile
+    path: (Quickshell.env("HOME") || "") + "/.config/hypr/x-mode.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    function take(raw) {
+      var on = false
+      try {
+        var parsed = JSON.parse(String(raw || ""))
+        on = !!(parsed && parsed.options && parsed.options.noGaps)
+      } catch (e) {
+        on = false
+      }
+      root.noGaps = on
+    }
+    onLoaded: gapsFile.take(text())
+    onLoadFailed: root.noGaps = false
   }
 
   FileView {

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# The dock's distance from the screen edge is half of general:gaps_out, and it is
-# re-read when Hyprland reports configreloaded. Editing the gaps used to leave the
-# dock at the old distance until the shell was restarted.
+# The dock's distance from the screen edge is half of general:gaps_out, and No
+# gaps drops that margin because the dock only shows on an xmode workspace.
+# The dock reads the setting itself: general:gaps_out stays the desktop's, so
+# the other modes keep their gaps. Editing the gaps used to leave the dock at
+# the old distance until the shell was restarted.
 #
 # The gap change has to come through a reload: `hyprctl keyword` is not written to
 # the config file, so the reload that emits configreloaded would put the old value

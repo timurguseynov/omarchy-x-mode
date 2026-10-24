@@ -654,7 +654,7 @@ void CHyprBar::moveDragWindow(const Vector2D& coords) {
     if (MON) {
         const auto TOP    = MON->m_reservedArea.top();
         const auto CHROME = (double)Snap::chromeH(PWINDOW);
-        const auto LIMIT  = TOP + (double)Snap::border();
+        const auto LIMIT  = TOP + (double)Snap::border(PWINDOW);
         if (newPos.y - CHROME < LIMIT)
             newPos.y = LIMIT + CHROME;
     }

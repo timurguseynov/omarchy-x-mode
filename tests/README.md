@@ -194,7 +194,8 @@ one pixels test needs `grim` and ImageMagick's `compare` (`magick`).
 | `integration/new_tab_appends_test.sh` | a new same-app window is the last tab, not the slot after the current one |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/no_gaps_free_window_stays_test.sh` | No gaps re-lays out a snapped window and leaves a free one alone |
-| `integration/no_gaps_keeps_border_test.sh` | No gaps collapses the gaps, keeps the 1px border, and restores both |
+| `integration/no_gaps_keeps_border_test.sh` | No gaps keeps a 1px border on the xmode workspace and leaves the desktop gaps |
+| `integration/no_gaps_xmode_only_test.sh` | No gaps pulls an xmode window to the edge and leaves dwindle its gaps |
 | `integration/no_gaps_symmetric_insets_test.sh` | every inset changes with the gaps and every one comes back |
 | `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
 | `integration/oversized_snap_anchors_test.sh` | a snap smaller than the client minimum keeps the snapped edge and overhangs |

@@ -88,7 +88,7 @@ The main card:
 
 * **X Mode** on or off
 * **Native scroll** — natural (reversed) touchpad scrolling
-* **No gaps** — windows sit flush
+* **No gaps** — windows sit flush, on an xmode workspace only
 * **Compact tabs** — tabs in the titlebar, for every app
 * **Shortcuts** — the default for every app
 * **Apps** — open one to change its titlebar and shortcuts

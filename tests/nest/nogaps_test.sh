@@ -28,7 +28,7 @@ printf '%s\n' '{"options":{"nativeScroll":false,"ctrlTabSwitch":false,"noGaps":t
 nest_ctl reload >/dev/null
 sleep 0.6
 
-assert_eq "$(gaps_out)" 0 "gaps_out is zero while No gaps is on"
+assert_eq "$(gaps_out)" "$base_out" "no gaps leaves the desktop gaps alone"
 read -r _ y w _ _ <<<"$(win_geom foot)"
 assert_ne "$w" "$before_w" "the snapped window re-laid out"
 assert_ge "$y" 25 "still below the bar"
@@ -38,11 +38,11 @@ nest_ctl reload >/dev/null
 wait_until 5 '[ "$(gaps_out)" = "$base_out" ]' || fail "turning No gaps off left gaps_out at $(gaps_out), not the desktop's $base_out"
 assert_eq "$(gaps_out)" "$base_out" "turning No gaps off gives the desktop's gaps back"
 
-# And the same for the whole desktop: the gaps are an x-mode setting, so switching
-# x-mode off has to leave the tiling desktop with its own gaps.
+# The gaps are an xmode setting, so they are never taken off the desktop.
+# Switching the pack off has to leave the tiling desktop with its own gaps.
 printf '%s\n' '{"options":{"noGaps":true},"apps":{}}' > "$SETTINGS"
 nest_ctl reload >/dev/null
-wait_until 5 '[ "$(gaps_out)" = 0 ]' || fail "No gaps did not come back on for the off test"
+wait_until 5 '[ "$(gaps_out)" = "$base_out" ]' || fail "No gaps changed the desktop gaps to $(gaps_out), not $base_out"
 printf '%s\n' 'off' > "$NEST_STATE/state/enabled"
 nest_ctl reload >/dev/null
 wait_until 5 '[ "$(gaps_out)" = "$base_out" ]' || fail "x-mode off left gaps_out at $(gaps_out), not the desktop's $base_out"

@@ -147,7 +147,7 @@ void CDragSession::moveWindow(const Vector2D& coords) {
         // box, so leave border_size below the reserved top or it overlaps the bar.
         const auto TOP    = MON->m_reservedArea.top();
         const auto CHROME = sc<double>(Snap::chromeH(PWINDOW));
-        const auto LIMIT  = TOP + sc<double>(Snap::border());
+        const auto LIMIT  = TOP + sc<double>(Snap::border(PWINDOW));
         if (newPos.y - CHROME < LIMIT)
             newPos.y = LIMIT + CHROME;
     }
@@ -169,7 +169,7 @@ void CDragSession::updatePreview() {
         return;
     }
     const auto mon = State::monitorState()->query().vec(cursor).run();
-    const auto box = Snap::zoneBox(m_zone, mon);
+    const auto box = Snap::zoneBox(m_zone, mon, w);
     if (!box) {
         setPreview("hide");
         return;
