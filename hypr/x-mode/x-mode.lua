@@ -260,15 +260,22 @@ hl.config({
   },
 })
 
--- Instant window appearance and movement on the pack's own workspaces: a new
--- same-app window must jump to the existing window's position in the same frame,
--- and switching a group tab must not animate borders (it looked like a flicker).
--- Everywhere else these are Omarchy's, so they follow the active workspace's mode
--- (apply_animations, with the other mode switches at the end of this file). The
--- leaves are turned back *on*, not restored to a remembered value: Hyprland does
--- not report an animation leaf through hyprctl, and Omarchy ships them on.
-local ANIMATION_LEAVES = { "windowsIn", "windowsOut", "windowsMove", "fadeIn", "fadeOut", "border" }
-local apply_animations
+-- Instant window appearance and movement: a new same-app window must jump to
+-- the existing window's position in the same frame, and switching a group tab must
+-- not animate borders (it looked like a flicker).
+--
+-- Off for the whole compositor, not per workspace: turning a leaf back *on* needs its
+-- speed and bezier (`hl.animation` refuses a leaf with no `speed`), and Hyprland does
+-- not report an animation leaf's settings (hyprctl says "no such option" for one), so
+-- a mode switch could only put a guessed curve in Omarchy's place. One animation tree
+-- for the compositor, then, with the pack's leaves quiet everywhere.
+
+hl.animation({ leaf = "windowsIn", enabled = false })
+hl.animation({ leaf = "windowsOut", enabled = false })
+hl.animation({ leaf = "windowsMove", enabled = false })
+hl.animation({ leaf = "fadeIn", enabled = false })
+hl.animation({ leaf = "fadeOut", enabled = false })
+hl.animation({ leaf = "border", enabled = false })
 
 -- Desktop-style window rules: the pack floats the windows on its own workspaces.
 -- Registered here, early, and not from a helper later in the file: window rules
@@ -2725,6 +2732,20 @@ hl.on("window.open", function(w)
 end)
 
 hl.on("window.close", function(w)
+  -- Hyprland 0.56.2 segfaults when a window that is still in a group unmaps: its
+  -- unmapWindow runs CGroup::remove -> updateWindowVisibility -> CWindow::setInputBlocked
+  -- with the window's surface already being destroyed (measured this session: nests
+  -- died mid-run with exactly that stack, and every scenario after them on that nest
+  -- read nonsense -- an ipc error, a monitor at 1763, windows that never mapped).
+  -- window.close is emitted from the same function, a few lines *before* that removal,
+  -- so taking the closing window out of its group here leaves nothing for the removal
+  -- to walk. The window is going away either way; this only means the group does not
+  -- have to be told about it during the teardown.
+  if w ~= nil and w.group ~= nil then
+    pcall(function()
+      hl.dispatch(hl.dsp.window.move({ out_of_group = true, window = w }))
+    end)
+  end
   -- The restore point dies with the window: a later window at the same address
   -- must not inherit its box.
   layout.forget(w)
@@ -3085,20 +3106,6 @@ local function apply_all_modes(place)
   end
 end
 
--- The animations the pack wants off (windowsIn/Out/Move, the fades, the border)
--- belong to Omarchy on her workspaces, so they are set per active mode rather than
--- once at load. Hyprland keeps one animation tree for the whole compositor: this is
--- the closest a per-workspace wish gets, and it is what the eye sees -- the workspace
--- you are looking at either animates or it does not.
-apply_animations = function()
-  local workspace = hl.get_active_workspace()
-  local id = workspace and workspace.id
-  local ours = (id == nil and X_MODE_MODES.default == modes.XMODE) or (id ~= nil and modes.is_xmode(X_MODE_MODES, id))
-  for _, leaf in ipairs(ANIMATION_LEAVES) do
-    hl.animation({ leaf = leaf, enabled = not ours })
-  end
-end
-
 -- The dock is a layer surface, so it belongs to the monitor and not to a
 -- workspace: "the dock on xmode desktops only" is the dock hiding itself, and it
 -- cannot read this Lua state. The active workspace's mode is published next to the
@@ -3125,7 +3132,6 @@ publish_active_mode = function()
 end
 
 local function apply_active_mode()
-  apply_animations()
   publish_active_mode()
 end
 

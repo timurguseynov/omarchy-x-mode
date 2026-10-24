@@ -450,20 +450,25 @@ nest_bar_spawn() {
 }
 
 nest_bar_start() {
-  local _ attempt
-  # One attempt. Retrying (four spawns, four seconds each) meant a nest that sat
-  # there for the better part of a minute with nothing on screen to say what it was
-  # waiting for, and the retry never told a real nest problem from a slow one: a bar
-  # that misses is reported, the slot gives up, and the scenarios it did not reach
-  # stay in the queue for the others. Run again by hand when you want another try.
-  attempt=1
-  if nest_bar_spawn; then
-    for _ in $(seq 1 40); do
-      nest_bar_ready && return 0
-      sleep 0.1
-    done
-    nest_bar_stop
-  fi
+  local attempt _
+  # This is bring-up, not a test: the shell has to bind the nest's output, and on a
+  # loaded machine the first one sometimes connects before the output is there ("bar
+  # reserved '' with the output 'none'") or is dropped while several nests map. A
+  # bar that misses is retried a few times inside the same nest -- spawn, wait four
+  # seconds, throw the shell away and try again. What is *not* retried is the nest
+  # itself or a scenario: a slot whose bar cannot be brought up gives up and says so,
+  # and its scenarios stay in the queue for the others.
+  for attempt in 1 2 3 4; do
+    if nest_bar_spawn; then
+      for _ in $(seq 1 40); do
+        nest_bar_ready && return 0
+        sleep 0.1
+      done
+      nest_bar_stop
+    else
+      sleep 0.3
+    fi
+  done
   # return, do not exit: fail() ends the worker and the caller's cleanup with it.
   # The output is printed with it: an empty reserved top says the nest has no
   # output at all, '0' that it has one and the bar reserved nothing on it, and
@@ -639,6 +644,12 @@ nest_clean() {
   local addrs a i
   addrs="$(nest_query addrs)"
   for a in $addrs; do
+    # Out of its group before the client goes: Hyprland 0.56.2 segfaults when a
+    # window that is a tab is destroyed -- CWindow::unmapWindow -> CGroup::remove ->
+    # updateWindowVisibility -> setInputBlocked (cores at 05:53, 05:58, 06:03 in this
+    # session, on a run that then lost every slot with it). Ungrouping first is the
+    # same end state, reached one dispatch earlier.
+    nest_ctl dispatch "hl.dsp.window.move({ out_of_group = true, window = 'address:$a' })" >/dev/null 2>&1 || true
     nest_ctl dispatch "hl.dsp.window.close({ window = 'address:$a' })" >/dev/null 2>&1 || true
   done
   # A close is a client round-trip, and the next scenario's open_window() counts

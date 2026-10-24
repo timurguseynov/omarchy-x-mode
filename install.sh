@@ -508,8 +508,15 @@ for c in cur:
     if c.get("grouped"):
         disp(f'hl.dsp.window.move({{ out_of_group = true, window = "{w}" }})')
     p = prior_by.get(addr)
-    # Windows opened while the pack was installed (no snapshot) go back to tiling.
-    want_float = bool(p.get("floating")) if p is not None else False
+    # The window's own tag decides, and the snapshot only breaks the tie: a window
+    # carrying the pack's tag is one the *pack* floated, whatever the snapshot says.
+    # The snapshot is taken at install time and cannot be trusted for that -- an
+    # install that ran while the pack was already on (a reinstall) recorded every
+    # window as floating, and the next uninstall then "restored" them to floating,
+    # which is how windows stayed floating after an uninstall.
+    tags = [str(t) for t in (c.get("tags") or [])]
+    pack_floated = any(t == "xmode-workspace" or t == "xmode-workspace*" for t in tags)
+    want_float = (bool(p.get("floating")) if p is not None else False) and not pack_floated
     if want_float:
         if not c.get("floating"):
             disp(f'hl.dsp.window.float({{ action = "enable", window = "{w}" }})')
