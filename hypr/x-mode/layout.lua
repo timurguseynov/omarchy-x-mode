@@ -705,11 +705,17 @@ end
 -- Deal the open windows across the workspace: a lone group centred, two or more
 -- alternating left and right. The decision is the pure plan_arrange; this only
 -- collects what it needs and applies what it returns.
-function M.arrange()
+function M.arrange(only_space)
   local entries = {}
   for _, w in ipairs(windows()) do
     w = ctx.refresh(w) or w
-    if w.mapped and not w.hidden and not fullscreen(w) and w.monitor ~= nil then
+    -- Another mode's window is not the pack's to deal. The install arrange claims
+    -- those workspaces as xmode first; one that is still dwindle or scrolling
+    -- stays where its layout put it. only_space is a mode change: that one
+    -- workspace is dealt, and a window already sitting on another xmode
+    -- workspace is left where the user has it.
+    local on_space = only_space == nil or tostring(ctx.space_of(w)) == tostring(only_space)
+    if on_space and w.mapped and not w.hidden and not fullscreen(w) and w.monitor ~= nil and ctx.in_xmode(w) then
       entries[#entries + 1] = { key = w, class = ctx.class_of(w), space = ctx.space_of(w) }
     end
   end

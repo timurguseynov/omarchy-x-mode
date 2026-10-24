@@ -2890,15 +2890,17 @@ layout.frame_changed()
 -- the config loads: after an install/reload re-floats windows, or when several
 -- same-app windows were opened while the config was reloading, they can end up
 -- spread across separate groups. Pick a grouped window as the leader when there
--- is one, so the group keeps its position.
-function consolidate()
+-- is one, so the group keeps its position. only_id limits it to one workspace,
+-- which is what a mode change wants: the others are not part of this deal.
+function consolidate(only_id)
   local windows = as_list(hl.get_windows())
   if type(windows) ~= "table" then
     return
   end
   local by_class = {}
   for _, w in ipairs(windows) do
-    if not skip_group(w) then
+    local on_space = only_id == nil or tostring(ws_id(w)) == tostring(only_id)
+    if on_space and not skip_group(w) then
       local key = window_class(w) .. ":" .. tostring(ws_id(w))
       by_class[key] = by_class[key] or {}
       table.insert(by_class[key], w)
@@ -3027,9 +3029,11 @@ local function windows_on(id)
 end
 
 -- The pack takes the workspace: its windows carry the tag, and the tiled ones are
--- floated. `place` is for a mode change -- those windows were laid out by the mode
--- that had them, so they also go where the pack puts an unsnapped window. On a
--- load the boxes are already the pack's (layout.load_restore) and nothing moves.
+-- floated. `place` is a mode change. The panel's switch-on deals the open windows
+-- (one app centred, two or more split left and right, same-app windows already
+-- one group), and arriving through the cycle or the menu has to do that same
+-- deal -- restoring whatever box the previous layout left is how they came back
+-- stacked. On a load the boxes are already the pack's and nothing moves.
 local function enter_xmode(id, place)
   for _, win in ipairs(windows_on(id)) do
     if win.mapped and not win.hidden then
@@ -3043,10 +3047,11 @@ local function enter_xmode(id, place)
       if not window_tagged(win, XMODE_TAG) then
         set_window_tag(win, XMODE_TAG, true)
       end
-      if place then
-        layout.snap("restore", win)
-      end
     end
+  end
+  if place then
+    consolidate(id)
+    layout.arrange(id)
   end
 end
 
@@ -3235,8 +3240,14 @@ do
   if type(bars) == "table" and type(bars.add_button) == "function" and not bars._xmode_button_wrapped then
     local add_button = bars.add_button
     bars.add_button = function(button)
-      if in_omarchy_mode and bars.omarchy_button then
-        return bars.omarchy_button(button)
+      if in_omarchy_mode then
+        if bars.omarchy_button then
+          return bars.omarchy_button(button)
+        end
+        -- An older plugin has no second list. Her three buttons would join the
+        -- pack's one close button, and the bar draws every button it has: one
+        -- small circle and her three big ones, on the same titlebar.
+        return
       end
       return add_button(button)
     end
@@ -3265,6 +3276,9 @@ if type(omarchy_workspace_mode) == "function" then
       -- their boxes: this is not a placement, only who owns them.
       apply_all_modes(false)
       assert_follow_mouse()
+      -- The dock reads the published mode. Changing the default does not move
+      -- the focus, so workspace.active will not publish it.
+      publish_active_mode()
       return
     end
 
@@ -3286,9 +3300,57 @@ if type(omarchy_workspace_mode) == "function" then
   end
 end
 
+-- An install (and switching the pack back on) drops an arrange marker and deals
+-- the open windows out as the pack's desktop. That deal floats them. The
+-- titlebar is drawn only for the pack's tag, and the tag is applied only on an
+-- xmode workspace, so a workspace that was still dwindle ended up floating with
+-- no bar. Claim those workspaces before the deal: the mode file is what the
+-- next login replays, and enter_xmode tags the windows that are already open.
+local function arrange_marker_present()
+  local file = io.open(X_MODE_STATE .. "/arrange", "r")
+  if file == nil then
+    return false
+  end
+  file:close()
+  return true
+end
+
+local function write_workspace_mode(id, mode)
+  local dir = workspace_layouts_dir()
+  os.execute("mkdir -p " .. string.format("%q", dir))
+  local file = io.open(dir .. "/" .. tostring(id) .. ".lua", "w")
+  if file == nil then
+    return
+  end
+  file:write(string.format('o.workspace_mode({ workspace = "%s", mode = "%s" })\n', tostring(id), mode))
+  file:close()
+end
+
+function x_mode.claim_arranged()
+  if not arrange_marker_present() then
+    return
+  end
+  local seen = {}
+  for _, w in ipairs(as_list(hl.get_windows())) do
+    local win = refresh_window(w) or w
+    local id = tonumber(ws_id(win))
+    if id ~= nil and id >= 1 and not seen[id] then
+      seen[id] = true
+      if not modes.is_xmode(X_MODE_MODES, id) then
+        write_workspace_mode(id, modes.XMODE)
+        modes.set(X_MODE_MODES, id, modes.XMODE)
+      end
+      enter_xmode(id, false)
+    end
+  end
+  publish_active_mode()
+end
+
 -- The modes were replayed before this file was required, so the windows that were
 -- already open are in Omarchy's layout: on the pack's workspaces they are tagged
--- and floated here. New windows get both from the rule.
+-- and floated here. New windows get both from the rule. An install's marker
+-- claims the occupied workspaces first, so this pass tags them too.
+x_mode.claim_arranged()
 apply_all_modes(false)
 
 -- The layout cycle is Omarchy's key with a fourth layout in it: the pack's own

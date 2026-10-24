@@ -424,17 +424,29 @@ nest_bar_spawn() {
   # qs started on that blip binds no real screen, and "wide enough" is true of
   # the rejected mode as well -- so what is waited for is one non-zero size that
   # holds. Eighth tenths of a second is a configure cycle on a loaded host.
-  local ready=0 streak=0 size="" held=""
+  local ready=0 streak=0 zero=0 size="" held=""
   for i in $(seq 1 100); do
     size="$(nest_output_size 2>/dev/null || true)"
     if [ -n "$size" ] && [ "$size" != "0x0" ] && [ "$size" = "$held" ]; then
       streak=$((streak + 1))
+      zero=0
       if [ "$streak" -ge 8 ]; then
         ready=1
         break
       fi
     else
       streak=0
+      # A nest whose output stays 0x0 is not going to grow one. Sitting out the
+      # whole ten seconds, and then the bar's other attempts, is how a NOT RUN
+      # waited a minute before the result could be sent.
+      if [ -z "$size" ] || [ "$size" = "0x0" ]; then
+        zero=$((zero + 1))
+        if [ "$zero" -ge 30 ]; then
+          return 2
+        fi
+      else
+        zero=0
+      fi
     fi
     held="$size"
     sleep 0.1
@@ -450,21 +462,27 @@ nest_bar_spawn() {
 }
 
 nest_bar_start() {
-  local attempt _
+  local attempt rc
   # This is bring-up, not a test: the shell has to bind the nest's output, and on a
   # loaded machine the first one sometimes connects before the output is there ("bar
   # reserved '' with the output 'none'") or is dropped while several nests map. A
   # bar that misses is retried a few times inside the same nest -- spawn, wait four
   # seconds, throw the shell away and try again. What is *not* retried is the nest
   # itself or a scenario: a slot whose bar cannot be brought up gives up and says so,
-  # and its scenarios stay in the queue for the others.
+  # and its scenarios stay in the queue for the others. An output that never leaves
+  # 0x0 is not one of those misses: another bar on the same nest waits the same
+  # stretch and ends the same way, so the slot gives up on the first one.
   for attempt in 1 2 3 4; do
-    if nest_bar_spawn; then
+    nest_bar_spawn
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
       for _ in $(seq 1 40); do
         nest_bar_ready && return 0
         sleep 0.1
       done
       nest_bar_stop
+    elif [ "$rc" -eq 2 ]; then
+      break
     else
       sleep 0.3
     fi

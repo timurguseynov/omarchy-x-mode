@@ -190,7 +190,11 @@ worker() { # SLOT
     nest_stop
     return 2
   fi
-  local t name out rc=0 errors_seen check_errors
+  local t name out rc=0 errors_seen check_errors spid start limit timed src
+  # A scenario that never returns used to hold the slot until someone killed the
+  # run, and the status file -- the thing that reports back -- is written only
+  # when the run ends. Ninety seconds is past anything a scenario actually does.
+  limit="${NEST_SCENARIO_TIMEOUT:-90}"
   # Anything the nest already reports at startup -- the first parse happens before
   # the plugin exists, so its plugin:* keys are unknown then -- is the baseline:
   # it is not news, and it is not a scenario's fault.
@@ -216,7 +220,29 @@ worker() { # SLOT
     # run, and run again by hand when the reason is known -- an automatic second
     # pass hides which of the two runs the answer is about, and a scenario that only
     # passes on the second try is a different problem from one that passes.
-    if bash "$t" >"$out" 2>&1; then
+    # Its own session, so the deadline can kill the windows it opened and not the
+    # nest. A hung scenario used to keep the run from ever saying NOT RUN.
+    setsid bash "$t" >"$out" 2>&1 &
+    spid=$!
+    start=$SECONDS
+    timed=0
+    while kill -0 "$spid" 2>/dev/null; do
+      if [ $((SECONDS - start)) -ge "$limit" ]; then
+        timed=1
+        kill -- "-$spid" 2>/dev/null || true
+        sleep 0.4
+        kill -9 -- "-$spid" 2>/dev/null || true
+        break
+      fi
+      sleep 0.5
+    done
+    wait "$spid" 2>/dev/null
+    src=$?
+    if [ "$timed" = 1 ]; then
+      echo "timed out after ${limit}s; a hung scenario is stopped so the run can report" >>"$out"
+      src=1
+    fi
+    if [ "$src" = 0 ]; then
       report ok "$name" "$out"
     else
       report fail "$name" "$out"

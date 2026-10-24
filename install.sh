@@ -80,7 +80,12 @@ PY
 }
 sentinel_add() {
   [ -f "$1" ] || return 0
-  sentinel_remove "$1"
+  # Only the block at the end. sentinel_remove also drops the early plugin
+  # guard, and calling it here wiped that guard on every install.
+  if [ -f "$1" ]; then
+    sed -i "/^${X_MODE_BEGIN}$/,/^${X_MODE_END}$/d" "$1"
+    sentinel_trim "$1"
+  fi
   # One blank line before the block; trim already cleared leftover gaps.
   printf '\n%s\n%s\n%s\n' "$X_MODE_BEGIN" "$X_MODE_LOAD" "$X_MODE_END" >> "$1"
 }
@@ -94,6 +99,14 @@ PLUGINS_DIR="$CONFIG/omarchy/plugins"
 MENU_JSONC="$CONFIG/omarchy/extensions/omarchy-menu.jsonc"
 MENU_BEGIN="// >>> omarchy-x-mode >>>"
 MENU_END="// <<< omarchy-x-mode <<<"
+# The bar's workspace numbers are Omarchy's widget. Its click cycles her three
+# layouts and draws xmode with the tiling glyph, so the click looks like it
+# does nothing. A copy of that widget, with her command pointed at the pack's
+# cycle and a glyph of its own, takes the same slot in the user's shell.json.
+SHELL_JSON="$CONFIG/omarchy/shell.json"
+WORKSPACES_SRC="/usr/share/omarchy/shell/plugins/bar/widgets/Workspaces.qml"
+WORKSPACES_PLUGIN="x-mode-workspaces"
+WORKSPACES_ID="x-mode.workspaces"
 
 # Our patched plugin gets its own file name so it never clobbers a stock
 # hyprbars the user may already have. A stock one found loaded is disabled on
@@ -169,7 +182,10 @@ row = (
     '  "trigger.appearance.workspace-layout.xmode": {'
     '"icon":"","label":"X Mode","description":"The pack\'s floating desktop",'
     '"checked":"[[ $(' + action + ' default) == \\"xmode\\" ]]",'
-    '"action":"' + action + ' default xmode"}'
+    # The row sits with the default layouts, and it also has to move the
+    # workspace on screen: a default alone leaves a workspace that already
+    # has its own mode, which is the one the user is looking at.
+    '"action":"' + action + ' default xmode && ' + action + ' here"}'
 )
 
 idx = text.rstrip().rfind("}")
@@ -180,6 +196,93 @@ if not stripped.endswith(("{", ",")):
 block = stripped + "\n  " + begin + "\n" + row + ",\n  " + end + "\n"
 open(path, "w").write(block + tail)
 PY
+}
+
+# Point the bar's workspace slot at the pack's copy, or back at Omarchy's.
+# shell.json is the user's; only this one id is touched, and a file that does
+# not exist yet is started from Omarchy's default so the slot has somewhere to sit.
+workspaces_slot() { # FROM TO
+  local from="$1" to="$2" default="/usr/share/omarchy/config/omarchy/shell.json"
+  if [ ! -f "$SHELL_JSON" ]; then
+    [ -f "$default" ] || { warn "no shell.json to point the workspace numbers at"; return 0; }
+    mkdir -p "$(dirname "$SHELL_JSON")"
+    cp "$default" "$SHELL_JSON"
+  fi
+  python3 - "$SHELL_JSON" "$from" "$to" <<'PY'
+import sys
+path, src, dst = sys.argv[1:4]
+text = open(path).read()
+old, new = '"id": "%s"' % src, '"id": "%s"' % dst
+if old not in text:
+    sys.exit(0)
+open(path, "w").write(text.replace(old, new))
+PY
+}
+
+# Omarchy's widget cycles dwindle -> scrolling -> floating and paints anything
+# else, xmode included, with the tiling glyph. The click then leaves xmode for
+# dwindle without the glyph changing, which reads as no switch at all. The copy
+# keeps her widget and changes the two lines that cause that.
+workspaces_bar_install() {
+  local dst="$PLUGINS_DIR/$WORKSPACES_PLUGIN" script="$HYPR/x-mode/xmode"
+  [ -f "$WORKSPACES_SRC" ] || { warn "Omarchy's workspace widget is not where the pack expects it"; return 0; }
+  mkdir -p "$dst"
+  python3 - "$WORKSPACES_SRC" "$dst/Workspaces.qml" "$script" <<'PY'
+import json, sys
+src, dst, script = sys.argv[1:4]
+text = open(src).read()
+glyph = '''  function modeGlyph(mode) {
+    if (mode === "scrolling") return "\U000f0765"
+    if (mode === "floating") return "\U000f0536"
+    return "\U000f14fb"
+  }'''
+glyph_x = glyph.replace(
+    '    return "\U000f14fb"',
+    '    if (mode === "xmode") return "\U000f10ac"\n    return "\U000f14fb"',
+    1,
+)
+command = 'var command = "omarchy-hyprland-workspace-layout-toggle"'
+command_x = 'var command = %s' % json.dumps(script + " next")
+name = 'moduleName: "omarchy.workspaces"'
+name_x = 'moduleName: "x-mode.workspaces"'
+if glyph not in text or command not in text or name not in text:
+    sys.exit(2)
+text = text.replace(glyph, glyph_x, 1).replace(command, command_x, 1).replace(name, name_x, 1)
+open(dst, "w").write(text)
+PY
+  if [ $? -ne 0 ]; then
+    rm -rf "$dst"
+    warn "Omarchy's workspace widget changed shape; the bar click still cycles her three layouts"
+    return 0
+  fi
+  python3 - "$dst/manifest.json" <<'PY'
+import json, sys
+json.dump({
+    "schemaVersion": 1,
+    "id": "x-mode.workspaces",
+    "name": "Workspaces",
+    "version": "1.0.0",
+    "author": "omarchy-x-mode",
+    "description": "Workspace numbers that cycle through xmode",
+    "kinds": ["bar-widget"],
+    "entryPoints": {"barWidget": "Workspaces.qml"},
+    "barWidget": {
+        "displayName": "Workspaces",
+        "description": "Cycles dwindle, scrolling, floating and xmode",
+        "category": "Compositor",
+        "allowMultiple": False,
+    },
+}, open(sys.argv[1], "w"), indent=2)
+open(sys.argv[1], "a").write("\n")
+PY
+  manifest_add "$dst"
+  workspaces_slot "omarchy.workspaces" "$WORKSPACES_ID"
+}
+
+workspaces_bar_remove() {
+  workspaces_slot "$WORKSPACES_ID" "omarchy.workspaces"
+  plugin_remove "$WORKSPACES_PLUGIN"
+  rm -rf "$PLUGINS_DIR/$WORKSPACES_PLUGIN"
 }
 
 menu_remove() {
@@ -414,9 +517,13 @@ print(json.dumps(out))
   log "adding the X Mode row to the menu"
   menu_write "$HYPR/x-mode/xmode"
 
+  log "pointing the workspace numbers at the pack's layout cycle"
+  workspaces_bar_install
+  omarchy-shell -q shell rescanPlugins 2>/dev/null || true
+
   log "wiring x-mode into hyprland.lua"
-  early_add "$HYPR/hyprland.lua"
   sentinel_add "$HYPR/hyprland.lua"
+  early_add "$HYPR/hyprland.lua"
 
   # The one arrange marker. The config deals the already-open windows out (groups
   # across the halves, a lone group centred) and removes the marker only once it
@@ -447,6 +554,23 @@ print(json.dumps(out))
 
 do_uninstall() {
   log_file "=== uninstall start (pid $$, $0 $*)"
+  # The tag is what says the pack floated the window. The reload below drops the
+  # rule that applied it, so it has to be written down first. The restore step
+  # tiles these even when the snapshot says they were floating: that snapshot is
+  # taken at install, and a reinstall records the pack's own floats.
+  PACK_FLOATED="$X_MODE_STATE_DIR/pack-floated.txt"
+  mkdir -p "$X_MODE_STATE_DIR"
+  if hyprctl clients -j >/dev/null 2>&1; then
+    hyprctl clients -j | python3 -c '
+import json, sys
+for c in json.load(sys.stdin):
+    tags = [str(t) for t in (c.get("tags") or [])]
+    if any(t == "xmode-workspace" or t == "xmode-workspace*" for t in tags):
+        addr = c.get("address")
+        if addr:
+            print(addr)
+' > "$PACK_FLOATED" || true
+  fi
   # The order here is the whole point. Hyprland runs the plugin's code in place
   # from $HYPRBARS_SO, and the pack's Lua calls into it on every focus change
   # (window.active -> hyprbars.raise). So: unwire the config, reload (the Lua
@@ -487,6 +611,9 @@ do_uninstall() {
   fi
 
   log "disabling/removing shell plugins"
+  # Back to Omarchy's widget before its files go, so a shell that reloads the
+  # layout on the way down does not keep a slot whose plugin was just deleted.
+  workspaces_bar_remove
   for id in x-mode tim.dock tim.snap-preview; do
     plugin_remove "$id"
   done
@@ -521,14 +648,53 @@ do_uninstall() {
   hyprctl reload >/dev/null 2>&1 || true
   sleep 0.5
 
-  # Put windows back the way they were before the pack floated/grouped them:
-  # ungroup everything, restore floating windows to their old position/size, and
-  # tile the rest (including windows opened while the pack was installed).
-  if [ -f "$PRIOR_WINDOWS" ]; then
-    log "restoring window state"
-    python3 - "$PRIOR_WINDOWS" <<'PY' || true
+  # The plugin stays loaded while windows are open, and the tags the pack set
+  # survive the reload, so its bars keep drawing — with the pack's config gone
+  # they are Hyprland's plain tab bar. Turn those bars off, take the tag, and
+  # pull every window out of its group so the native groupbar has nothing to
+  # show once the pack's "groupbar off" is no longer in the config.
+  log "taking the pack's chrome off open windows"
+  hyprctl eval 'hl.config({ plugin = { hyprbars = { enabled = false } } })' >/dev/null 2>&1 || true
+  hyprctl dispatch 'hl.dsp.group.lock({ action = "disable" })' >/dev/null 2>&1 || true
+  hyprctl clients -j 2>/dev/null | python3 -c '
 import json, subprocess, sys, time
-prior = json.load(open(sys.argv[1]))
+try:
+    clients = json.load(sys.stdin)
+except Exception:
+    clients = []
+
+def disp(expr):
+    subprocess.run(["hyprctl", "dispatch", expr], capture_output=True)
+    time.sleep(0.05)
+
+for c in clients:
+    addr = c.get("address")
+    if not addr or c.get("pinned"):
+        continue
+    w = f"address:{addr}"
+    tags = [str(t) for t in (c.get("tags") or [])]
+    if any(t == "xmode-workspace" or t == "xmode-workspace*" for t in tags):
+        disp(f"hl.dsp.window.tag({{ tag = \"-xmode-workspace\", window = \"{w}\" }})")
+    if c.get("grouped"):
+        disp(f"hl.dsp.window.move({{ out_of_group = true, window = \"{w}\" }})")
+' || true
+
+  # Put windows back the way they were before the pack floated/grouped them:
+  # ungroup everything, tile the windows the pack floated, and restore a window
+  # that was already floating before the pack to its old position and size.
+  if [ -f "$PRIOR_WINDOWS" ] || [ -s "$PACK_FLOATED" ]; then
+    log "restoring window state"
+    python3 - "$PRIOR_WINDOWS" "$PACK_FLOATED" <<'PY' || true
+import json, subprocess, sys, time
+prior = []
+try:
+    prior = json.load(open(sys.argv[1]))
+except Exception:
+    prior = []
+try:
+    pack = set(open(sys.argv[2]).read().split())
+except Exception:
+    pack = set()
 try:
     cur = json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)
 except Exception:
@@ -542,20 +708,18 @@ def disp(expr):
 
 for c in cur:
     addr = c.get("address")
-    if not addr:
+    if not addr or c.get("pinned"):
         continue
     w = f"address:{addr}"
     if c.get("grouped"):
         disp(f'hl.dsp.window.move({{ out_of_group = true, window = "{w}" }})')
     p = prior_by.get(addr)
-    # The window's own tag decides, and the snapshot only breaks the tie: a window
-    # carrying the pack's tag is one the *pack* floated, whatever the snapshot says.
-    # The snapshot is taken at install time and cannot be trusted for that -- an
-    # install that ran while the pack was already on (a reinstall) recorded every
-    # window as floating, and the next uninstall then "restored" them to floating,
-    # which is how windows stayed floating after an uninstall.
-    tags = [str(t) for t in (c.get("tags") or [])]
-    pack_floated = any(t == "xmode-workspace" or t == "xmode-workspace*" for t in tags)
+    # The tag was captured before the reload, because the reload drops it. With
+    # no capture at all there is nothing that distinguishes a pack float from a
+    # snapshot taken while the pack was already on, and those windows have to
+    # tile: leaving them floating is how an uninstall came back without tiling
+    # and the following install had nothing to put a titlebar on.
+    pack_floated = addr in pack or not pack
     want_float = (bool(p.get("floating")) if p is not None else False) and not pack_floated
     if want_float:
         if not c.get("floating"):

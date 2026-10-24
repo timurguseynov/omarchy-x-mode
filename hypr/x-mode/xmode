@@ -11,6 +11,7 @@
 #   xmode next            next layout on this workspace (the Super+L key)
 #   xmode back            previous layout (Super+Alt+L)
 #   xmode set ID MODE     set one workspace
+#   xmode here            set the workspace on screen to xmode
 #   xmode default         print the default layout
 #   xmode default MODE    set the default layout (dwindle, scrolling, floating, xmode)
 #
@@ -87,6 +88,9 @@ set_default() { # MODE
   fi
   mkdir -p "$MODES_DIR" && printf '%s\n' "$call" >"$MODES_DIR/default.lua"
   notify "Default layout: $mode"
+  # The bar reads the mode again only when asked. A default change does not
+  # move the focus, so nothing else would tell it.
+  omarchy-shell -q omarchy.workspaces refresh 2>/dev/null || true
   return 0
 }
 
@@ -116,6 +120,14 @@ case "$cmd" in
     [[ $# -eq 3 ]] || { echo "usage: xmode set WORKSPACE MODE" >&2; exit 2; }
     apply "$2" "$3"
     ;;
+  here)
+    # The layout menu's X Mode row. Setting the default does not touch a
+    # workspace that already has a mode of its own, which is the one on screen
+    # after a cycle, so the checkmark moved and the titlebar never did.
+    ws=$(hyprctl activeworkspace -j 2>/dev/null | sed -n 's/.*"id": *\([0-9]*\).*/\1/p' | head -1)
+    [[ $ws =~ ^[0-9]+$ ]] || { echo "xmode: no numbered workspace is active" >&2; exit 1; }
+    apply "$ws" "$XMODE"
+    ;;
   default)
     if [[ $# -eq 1 ]]; then
       default_mode
@@ -132,7 +144,7 @@ case "$cmd" in
     sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
     ;;
   *)
-    echo "xmode: unknown command '$cmd' (next, back, set, default, current)" >&2
+    echo "xmode: unknown command '$cmd' (next, back, set, here, default, current)" >&2
     exit 2
     ;;
 esac
