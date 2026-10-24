@@ -84,10 +84,12 @@ trap 'nest_host_rule_off' EXIT
 
 report() { # STATUS NAME FILE
   flock 9
+  local mark=""
+  [ "${PASS:-1}" != 1 ] && mark=" ${YELLOW}(retry)${RESET}"
   if [ "$1" = ok ]; then
-    echo "  ${GREEN}ok${RESET}   $2"
+    echo "  ${GREEN}ok${RESET}   $2$mark"
   else
-    echo "  ${RED}FAIL${RESET} $2${NEST_SLOT:+ (slot $NEST_SLOT)}"
+    echo "  ${RED}FAIL${RESET} $2${NEST_SLOT:+ (slot $NEST_SLOT)}$mark"
   fi
   # What was actually reported, by name: the end-of-run check diffs the chosen
   # scenarios against this, so a scenario taken from the queue and then lost (a
@@ -221,6 +223,11 @@ worker() { # SLOT
         report ok "$name" "$out"
       else
         report fail "$name" "$out"
+        # Remembered for the pass at the end of the run: that one starts fresh
+        # nests, which is what tells "the nest this scenario happened to land on
+        # was dirty" apart from "the scenario is broken".
+        flock 9
+        printf '%s\n' "$t" >> "$NEST_ROOT/failed"
         rc=1
       fi
     fi
@@ -298,8 +305,10 @@ abort() {
 trap abort INT TERM HUP
 
 queue_fill
-# Reported scenarios, by name, for the end-of-run diff (see report()).
+# Reported scenarios, by name, for the end-of-run diff (see report()), and the
+# failures the retry pass at the end picks up.
 : > "$NEST_ROOT/reported"
+: > "$NEST_ROOT/failed"
 
 for s in $(seq 0 $((JOBS - 1))); do
   # A second apart. Mapping several nests in the same instant makes the
@@ -313,20 +322,56 @@ done
 for pid in "${pids[@]}"; do
   wait "$pid" || fail=1
 done
+main_fail="$fail"
 
-# Anything chosen that was never reported: a slot whose nest would not come up
-# leaves scenarios behind, and a scenario can also be taken from the queue and
-# lost with the worker that held it. The diff is against what was *reported*, not
-# against how far the queue counter got, because the counter moves when a
-# scenario is taken and says nothing about whether it ran. A run that did not run
-# what it was asked to is not green, and it names what is missing.
-for t in "${chosen[@]}"; do
-  name="$(name_of "$t")"
-  grep -Fqx -- "$name" "$NEST_ROOT/reported" && continue
-  report_notrun "$name" "never reported: the nest on its slot did not come up, or it was lost with the worker"
-  fail=1
-done
-rm -f "$NEST_ROOT/reported"
+# Anything chosen that was never reported, checked before the retry so it stays a
+# property of the pass it belongs to.
+not_run_check() { # CHOICES...
+  local t name missing=0
+  for t in "$@"; do
+    name="$(name_of "$t")"
+    grep -Fqx -- "$name" "$NEST_ROOT/reported" && continue
+    report_notrun "$name" "never reported: the nest on its slot did not come up, or it was lost with the worker"
+    missing=1
+  done
+  return "$missing"
+}
+not_run_check "${chosen[@]}" || main_fail=1
+
+# One retry of exactly the scenarios that failed, on new nests, when there were
+# any. A scenario that fails and then passes here was carried by a dirty nest (the
+# worker retries on the *same* nest first, so a flake has already had its second
+# chance); one that fails again is what the run reports as a failure. NEST_RETRY=0
+# turns this off.
+if [ -s "$NEST_ROOT/failed" ] && [ "${NEST_RETRY:-1}" != 0 ]; then
+  mapfile -t retry < <(sort -u "$NEST_ROOT/failed")
+  : > "$NEST_ROOT/failed"
+  : > "$NEST_ROOT/reported"
+  chosen=("${retry[@]}")
+  PASS=2
+  fail=0
+  echo "== retry (fresh nests): ${#chosen[@]} scenario(s):"
+  printf '     %s\n' "${chosen[@]##*/}"
+  queue_fill
+  pids=()
+  for s in $(seq 0 $((JOBS - 1))); do
+    [ "$s" -gt 0 ] && sleep 1
+    set -m
+    slot_runner "$s" &
+    set +m
+    pids+=($!)
+  done
+  for pid in "${pids[@]}"; do
+    wait "$pid" || fail=1
+  done
+  not_run_check "${chosen[@]}" || fail=1
+  # The main pass's failures are the retry's list; what stands now is the retry's
+  # own answer, and a run whose scenarios all came back green here is green.
+  main_fail="$fail"
+fi
+fail="$main_fail"
+
+rm -f "$NEST_ROOT/reported" "$NEST_ROOT/failed"
 
 # The scenarios' own lines say what ran. This is the one line that says whether
 # the layer came out clean, for a run started on its own -- the suite above

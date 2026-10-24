@@ -185,7 +185,10 @@ if not x_mode_wanted() then
   end)
   -- Keep the plugin around so the bar toggle still works after a reload.
   o.exec_on_start("hyprpm reload -n")
-  o.exec_on_start("sh -c 'hyprctl plugin unload \"$HOME/.local/share/hyprbars/hyprbars.so\" >/dev/null 2>&1; hyprctl plugin list 2>/dev/null | grep -q hyprbars || hyprctl plugin load \"$HOME/.local/share/hyprbars/x-mode-hyprbars.so\"'")
+  -- The staged build from an install that could not swap the plugin in place (the
+  -- installer only writes x-mode-hyprbars.so.new while one is loaded). At startup
+  -- there is no window and no decoration yet, so the move is the safe one.
+  o.exec_on_start("sh -c 'd=\"$HOME/.local/share/hyprbars\"; if [ -f \"$d/x-mode-hyprbars.so.new\" ]; then mv -f \"$d/x-mode-hyprbars.so.new\" \"$d/x-mode-hyprbars.so\"; fi; hyprctl plugin unload \"$d/hyprbars.so\" >/dev/null 2>&1; hyprctl plugin list 2>/dev/null | grep -q hyprbars || hyprctl plugin load \"$d/x-mode-hyprbars.so\"'")
   pcall(function()
     hl.config({ plugin = { hyprbars = { enabled = false } } })
     if hl.plugin and hl.plugin.hyprbars and hl.plugin.hyprbars.x_mode then
@@ -1028,6 +1031,21 @@ for _, e in ipairs(TILING_KEYS) do
   -- chord itself for the app that asked for it, and only on its own workspaces
   -- (elsewhere these keys are the tiler's).
   local id = supermap.steal_id_of(e.keys)
+  if id == nil then
+    -- A keycode spelling (`code:20`) has no id of its own: Omarchy writes the
+    -- resize steps that way, and without this an app with the Super-as-Ctrl flag
+    -- got the raw Super+minus, which zooms nothing.
+    local shift_code, code = e.keys:match("SHIFT%s*%+%s*code:(%d+)")
+    if shift_code == nil then
+      code = e.keys:match("code:(%d+)")
+    end
+    if code ~= nil then
+      local name = supermap.code_name(code)
+      if name ~= nil then
+        id = (shift_code ~= nil) and ("SHIFT+" .. name) or name
+      end
+    end
+  end
   local shift = false
   if id ~= nil then
     local unshifted = id:match("^SHIFT%+(.+)$")
@@ -3104,6 +3122,20 @@ end
 -- already open are in Omarchy's layout: on the pack's workspaces they are tagged
 -- and floated here. New windows get both from the rule.
 apply_all_modes(false)
+
+-- The layout cycle is Omarchy's key with a fourth layout in it: the pack's own
+-- xmode script walks dwindle -> scrolling -> floating -> xmode and writes the same
+-- state files her toggle does, so the bar's glyph and the next login follow along.
+do
+  hl.unbind("SUPER + L")
+  hl.unbind("SUPER + ALT + L")
+  local path = X_MODE_DIR .. "xmode"
+  -- Quoted here, not through Omarchy's o.shell_quote: Omarchy's keybindings scan
+  -- loads this file with a stub `o` that has no such field, and the scan died on it.
+  local bin = (o.shell_quote and o.shell_quote(path)) or ("'" .. path:gsub("'", "'\\''") .. "'")
+  pcall(o.bind, "SUPER + L", "Cycle workspace layout", bin .. " next")
+  pcall(o.bind, "SUPER + ALT + L", "Cycle workspace layout back", bin .. " back")
+end
 
 -- For the tests, the panel and `hyprctl eval`: which mode a workspace is in, and
 -- whether it is the pack's.

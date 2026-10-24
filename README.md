@@ -22,7 +22,7 @@ https://github.com/user-attachments/assets/d1749801-e1cb-4fc9-a65a-03313b7797a8
 
 The Mac habits that keep you fast — on Omarchy.
 
-* **Floating windows.** Everything opens floating.
+* **Floating windows, as a layout.** Omarchy 4.5 gives every workspace a mode — tiling, scrolling, floating — and X Mode adds its own, `xmode`, to the same list. On an `xmode` workspace everything opens floating, with the titlebar, the tabs and the snaps below; on every other mode the pack stays out of the way and Omarchy's layout owns the window. `Super+L` walks the ring (`tiling → scrolling → floating → xmode`), `Super+Alt+L` walks it back, and *Appearance → Workspace Layout* in the Omarchy menu sets the default.
 * **Titlebars like a Mac.** A window moves by the titlebar, closes with the button.
 * **Tabs in every app.** Like native tabs on a Mac, but for every app you choose: two windows of the same app on a workspace become tabs of one window.
 * **Compact tabs.** One Chrome-like titlebar row instead of titlebar plus tabbar. Tabs stay a limited width; leftover space after `+` drags the window. On for every app, or for one.
@@ -55,6 +55,22 @@ If the shell was not running, finish with `omarchy-restart-shell`.
 ```
 
 ---
+
+## Workspace modes
+
+Omarchy keeps a mode per workspace in `~/.local/state/omarchy/workspace-layouts` and
+replays those files at every login, so a workspace stays where you put it.
+
+* `xmode` is the pack's own mode: floating windows, titlebars, tabs, snaps, and the
+  Mac keys.
+* Tiling, scrolling and Omarchy's floating are hers: the pack draws no titlebar
+  there, does not group there, does not snap there, and hands the tiling keys back
+  to her — `Super+←/→` focuses, `Super+T` floats, the resize steps resize, and so on.
+* `Super+L` cycles a workspace through all four, `Super+Alt+L` cycles back. The same
+  cycle is in the bar's layout menu, and *Appearance → Workspace Layout* sets the
+  mode new workspaces get.
+* `~/.config/hypr/x-mode/xmode` is the script behind both: `xmode next`, `xmode back`,
+  `xmode current [workspace]`, `xmode set <workspace> <mode>`, `xmode default [mode]`.
 
 ## Uninstallation
 

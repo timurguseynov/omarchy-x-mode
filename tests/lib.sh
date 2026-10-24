@@ -324,7 +324,13 @@ nest_start() {
   # a place the scenario never sees. OMASNAP_SCREENSHOT_DIR makes that directory
   # the scenario's own, so "the key wrote a file" is a question about the pack and
   # not about which release's default folder the tool picked.
+  # HYPRLAND_INSTANCE_SIGNATURE is unset on purpose: an inherited one points every
+  # `hyprctl` a scenario runs *inside* the nest -- a bind's exec, the pack's own
+  # xmode script -- at the live session, so a test switched the user's workspace
+  # modes instead of the nest's. The nested compositor exports its own signature
+  # for its children, which is the one those commands must see.
   setsid env \
+    -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$NEST_STATE/home" \
     XDG_CONFIG_HOME="$NEST_STATE/home/.config" \
     XDG_DATA_HOME="$NEST_STATE/home/.local/share" \
@@ -601,7 +607,11 @@ nest_ipc_stop() {
 
 nest_query() { # words...  -> body on stdout
   nest_ipc_start || fail "nest ipc did not come up"
-  "$NESTQ" "$NEST_IPC_SOCK" "$@"
+  # Bounded: the proxy can be left wedged (a run killed mid-query, a scenario that
+  # took its server with it), and an unbounded query then hangs the scenario with no
+  # output at all -- the "it just hangs" a run looks like. Ten seconds is far more
+  # than any query needs; past that the nest is not answering.
+  timeout 10 "$NESTQ" "$NEST_IPC_SOCK" "$@" || fail "nest ipc did not answer: $*"
 }
 
 nest_hyprctl() { nest_query "$@"; }
@@ -697,16 +707,22 @@ nest_clean() {
   # file, so the pack has to be pointed at the empty one it was just given.
   nest_hyprctl eval 'if x_mode and x_mode.refresh_options then x_mode.refresh_options() end' >/dev/null 2>&1 || true
   nest_hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null 2>&1 || true
-  # Workspace modes are nest state like the settings above: a scenario that
-  # switched a workspace to dwindle and failed halfway left the next one in a
-  # tiled mode, and the next one then saw its own window tiled on a workspace it
-  # expected to be xmode. Back to the baseline tests/nest.lua sets at load --
-  # xmode by default and for every numbered workspace.
-  nest_hyprctl eval 'if o and o.workspace_mode then o.workspace_mode({ default = "xmode" }) end' >/dev/null 2>&1 || true
-  local ws
-  for ws in 1 2 3 4 5 6 7 8 9 10; do
-    nest_hyprctl eval "if o and o.workspace_mode then o.workspace_mode({ workspace = \"$ws\", mode = \"xmode\" }) end" >/dev/null 2>&1 || true
-  done
+  # Workspace modes are nest state like the settings above, but putting them back
+  # costs eleven o.workspace_mode calls, and a compositor busy with those missed the
+  # dock's clicks in the next scenario (measured: disabling this fixed
+  # dock_menu_pin_rebuilds). So it only runs when a scenario actually left a mode
+  # behind -- a workspace file of its own, or a default that is not the fixture's.
+  local modes_dir="$NEST_STATE/home/.local/state/omarchy/workspace-layouts"
+  if [ -n "$(find "$modes_dir" -maxdepth 1 -name '*.lua' ! -name 'default.lua' 2>/dev/null | head -1)" ]; then
+    rm -f "$modes_dir"/*.lua
+    mkdir -p "$modes_dir"
+    printf '%s\n' 'o.workspace_mode({ default = "xmode" })' > "$modes_dir/default.lua"
+    nest_hyprctl eval 'o.workspace_mode({ default = "xmode" })' >/dev/null 2>&1 || true
+    local ws
+    for ws in 1 2 3 4 5 6 7 8 9 10; do
+      nest_hyprctl eval "o.workspace_mode({ workspace = \"$ws\", mode = \"xmode\" })" >/dev/null 2>&1 || true
+    done
+  fi
 }
 
 # The panel's path for an app-list change: write settings.json, then this.

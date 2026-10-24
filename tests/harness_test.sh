@@ -76,8 +76,13 @@ BUILD="$REPO_DIR/hyprbars/build.sh"
 if grep -qE '^[^#]*(DEST=|\$\{?HOME)' "$BUILD"; then
   fail "hyprbars/build.sh writes into the installed plugin directory: it would write over a loaded .so"
 fi
-grep -qE '^\s*install -m644 .*hyprbars\.so.*\$HYPRBARS_SO' "$INSTALL" \
+grep -qE '^\s*install -m644 .*hyprbars\.so.*"\$HYPRBARS_SO" ' "$INSTALL" \
   || fail "install.sh no longer copies the plugin into place"
+# The staged copy is the safe one (loaded plugin, windows open); the plain copy
+# may only exist next to an unload, because writing over a mapped .so is the
+# crash this pin exists for.
+grep -qE '\$HYPRBARS_SO\.new' "$INSTALL" \
+  || fail "install.sh no longer stages the plugin when it cannot swap it"
 
 line_of() { # PATTERN FILE
   grep -nE -- "$1" "$2" | head -n1 | cut -d: -f1
@@ -103,7 +108,8 @@ done
 install_block="$TMP/do_install.sh"
 sed -n '/^do_install() {/,/^}/p' "$INSTALL" > "$install_block"
 load_unload=$(line_of 'hyprctl plugin unload "\$HYPRBARS_SO"' "$install_block")
-copy=$(line_of 'install -m644 .*\$HYPRBARS_SO' "$install_block")
+# The copy into the live path, not the staged `$HYPRBARS_SO.new` one.
+copy=$(line_of 'install -m644 .*"\$HYPRBARS_SO" ' "$install_block")
 [ -n "$load_unload" ] || fail "do_install no longer unloads the old plugin"
 [ -n "$copy" ] || fail "do_install no longer copies the plugin into place"
 [ "$load_unload" -lt "$copy" ] || fail "do_install copies the plugin over a loaded .so"

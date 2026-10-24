@@ -13,7 +13,7 @@
 # itself, so they are pressed as well as counted.
 assert_eq "$(bind_count_desc "Pop window out" 64)" 1 "Super+O is bound once, by the pack"
 assert_eq "$(bind_count_desc "Toggle window floating" 64)" 1 "Super+T is bound once, by the pack"
-assert_ne "$(bind_count L 64)" 1 "Super+L (the layout cycle) is not a plain bind here"
+assert_eq "$(bind_count_desc "Cycle workspace layout" 64)" 1 "Super+L is the pack's layout cycle, bound once"
 
 state() { # CLASS FIELD -> what the nest says about the first window of the class
   nest_ctl clients -j | python3 -c "

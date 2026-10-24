@@ -1,0 +1,138 @@
+#!/bin/bash
+# Cycle a workspace through the layouts, xmode among them.
+#
+# Omarchy's own omarchy-hyprland-workspace-layout-toggle walks dwindle ->
+# scrolling -> floating and cannot be told about a fourth mode, so the pack brings
+# its own: the same state files ($XDG_STATE_HOME/omarchy/workspace-layouts, one
+# `o.workspace_mode({ … })` call each) and the same notification, with xmode at the
+# end of the cycle. Everything that reads those files -- the current-layout
+# script, the bar's layout glyph, the next login -- sees xmode for free.
+#
+#   xmode next            next layout on this workspace (the Super+L key)
+#   xmode back            previous layout (Super+Alt+L)
+#   xmode set ID MODE     set one workspace
+#   xmode default         print the default layout
+#   xmode default MODE    set the default layout (dwindle, scrolling, floating, xmode)
+#
+# The modes are mutually exclusive by construction, which is the point: a
+# workspace cannot be floating and xmode at once, so two titlebar implementations
+# never meet.
+set -uo pipefail
+
+XMODE=xmode
+MODES_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/workspace-layouts"
+NOTIFY_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/workspace-layout-notification"
+
+# One notification replaces the last, the way Omarchy's own toggle does it.
+notify() {
+  local last="" id
+  [[ -r $NOTIFY_STATE ]] && read -r last <"$NOTIFY_STATE"
+  if id=$(omarchy-notification-send -p -r "${last:-0}" -g 󱂬 "$1" 2>/dev/null) && [[ $id =~ ^[0-9]+$ ]]; then
+    mkdir -p "$(dirname "$NOTIFY_STATE")" && printf '%s\n' "$id" >"$NOTIFY_STATE"
+  fi
+}
+
+saved_mode() { # WORKSPACE
+  sed -n 's/.*mode = "\([a-z]*\)".*/\1/p' "$MODES_DIR/$1.lua" 2>/dev/null
+}
+
+default_mode() {
+  local mode
+  mode=$(sed -n 's/.*default = "\([a-z]*\)".*/\1/p' "$MODES_DIR/default.lua" 2>/dev/null)
+  if [[ -z $mode ]]; then
+    mode=$(hyprctl getoption general:layout -j 2>/dev/null | sed -n 's/.*"str": *"\([a-z]*\)".*/\1/p')
+  fi
+  printf '%s' "${mode:-dwindle}"
+}
+
+# What the workspace is showing now: its own saved mode, else the default, else
+# whatever Hyprland reports (a workspace nobody saved a mode for).
+current_mode() { # WORKSPACE
+  local mode
+  mode=$(saved_mode "$1")
+  [[ -n $mode ]] || mode=$(default_mode)
+  printf '%s' "${mode:-dwindle}"
+}
+
+apply() { # WORKSPACE MODE
+  local ws="$1" mode="$2"
+  local call="o.workspace_mode({ workspace = \"$ws\", mode = \"$mode\" })"
+
+  if ! hyprctl eval "$call" >/dev/null 2>&1; then
+    notify "Workspace $ws: needs a reload"
+    return 1
+  fi
+
+  # A workspace on the default mode keeps no file of its own, the way Omarchy's
+  # toggle removes it: a later change of the default then reaches this workspace
+  # too.
+  if [[ $mode == "$(default_mode)" ]]; then
+    rm -f "$MODES_DIR/$ws.lua"
+  else
+    mkdir -p "$MODES_DIR" && printf '%s\n' "$call" >"$MODES_DIR/$ws.lua"
+  fi
+
+  notify "Workspace $ws: $mode"
+  omarchy-shell -q omarchy.workspaces refresh 2>/dev/null || true
+  omarchy-shell -q omarchy.dock refresh 2>/dev/null || true
+  return 0
+}
+
+set_default() { # MODE
+  local mode="$1" call
+  call="o.workspace_mode({ default = \"$mode\" })"
+  if ! hyprctl eval "$call" >/dev/null 2>&1; then
+    notify "Default layout: needs a reload"
+    return 1
+  fi
+  mkdir -p "$MODES_DIR" && printf '%s\n' "$call" >"$MODES_DIR/default.lua"
+  notify "Default layout: $mode"
+  return 0
+}
+
+next_mode() { # MODE DIRECTION
+  case "$2:$1" in
+    next:dwindle) echo scrolling ;;
+    next:scrolling) echo floating ;;
+    next:floating) echo "$XMODE" ;;
+    next:*) echo dwindle ;;
+    back:scrolling) echo dwindle ;;
+    back:floating) echo scrolling ;;
+    back:"$XMODE") echo floating ;;
+    back:*) echo "$XMODE" ;;
+  esac
+}
+
+cmd="${1:-next}"
+case "$cmd" in
+  next | back)
+    ws=$(hyprctl activeworkspace -j 2>/dev/null | sed -n 's/.*"id": *\([0-9]*\).*/\1/p' | head -1)
+    # Named workspaces report a negative id, and Hyprland reads a leading "-" as a
+    # selector relative to the current one.
+    [[ $ws =~ ^[0-9]+$ ]] || { echo "xmode: no numbered workspace is active" >&2; exit 1; }
+    apply "$ws" "$(next_mode "$(current_mode "$ws")" "$cmd")"
+    ;;
+  set)
+    [[ $# -eq 3 ]] || { echo "usage: xmode set WORKSPACE MODE" >&2; exit 2; }
+    apply "$2" "$3"
+    ;;
+  default)
+    if [[ $# -eq 1 ]]; then
+      default_mode
+      echo
+    else
+      set_default "$2"
+    fi
+    ;;
+  current)
+    current_mode "${2:-$(hyprctl activeworkspace -j 2>/dev/null | sed -n 's/.*"id": *\([0-9]*\).*/\1/p' | head -1)}"
+    echo
+    ;;
+  -h | --help | help)
+    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  *)
+    echo "xmode: unknown command '$cmd' (next, back, set, default, current)" >&2
+    exit 2
+    ;;
+esac

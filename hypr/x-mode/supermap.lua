@@ -60,6 +60,13 @@ function M.key_code(name)
   return CODE_BY_KEY[tostring(name or ""):lower()]
 end
 
+-- keycode -> key name, the other direction. The pack binds some tiling keys by
+-- keycode (Omarchy writes its resize steps as `code:20`/`code:21`), and a Super-as-
+-- Ctrl app has to be handed the *name* of the key to type Ctrl+minus for it.
+function M.code_name(code)
+  return CODE[tonumber(code)]
+end
+
 -- The description every generated bind carries, so a replan does not read back
 -- its own binds as occupied.
 M.PREFIX = "x-mode-super-ctrl"

@@ -49,6 +49,12 @@ sentinel_add() {
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
 HYPR="$CONFIG/hypr"
 PLUGINS_DIR="$CONFIG/omarchy/plugins"
+# Omarchy merges a user extension into its menu; the pack adds one row to the
+# Appearance -> Workspace Layout submenu there. Marked off, so an uninstall takes
+# exactly its own block out of a file the user owns.
+MENU_JSONC="$CONFIG/omarchy/extensions/omarchy-menu.jsonc"
+MENU_BEGIN="// >>> omarchy-x-mode >>>"
+MENU_END="// <<< omarchy-x-mode <<<"
 
 # Our patched plugin gets its own file name so it never clobbers a stock
 # hyprbars the user may already have. A stock one found loaded is disabled on
@@ -62,8 +68,109 @@ PRIOR_WINDOWS="$X_MODE_STATE_DIR/prior-windows.json"
 # Omarchy's CLI needs OMARCHY_PATH; an ssh command doesn't source the profile.
 export OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 
-log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33mwarn\033[0m %s\n' "$*" >&2; }
+# Every step goes to a log as well as the terminal, and the file is flushed line by
+# line. The compositor can die in the middle of an install (unloading the plugin
+# while the shell rebuilds its layers has done it twice), and that takes the
+# terminal and everything it printed with it -- the log is then the only record of
+# which step it was. It lives next to the state directory rather than inside it,
+# because do_uninstall removes that directory.
+INSTALL_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-x-mode-install.log"
+# A plugin swap is only safe with no windows open: Hyprland runs the plugin's code
+# in place, and its decorations hold listeners of their own. Unloading it with a
+# window on screen has crashed the compositor twice (see the install log: the run
+# stopped right after "loading patched hyprbars").
+# Is a hyprbars loaded? The CLI prints the plugin's *name* and never the path it was
+# loaded from (`hyprctl plugin list -j` has no file field), so matching on
+# $HYPRBARS_SO silently answered "no" every time: install then copied over the
+# loaded .so, and uninstall deleted it while it was still loaded -- the two ways
+# this session has been crashed. The pack's own config unloads a stock
+# `hyprbars.so` at startup, so "hyprbars listed" means the pack's in practice.
+hyprbars_loaded() {
+  hyprctl plugin list 2>/dev/null | grep -qi 'hyprbars'
+}
+
+windows_open() {
+  hyprctl -j clients 2>/dev/null | grep -c '"mapped": *true' 2>/dev/null || echo 0
+}
+
+# Bring the shell back if it is not running. omarchy-restart-shell is silent (its
+# output is dropped) and a restart that fails leaves the desktop with no bar and no
+# dock at all -- which is exactly what a finished install looked like: the log ran
+# to "restarting the shell" and the shell was not there afterwards.
+ensure_shell() {
+  pgrep -x quickshell >/dev/null 2>&1 && return 0
+  warn "the shell is not running; starting it"
+  OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}" omarchy-launch-shell >/dev/null 2>&1 || true
+  local i
+  for i in $(seq 1 50); do
+    pgrep -x quickshell >/dev/null 2>&1 && return 0
+    sleep 0.2
+  done
+  warn "the shell did not start; run 'omarchy-launch-shell' by hand"
+  return 0
+}
+
+# The menu row, written into Omarchy's user extension. Textual, not parsed: the file
+# is JSONC with comments, and a JSON round-trip would throw them away. A block from an
+# earlier install is replaced, and the row is inserted before the closing brace with a
+# comma only when there is something in front of it.
+menu_write() { # ACTION
+  python3 - "$MENU_JSONC" "$MENU_BEGIN" "$MENU_END" "$1" <<'PY'
+import re, sys
+
+path, begin, end, action = sys.argv[1:5]
+try:
+    text = open(path).read()
+except FileNotFoundError:
+    text = "{\n}\n"
+
+text = re.sub(r"\n?[ \t]*" + re.escape(begin) + r".*?" + re.escape(end), "", text, flags=re.S)
+
+row = (
+    '  "trigger.appearance.workspace-layout.xmode": {'
+    '"icon":"","label":"X Mode","description":"The pack\'s floating desktop",'
+    '"checked":"[[ $(' + action + ' default) == \\"xmode\\" ]]",'
+    '"action":"' + action + ' default xmode"}'
+)
+
+idx = text.rstrip().rfind("}")
+head, tail = text[:idx], text[idx:]
+stripped = head.rstrip()
+if not stripped.endswith(("{", ",")):
+    stripped += ","
+block = stripped + "\n  " + begin + "\n" + row + ",\n  " + end + "\n"
+open(path, "w").write(block + tail)
+PY
+}
+
+menu_remove() {
+  [ -f "$MENU_JSONC" ] || return 0
+  python3 - "$MENU_JSONC" "$MENU_BEGIN" "$MENU_END" <<'PY'
+import re, sys
+
+path, begin, end = sys.argv[1:4]
+text = open(path).read()
+new = re.sub(r"\n?[ \t]*" + re.escape(begin) + r".*?" + re.escape(end), "", text, flags=re.S)
+if new != text:
+    open(path, "w").write(new)
+PY
+}
+
+log_file() {
+  mkdir -p "$(dirname "$INSTALL_LOG")" 2>/dev/null || return 0
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$INSTALL_LOG" 2>/dev/null || true
+}
+
+# Everything the script writes goes to the log as well as the terminal -- including
+# what an aborting command says. A step that dies takes the terminal with it (the
+# session it runs in), and an error message nobody captured is how "uninstall just
+# stops" looked: the log ended mid-step with no reason in it.
+if [ -n "${BASH_VERSION:-}" ]; then
+  exec > >(tee -a "$INSTALL_LOG") 2>&1
+fi
+
+log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; log_file "step  $*"; }
+warn() { printf '\033[1;33mwarn\033[0m %s\n' "$*" >&2; log_file "WARN  $*"; }
 
 usage() {
   cat <<'EOF'
@@ -107,6 +214,7 @@ PY
 }
 
 do_install() {
+  log_file "=== install start (pid $$, $0 $*)"
   manifest_reset
 
   # Snapshot the open windows so uninstall can put them back the way they were
@@ -172,12 +280,21 @@ print(json.dumps(out))
     hyprctl reload >/dev/null 2>&1 || true
   fi
 
-  log "loading patched hyprbars"
-  hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
+  log "installing patched hyprbars"
   mkdir -p "$HYPRBARS_DIR"
-  install -m644 "$HERE/hyprbars/hyprbars.so" "$HYPRBARS_SO" \
-    || warn "could not copy the plugin to $HYPRBARS_SO"
-  hyprctl plugin load "$HYPRBARS_SO" >/dev/null 2>&1 || warn "could not load hyprbars now (it will load on next login)"
+  if hyprbars_loaded && [ "$(windows_open)" -gt 0 ]; then
+    # Loaded, and windows are on screen: stage the build instead of swapping it.
+    # The pack's own exec_on_start moves it into place at the next startup, where
+    # there are no windows and no decorations to leave listeners behind.
+    install -m644 "$HERE/hyprbars/hyprbars.so" "$HYPRBARS_SO.new" \
+      || warn "could not stage the plugin at $HYPRBARS_SO.new"
+    warn "hyprbars is loaded: the new build is staged as $HYPRBARS_SO.new and loads at the next login"
+  else
+    hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
+    install -m644 "$HERE/hyprbars/hyprbars.so" "$HYPRBARS_SO" \
+      || warn "could not copy the plugin to $HYPRBARS_SO"
+    hyprctl plugin load "$HYPRBARS_SO" >/dev/null 2>&1 || warn "could not load hyprbars now (it will load on next login)"
+  fi
   # No arrange marker here. This reload is the plugin's (on a fresh install the
   # pack's config is not wired in yet, on a reinstall it is still the previous
   # one), and a marker left for it is an arrange with the old geometry -- or a
@@ -205,7 +322,15 @@ print(json.dumps(out))
   sleep 1
   for d in "$HERE"/quickshell/*/; do
     id="$(basename "$d")"
-    plugin_enabled "$id" || omarchy plugin enable "$id" >/dev/null 2>&1 || warn "could not enable $id"
+    if ! plugin_enabled "$id"; then
+      # The running shell rewrites shell.json too, so an enable can be lost the
+      # moment it is written. Ask again, and say so plainly if it still did not
+      # stick -- a plugin that installs but stays disabled has no dock and no bar
+      # widget, which reads as "the pack is not installed".
+      omarchy plugin enable "$id" >/dev/null 2>&1 || true
+      sleep 0.5
+      plugin_enabled "$id" || warn "$id is installed but stayed disabled: run 'omarchy plugin enable $id' once the shell is up"
+    fi
   done
 
   log "installing Hyprland config"
@@ -223,6 +348,9 @@ print(json.dumps(out))
   if [ -f "$X_MODE_STATE_DIR/settings.json" ] && [ ! -f "$HYPR/x-mode.json" ]; then
     mv "$X_MODE_STATE_DIR/settings.json" "$HYPR/x-mode.json"
   fi
+
+  log "adding the X Mode row to the menu"
+  menu_write "$HYPR/x-mode/xmode"
 
   log "wiring x-mode into hyprland.lua"
   sentinel_add "$HYPR/hyprland.lua"
@@ -248,11 +376,14 @@ print(json.dumps(out))
   # (and a stale icon index) would not take effect until a manual restart.
   log "restarting the shell to load the updated plugins"
   OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}" omarchy-restart-shell >/dev/null 2>&1 || warn "could not restart the shell; run 'omarchy-restart-shell' to load the plugins"
+  ensure_shell
 
   log "installed omarchy-x-mode"
+  log_file "=== install done"
 }
 
 do_uninstall() {
+  log_file "=== uninstall start (pid $$, $0 $*)"
   # The order here is the whole point. Hyprland runs the plugin's code in place
   # from $HYPRBARS_SO, and the pack's Lua calls into it on every focus change
   # (window.active -> hyprbars.raise). So: unwire the config, reload (the Lua
@@ -265,15 +396,22 @@ do_uninstall() {
   sentinel_remove "$HYPR/hyprland.lua"
   hyprctl reload >/dev/null 2>&1 || true
 
-  log "unloading patched hyprbars"
-  # Deleting the .so does not unload it; unload explicitly so titlebars go away.
-  hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
-  # If it is still loaded, its pages are mapped and removing the file would crash
-  # the compositor at the next call into it. Leave the file, and say so.
+  log "retiring patched hyprbars"
+  # Not unloaded here, and the file only removed once it is not loaded. Unloading
+  # the plugin with windows on screen has crashed the compositor (its decorations
+  # hold listeners, and a layer going away walks the input path straight into
+  # them); removing a loaded .so does the same. So: with windows open the plugin
+  # stays loaded -- no titlebars change until the next login -- and the file stays
+  # with it.
   KEEP_SO=""
-  if hyprctl plugin list 2>/dev/null | grep -qF -- "$HYPRBARS_SO"; then
-    KEEP_SO="$HYPRBARS_SO"
-    warn "the plugin is still loaded; keeping $HYPRBARS_SO (removing a loaded .so crashes the compositor). It goes on the next login."
+  if hyprbars_loaded; then
+    if [ "$(windows_open)" -eq 0 ]; then
+      hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
+    fi
+    if hyprbars_loaded; then
+      KEEP_SO="$HYPRBARS_SO"
+      warn "the plugin stays loaded until the next login; keeping $HYPRBARS_SO"
+    fi
   fi
 
   # Re-enable a stock hyprbars that was loaded before we replaced it.
@@ -291,6 +429,9 @@ do_uninstall() {
   done
   omarchy-shell -q shell rescanPlugins 2>/dev/null || true
 
+  log "taking the X Mode row out of the menu"
+  menu_remove
+
   log "removing installed files"
   rm -f "$HYPR"/conf.d/5x-x-mode-*.lua 2>/dev/null || true
   # The pack's directory, and the config file earlier installs left beside it.
@@ -301,8 +442,15 @@ do_uninstall() {
   if [ -f "$X_MODE_MANIFEST" ]; then
     tac "$X_MODE_MANIFEST" | while IFS= read -r p; do
       [ -n "$p" ] || continue
-      # A plugin that is still loaded keeps its file: see the unload above.
-      [ -n "$KEEP_SO" ] && [ "$p" = "$KEEP_SO" ] && continue
+      # A plugin that is still loaded keeps its file: see the unload above. Written
+      # as an `if`, not as `[ … ] && [ … ] && continue`: under `set -e` a failing
+      # `&&` chain ends the script, and with KEEP_SO empty that aborted every
+      # uninstall right here -- before the shell was restarted, which is why the
+      # desktop came back with no bar and no dock at all.
+      if [ -n "$KEEP_SO" ] && [ "$p" = "$KEEP_SO" ]; then
+        log "keeping $p (still loaded)"
+        continue
+      fi
       rm -rf -- "$p"
     done
   fi
@@ -352,12 +500,14 @@ PY
   fi
 
   OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}" omarchy-restart-shell >/dev/null 2>&1 || true
+  ensure_shell
   # Kept on purpose: the user's settings, not ours.
   if [ -f "$HYPR/x-mode.json" ]; then
     log "kept settings  $HYPR/x-mode.json"
   fi
   rm -rf "$X_MODE_STATE_DIR"
   log "uninstalled omarchy-x-mode"
+  log_file "=== uninstall done"
 }
 
 do_status() {

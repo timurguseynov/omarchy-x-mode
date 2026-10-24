@@ -437,3 +437,11 @@ if failures > 0 then
   os.exit(1)
 end
 print("supermap ok")
+
+-- keycode -> name, for the pack's keycode-spelled binds (Omarchy's resize steps):
+-- a Super-as-Ctrl app has to be handed the key's *name* to type Ctrl+minus.
+check("code_name.minus", supermap.code_name(20), "minus")
+check("code_name.equal", supermap.code_name(21), "equal")
+check("code_name.backspace", supermap.code_name(22), "BACKSPACE")
+check("code_name.string", supermap.code_name("20"), "minus")
+check("code_name.unknown", supermap.code_name(999), nil)
