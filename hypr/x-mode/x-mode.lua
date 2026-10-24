@@ -185,10 +185,7 @@ if not x_mode_wanted() then
   end)
   -- Keep the plugin around so the bar toggle still works after a reload.
   o.exec_on_start("hyprpm reload -n")
-  -- The staged build from an install that could not swap the plugin in place (the
-  -- installer only writes x-mode-hyprbars.so.new while one is loaded). At startup
-  -- there is no window and no decoration yet, so the move is the safe one.
-  o.exec_on_start("sh -c 'd=\"$HOME/.local/share/hyprbars\"; if [ -f \"$d/x-mode-hyprbars.so.new\" ]; then mv -f \"$d/x-mode-hyprbars.so.new\" \"$d/x-mode-hyprbars.so\"; fi; hyprctl plugin unload \"$d/hyprbars.so\" >/dev/null 2>&1; hyprctl plugin list 2>/dev/null | grep -q hyprbars || hyprctl plugin load \"$d/x-mode-hyprbars.so\"'")
+  o.exec_on_start("sh -c 'd=\"$HOME/.local/share/hyprbars\"; hyprctl plugin unload \"$d/hyprbars.so\" >/dev/null 2>&1; hyprctl plugin list 2>/dev/null | grep -q hyprbars || hyprctl plugin load \"$d/x-mode-hyprbars.so\"'")
   pcall(function()
     hl.config({ plugin = { hyprbars = { enabled = false } } })
     if hl.plugin and hl.plugin.hyprbars and hl.plugin.hyprbars.x_mode then
@@ -340,17 +337,12 @@ local bar_bg, bar_fg = theme.bar_colors(palette)
 -- before anything has loaded it, and a `plugin:hyprbars:*` key that no plugin
 -- registered is reported as an unknown key and dropped -- a dozen errors on every
 -- login, with the bar height, the tab height and the colours lost on that parse.
--- So it is loaded here, the way Omarchy's own titlebars module does it, and the
--- staged build from an install that could not swap the plugin in place is moved
--- over first: at a login nothing is mapped yet, so that move is the safe one.
+-- So it is loaded here, the way Omarchy's own titlebars module does it. The
+-- installer has already unloaded the previous copy and written this path, so
+-- there is no second file to move into place.
 local function ensure_hyprbars()
   local dir = (os.getenv("HOME") or "") .. "/.local/share/hyprbars/"
-  local so, staged = dir .. "x-mode-hyprbars.so", dir .. "x-mode-hyprbars.so.new"
-  local file = io.open(staged, "r")
-  if file ~= nil then
-    file:close()
-    os.rename(staged, so)
-  end
+  local so = dir .. "x-mode-hyprbars.so"
   -- Only when there is a build to load: the nest has no installed copy (its
   -- harness loads the repo build itself), and asking the loader for a missing file
   -- there is not something the config should do.

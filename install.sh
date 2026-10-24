@@ -127,10 +127,6 @@ export OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 # which step it was. It lives next to the state directory rather than inside it,
 # because do_uninstall removes that directory.
 INSTALL_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-x-mode-install.log"
-# A plugin swap is only safe with no windows open: Hyprland runs the plugin's code
-# in place, and its decorations hold listeners of their own. Unloading it with a
-# window on screen has crashed the compositor twice (see the install log: the run
-# stopped right after "loading patched hyprbars").
 # Is a hyprbars loaded? The CLI prints the plugin's *name* and never the path it was
 # loaded from (`hyprctl plugin list -j` has no file field), so matching on
 # $HYPRBARS_SO silently answered "no" every time: install then copied over the
@@ -141,8 +137,107 @@ hyprbars_loaded() {
   hyprctl plugin list 2>/dev/null | grep -qi 'hyprbars'
 }
 
-windows_open() {
-  hyprctl -j clients 2>/dev/null | grep -c '"mapped": *true' 2>/dev/null || echo 0
+# plugin list prints the name and never the path, and Omarchy's titlebars.so
+# registers the same name as the pack's plugin. The map is what unload has to
+# be given. A mapping marked deleted is still the loaded plugin: the file was
+# removed while the compositor had it open.
+mapped_hyprbars() {
+  local runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" sig="${HYPRLAND_INSTANCE_SIGNATURE:-}" sock pid
+  sock="$runtime/hypr/${sig}/.socket.sock"
+  if [ -S "$sock" ]; then
+    for pid in $(pgrep -x Hyprland 2>/dev/null || true); do
+      if ls -l "/proc/$pid/fd" 2>/dev/null | grep -q "$sock"; then
+        break
+      fi
+      pid=""
+    done
+  fi
+  # No socket to match: the oldest Hyprland is the host. A nest is started later.
+  [ -n "$pid" ] || pid="$(pgrep -o -x Hyprland 2>/dev/null || true)"
+  [ -n "$pid" ] && [ -r "/proc/$pid/maps" ] || return 0
+  awk '
+    {
+      path = $6
+      for (i = 7; i <= NF; i++) {
+        if ($i == "(deleted)")
+          break
+        path = path " " $i
+      }
+      if (path ~ /\/hyprbars\// || path ~ /titlebars\.so$/)
+        print path
+    }
+  ' "/proc/$pid/maps" | sort -u
+}
+
+# A terminal left open across a logout keeps the previous
+# HYPRLAND_INSTANCE_SIGNATURE. hyprctl then talks to a dead socket and reports
+# nothing loaded, so the script deletes the .so the live compositor still has
+# mapped, and the shell restart waits out its deadline against a session that
+# is not there. A signature whose socket exists is left alone. Otherwise the
+# oldest instance that still has a socket is the host: a nest started later
+# has the newer directory.
+fix_hypr_instance() {
+  local runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" sig="${HYPRLAND_INSTANCE_SIGNATURE:-}"
+  if [ -n "$sig" ] && [ -S "$runtime/hypr/$sig/.socket.sock" ]; then
+    return 0
+  fi
+  local dir live=""
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    [ -S "$dir/.socket.sock" ] || continue
+    live="${dir##*/}"
+    break
+  done < <(find "$runtime/hypr" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -n | cut -d' ' -f2-)
+  if [ -z "$live" ]; then
+    return 0
+  fi
+  export HYPRLAND_INSTANCE_SIGNATURE="$live"
+  log "hyprctl was aimed at a dead session; using $live"
+}
+
+# The .so is mapped into the compositor. Unwire first, so the pack's Lua stops
+# calling into it, and only then unload. Tiling has to happen between the two:
+# float-disable walks window decorations, and doing that after the unload never
+# returns. The bars go off before the unload, so a layer torn down afterwards
+# does not walk the input path into them. unload_hyprbars returns 1 when a
+# hyprbars is still listed; the caller must not touch the file then.
+unwire_pack() {
+  if grep -q "^${X_MODE_BEGIN}$" "$HYPR/hyprland.lua" 2>/dev/null; then
+    log "unwiring x-mode before the plugin is released"
+    sentinel_remove "$HYPR/hyprland.lua"
+    hyprctl reload >/dev/null 2>&1 || true
+  fi
+}
+
+unload_hyprbars() {
+  local path
+  if hyprbars_loaded || mapped_hyprbars | grep -q .; then
+    log "turning hyprbars off, then unloading it"
+    hyprctl eval 'hl.config({ plugin = { hyprbars = { enabled = false } } })' >/dev/null 2>&1 || true
+    hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
+    # Anything still mapped under another path is not the file we are about to
+    # replace. Omarchy's titlebars.so is the usual one: unload it and remember
+    # the path so uninstall can put it back.
+    while IFS= read -r path; do
+      [ -n "$path" ] || continue
+      [ "$path" = "$HYPRBARS_SO" ] && continue
+      log "unloading $path"
+      hyprctl plugin unload "$path" >/dev/null 2>&1 || true
+      mkdir -p "$X_MODE_STATE_DIR"
+      printf '%s\n' "$path" > "$PRIOR_HYPRBARS"
+    done < <(mapped_hyprbars)
+  fi
+  if hyprbars_loaded; then
+    return 1
+  fi
+  return 0
+}
+
+# Install has nothing to tile in between: the windows stay where they are and
+# the new plugin is loaded straight after the old one is gone.
+release_hyprbars() {
+  unwire_pack
+  unload_hyprbars
 }
 
 # Bring the shell back if it is not running. omarchy-restart-shell is silent (its
@@ -380,6 +475,7 @@ PY
 
 do_install() {
   log_file "=== install start (pid $$, $0 $*)"
+  fix_hypr_instance
   manifest_reset
 
   # Snapshot the open windows so uninstall can put them back the way they were
@@ -427,39 +523,18 @@ print(json.dumps(out))
     log "disabled existing hyprbars (will re-enable on uninstall)"
   fi
 
-  # Hyprland runs the plugin's code in place from the .so, so the file may not be
-  # written over (or deleted) while it is loaded: see hyprbars/build.sh. The
-  # order below is the safe one, and it is what do_uninstall mirrors:
-  #   1. take the pack out of the Lua config, so nothing in Lua can call into the
-  #      plugin any more,
-  #   2. reload: the Lua state is rebuilt without x-mode.lua,
-  #   3. unload the old plugin,
-  #   4. copy the new .so while nothing maps it,
-  #   5. load it, and wire the pack back in at the end of the install.
-  # Doing 3 before 1 leaves the old Lua state holding closures into a plugin that
-  # is gone, and the next focus change calls into nothing. On a reinstall the
-  # config is still the previous one, so the unwiring has to happen here too.
-  if grep -q "^${X_MODE_BEGIN}$" "$HYPR/hyprland.lua" 2>/dev/null; then
-    log "unwiring x-mode before the plugin is replaced"
-    sentinel_remove "$HYPR/hyprland.lua"
-    hyprctl reload >/dev/null 2>&1 || true
-  fi
-
+  # release_hyprbars unwires, reloads, turns the bars off and unloads. The copy
+  # below is the live path: nothing is staged for the next login. If the unload
+  # did not take, the mapped file is left untouched.
   log "installing patched hyprbars"
   mkdir -p "$HYPRBARS_DIR"
-  if hyprbars_loaded && [ "$(windows_open)" -gt 0 ]; then
-    # Loaded, and windows are on screen: stage the build instead of swapping it.
-    # The pack's own exec_on_start moves it into place at the next startup, where
-    # there are no windows and no decorations to leave listeners behind.
-    install -m644 "$HERE/hyprbars/hyprbars.so" "$HYPRBARS_SO.new" \
-      || warn "could not stage the plugin at $HYPRBARS_SO.new"
-    warn "hyprbars is loaded: the new build is staged as $HYPRBARS_SO.new and loads at the next login"
-  else
-    hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
-    install -m644 "$HERE/hyprbars/hyprbars.so" "$HYPRBARS_SO" \
-      || warn "could not copy the plugin to $HYPRBARS_SO"
-    hyprctl plugin load "$HYPRBARS_SO" >/dev/null 2>&1 || warn "could not load hyprbars now (it will load on next login)"
+  if ! release_hyprbars; then
+    warn "hyprbars is still loaded; not replacing the mapped plugin"
+    exit 1
   fi
+  install -m644 "$HERE/hyprbars/hyprbars.so" "$HYPRBARS_SO" \
+    || warn "could not copy the plugin to $HYPRBARS_SO"
+  hyprctl plugin load "$HYPRBARS_SO" >/dev/null 2>&1 || warn "could not load hyprbars now (it will load on next login)"
   # No arrange marker here. This reload is the plugin's (on a fresh install the
   # pack's config is not wired in yet, on a reinstall it is still the previous
   # one), and a marker left for it is an arrange with the old geometry -- or a
@@ -554,6 +629,7 @@ print(json.dumps(out))
 
 do_uninstall() {
   log_file "=== uninstall start (pid $$, $0 $*)"
+  fix_hypr_instance
   # The tag is what says the pack floated the window. The reload below drops the
   # rule that applied it, so it has to be written down first. The restore step
   # tiles these even when the snapshot says they were floating: that snapshot is
@@ -580,26 +656,104 @@ for c in json.load(sys.stdin):
   # Lua. Unloading or deleting the .so first, with the pack still wired, is how a
   # plain uninstall segfaulted the compositor and took the whole session down.
   log "unwiring x-mode from hyprland.lua"
-  sentinel_remove "$HYPR/hyprland.lua"
-  hyprctl reload >/dev/null 2>&1 || true
+  # The pack's float rule has to be gone before the windows are tiled, and the
+  # plugin has to still be loaded while they are: tiling after the unload hangs
+  # inside hyprctl. The shell layers come after the unload.
+  unwire_pack
 
-  log "retiring patched hyprbars"
-  # Not unloaded here, and the file only removed once it is not loaded. Unloading
-  # the plugin with windows on screen has crashed the compositor (its decorations
-  # hold listeners, and a layer going away walks the input path straight into
-  # them); removing a loaded .so does the same. So: with windows open the plugin
-  # stays loaded -- no titlebars change until the next login -- and the file stays
-  # with it.
-  KEEP_SO=""
-  if hyprbars_loaded; then
-    if [ "$(windows_open)" -eq 0 ]; then
-      hyprctl plugin unload "$HYPRBARS_SO" >/dev/null 2>&1 || true
-    fi
-    if hyprbars_loaded; then
-      KEEP_SO="$HYPRBARS_SO"
-      warn "the plugin stays loaded until the next login; keeping $HYPRBARS_SO"
-    fi
+  # The plugin stays loaded while windows are open, and the tags the pack set
+  # survive the reload, so its bars keep drawing — with the pack's config gone
+  # they are Hyprland's plain tab bar. Turn those bars off, take the tag, and
+  # pull every window out of its group so the native groupbar has nothing to
+  # show once the pack's "groupbar off" is no longer in the config.
+  log "taking the pack's chrome off open windows"
+  hyprctl eval 'hl.config({ plugin = { hyprbars = { enabled = false } } })' >/dev/null 2>&1 || true
+  hyprctl dispatch 'hl.dsp.group.lock({ action = "disable" })' >/dev/null 2>&1 || true
+  hyprctl clients -j 2>/dev/null | python3 -c '
+import json, subprocess, sys, time
+try:
+    clients = json.load(sys.stdin)
+except Exception:
+    clients = []
+
+def disp(expr):
+    subprocess.run(["timeout", "3", "hyprctl", "dispatch", expr], capture_output=True)
+    time.sleep(0.05)
+
+for c in clients:
+    addr = c.get("address")
+    if not addr or c.get("pinned"):
+        continue
+    w = f"address:{addr}"
+    tags = [str(t) for t in (c.get("tags") or [])]
+    if any(t == "xmode-workspace" or t == "xmode-workspace*" for t in tags):
+        disp(f"hl.dsp.window.tag({{ tag = \"-xmode-workspace\", window = \"{w}\" }})")
+    if c.get("grouped"):
+        disp(f"hl.dsp.window.move({{ out_of_group = true, window = \"{w}\" }})")
+' || true
+
+  # Put windows back the way they were before the pack floated/grouped them:
+  # ungroup everything, tile the windows the pack floated, and restore a window
+  # that was already floating before the pack to its old position and size.
+  if [ -f "$PRIOR_WINDOWS" ] || [ -s "$PACK_FLOATED" ]; then
+    log "restoring window state"
+    python3 - "$PRIOR_WINDOWS" "$PACK_FLOATED" <<'PY' || true
+import json, subprocess, sys, time
+prior = []
+try:
+    prior = json.load(open(sys.argv[1]))
+except Exception:
+    prior = []
+try:
+    pack = set(open(sys.argv[2]).read().split())
+except Exception:
+    pack = set()
+try:
+    cur = json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)
+except Exception:
+    cur = []
+prior_by = {p.get("address"): p for p in prior}
+
+def disp(expr):
+    subprocess.run(["timeout", "3", "hyprctl", "dispatch", expr], capture_output=True)
+    # Dispatches on the same window race if sent back-to-back; let each settle.
+    time.sleep(0.12)
+
+for c in cur:
+    addr = c.get("address")
+    if not addr or c.get("pinned"):
+        continue
+    w = f"address:{addr}"
+    if c.get("grouped"):
+        disp(f'hl.dsp.window.move({{ out_of_group = true, window = "{w}" }})')
+    p = prior_by.get(addr)
+    # The tag was captured before the reload, because the reload drops it. With
+    # no capture at all there is nothing that distinguishes a pack float from a
+    # snapshot taken while the pack was already on, and those windows have to
+    # tile: leaving them floating is how an uninstall came back without tiling
+    # and the following install had nothing to put a titlebar on.
+    pack_floated = addr in pack or not pack
+    want_float = (bool(p.get("floating")) if p is not None else False) and not pack_floated
+    if want_float:
+        if not c.get("floating"):
+            disp(f'hl.dsp.window.float({{ action = "enable", window = "{w}" }})')
+        at = p.get("at") or [0, 0]
+        size = p.get("size") or [0, 0]
+        disp(f'hl.dsp.window.resize({{ x = {int(size[0])}, y = {int(size[1])}, relative = false, window = "{w}" }})')
+        disp(f'hl.dsp.window.move({{ x = {int(at[0])}, y = {int(at[1])}, relative = false, window = "{w}" }})')
+    elif c.get("floating"):
+        disp(f'hl.dsp.window.float({{ action = "disable", window = "{w}" }})')
+PY
   fi
+
+  # Unload only once the windows are tiled. A hyprbars that did not unload keeps
+  # its file: deleting a mapped .so takes the session down.
+  KEEP_SO=""
+  if ! unload_hyprbars; then
+    KEEP_SO="$HYPRBARS_SO"
+    warn "hyprbars did not unload; leaving $HYPRBARS_SO in place"
+  fi
+  rm -f "$HYPRBARS_SO.new" 2>/dev/null || true
 
   # Re-enable a stock hyprbars that was loaded before we replaced it.
   if [ -f "$PRIOR_HYPRBARS" ]; then
@@ -648,91 +802,7 @@ for c in json.load(sys.stdin):
   hyprctl reload >/dev/null 2>&1 || true
   sleep 0.5
 
-  # The plugin stays loaded while windows are open, and the tags the pack set
-  # survive the reload, so its bars keep drawing — with the pack's config gone
-  # they are Hyprland's plain tab bar. Turn those bars off, take the tag, and
-  # pull every window out of its group so the native groupbar has nothing to
-  # show once the pack's "groupbar off" is no longer in the config.
-  log "taking the pack's chrome off open windows"
-  hyprctl eval 'hl.config({ plugin = { hyprbars = { enabled = false } } })' >/dev/null 2>&1 || true
-  hyprctl dispatch 'hl.dsp.group.lock({ action = "disable" })' >/dev/null 2>&1 || true
-  hyprctl clients -j 2>/dev/null | python3 -c '
-import json, subprocess, sys, time
-try:
-    clients = json.load(sys.stdin)
-except Exception:
-    clients = []
-
-def disp(expr):
-    subprocess.run(["hyprctl", "dispatch", expr], capture_output=True)
-    time.sleep(0.05)
-
-for c in clients:
-    addr = c.get("address")
-    if not addr or c.get("pinned"):
-        continue
-    w = f"address:{addr}"
-    tags = [str(t) for t in (c.get("tags") or [])]
-    if any(t == "xmode-workspace" or t == "xmode-workspace*" for t in tags):
-        disp(f"hl.dsp.window.tag({{ tag = \"-xmode-workspace\", window = \"{w}\" }})")
-    if c.get("grouped"):
-        disp(f"hl.dsp.window.move({{ out_of_group = true, window = \"{w}\" }})")
-' || true
-
-  # Put windows back the way they were before the pack floated/grouped them:
-  # ungroup everything, tile the windows the pack floated, and restore a window
-  # that was already floating before the pack to its old position and size.
-  if [ -f "$PRIOR_WINDOWS" ] || [ -s "$PACK_FLOATED" ]; then
-    log "restoring window state"
-    python3 - "$PRIOR_WINDOWS" "$PACK_FLOATED" <<'PY' || true
-import json, subprocess, sys, time
-prior = []
-try:
-    prior = json.load(open(sys.argv[1]))
-except Exception:
-    prior = []
-try:
-    pack = set(open(sys.argv[2]).read().split())
-except Exception:
-    pack = set()
-try:
-    cur = json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)
-except Exception:
-    cur = []
-prior_by = {p.get("address"): p for p in prior}
-
-def disp(expr):
-    subprocess.run(["hyprctl", "dispatch", expr], capture_output=True)
-    # Dispatches on the same window race if sent back-to-back; let each settle.
-    time.sleep(0.12)
-
-for c in cur:
-    addr = c.get("address")
-    if not addr or c.get("pinned"):
-        continue
-    w = f"address:{addr}"
-    if c.get("grouped"):
-        disp(f'hl.dsp.window.move({{ out_of_group = true, window = "{w}" }})')
-    p = prior_by.get(addr)
-    # The tag was captured before the reload, because the reload drops it. With
-    # no capture at all there is nothing that distinguishes a pack float from a
-    # snapshot taken while the pack was already on, and those windows have to
-    # tile: leaving them floating is how an uninstall came back without tiling
-    # and the following install had nothing to put a titlebar on.
-    pack_floated = addr in pack or not pack
-    want_float = (bool(p.get("floating")) if p is not None else False) and not pack_floated
-    if want_float:
-        if not c.get("floating"):
-            disp(f'hl.dsp.window.float({{ action = "enable", window = "{w}" }})')
-        at = p.get("at") or [0, 0]
-        size = p.get("size") or [0, 0]
-        disp(f'hl.dsp.window.resize({{ x = {int(size[0])}, y = {int(size[1])}, relative = false, window = "{w}" }})')
-        disp(f'hl.dsp.window.move({{ x = {int(at[0])}, y = {int(at[1])}, relative = false, window = "{w}" }})')
-    elif c.get("floating"):
-        disp(f'hl.dsp.window.float({{ action = "disable", window = "{w}" }})')
-PY
-  fi
-
+  log "restarting the shell"
   OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}" omarchy-restart-shell >/dev/null 2>&1 || true
   ensure_shell
   # Kept on purpose: the user's settings, not ours.

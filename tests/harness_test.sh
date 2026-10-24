@@ -78,40 +78,83 @@ if grep -qE '^[^#]*(DEST=|\$\{?HOME)' "$BUILD"; then
 fi
 grep -qE '^\s*install -m644 .*hyprbars\.so.*"\$HYPRBARS_SO" ' "$INSTALL" \
   || fail "install.sh no longer copies the plugin into place"
-# The staged copy is the safe one (loaded plugin, windows open); the plain copy
-# may only exist next to an unload, because writing over a mapped .so is the
-# crash this pin exists for.
-grep -qE '\$HYPRBARS_SO\.new' "$INSTALL" \
-  || fail "install.sh no longer stages the plugin when it cannot swap it"
+# A second file that is swapped in at the next login never gets loaded into the
+# session that just installed. The loaded plugin is released, then the same path
+# is written. Deleting a leftover from an older install is not staging one.
+if grep -qE 'install .*"\$HYPRBARS_SO\.new"' "$INSTALL"; then
+  fail "install.sh still stages the plugin as .new instead of unloading it"
+fi
+if grep -q 'windows_open' "$INSTALL"; then
+  fail "install.sh still skips the unload while windows are open"
+fi
 
 line_of() { # PATTERN FILE
   grep -nE -- "$1" "$2" | head -n1 | cut -d: -f1
 }
 
-# do_uninstall: the sentinel comes out and Hyprland reloads before the plugin is
-# unloaded, and the shell plugins (whose layer surfaces walk the input path into
-# the pack's Lua) go last.
+# Install releases the plugin in one call: unwire, reload, bars off, unload.
+# Uninstall has to tile in between the reload and the unload, so those two
+# halves are their own functions and release_hyprbars is just both, in order.
+unwire_block="$TMP/unwire_pack.sh"
+sed -n '/^unwire_pack() {/,/^}/p' "$INSTALL" > "$unwire_block"
+unwire=$(line_of 'sentinel_remove "\$HYPR/hyprland\.lua"' "$unwire_block")
+reload=$(line_of 'hyprctl reload' "$unwire_block")
+[ -n "$unwire" ] && [ -n "$reload" ] || fail "unwire_pack lost a step"
+[ "$unwire" -lt "$reload" ] || fail "unwire_pack reloads before it unwires the pack"
+
+unload_block="$TMP/unload_hyprbars.sh"
+sed -n '/^unload_hyprbars() {/,/^}/p' "$INSTALL" > "$unload_block"
+bars=$(line_of 'hyprbars = \{ enabled = false \}' "$unload_block")
+unload=$(line_of 'hyprctl plugin unload "\$HYPRBARS_SO"' "$unload_block")
+[ -n "$bars" ] && [ -n "$unload" ] || fail "unload_hyprbars lost a step"
+[ "$bars" -lt "$unload" ] || fail "unload_hyprbars unloads hyprbars while its bars are still on the windows"
+# plugin list only prints the name. Omarchy's titlebars.so is also "hyprbars",
+# so an install that only unloads the pack path stops and never wires the pack.
+grep -q 'mapped_hyprbars' "$unload_block" || fail "unload_hyprbars does not unload a hyprbars that is mapped under another path"
+
+release_block="$TMP/release_hyprbars.sh"
+sed -n '/^release_hyprbars() {/,/^}/p' "$INSTALL" > "$release_block"
+rel_unwire=$(line_of 'unwire_pack' "$release_block")
+rel_unload=$(line_of 'unload_hyprbars' "$release_block")
+[ -n "$rel_unwire" ] && [ -n "$rel_unload" ] || fail "release_hyprbars no longer unwires then unloads"
+[ "$rel_unwire" -lt "$rel_unload" ] || fail "release_hyprbars unloads before the pack's Lua is gone"
+
+# A terminal left open across a logout keeps the previous compositor's
+# signature. hyprctl then talks to a dead socket, the plugin looks unloaded,
+# and the script deletes the .so the live session still has mapped. The
+# signature is corrected before any hyprctl, and the shell restart inherits it
+# instead of waiting out its deadline against a compositor that is not there.
+fix_block="$TMP/fix_hypr_instance.sh"
+sed -n '/^fix_hypr_instance() {/,/^}/p' "$INSTALL" > "$fix_block"
+grep -q '\.socket\.sock' "$fix_block" || fail "fix_hypr_instance does not check that the signature's socket exists"
+grep -q 'HYPRLAND_INSTANCE_SIGNATURE' "$fix_block" || fail "fix_hypr_instance does not retarget the signature"
+
 uninstall_block="$TMP/do_uninstall.sh"
 sed -n '/^do_uninstall() {/,/^}/p' "$INSTALL" > "$uninstall_block"
-unwire=$(line_of 'sentinel_remove "\$HYPR/hyprland\.lua"' "$uninstall_block")
-reload=$(line_of 'hyprctl reload' "$uninstall_block")
-unload=$(line_of 'hyprctl plugin unload "\$HYPRBARS_SO"' "$uninstall_block")
+fix_u=$(line_of 'fix_hypr_instance' "$uninstall_block")
+unwire_u=$(line_of 'unwire_pack' "$uninstall_block")
+restore_u=$(line_of 'restoring window state' "$uninstall_block")
+unload_u=$(line_of 'unload_hyprbars' "$uninstall_block")
 shells=$(line_of 'plugin_remove "\$id"' "$uninstall_block")
-for v in unwire reload unload shells; do
+for v in fix_u unwire_u restore_u unload_u shells; do
   [ -n "${!v}" ] || fail "do_uninstall lost its $v step"
 done
-[ "$unwire" -lt "$reload" ] || fail "do_uninstall reloads before it unwires the pack: the Lua state still points into the plugin"
-[ "$reload" -lt "$unload" ] || fail "do_uninstall unloads the plugin before reloading without the pack"
-[ "$unload" -lt "$shells" ] || fail "do_uninstall removes the shell plugins before the plugin is unloaded"
+# Tiling after the unload is what hung: float-disable walks the decorations of
+# a plugin that is already gone, and that hyprctl dispatch never returns.
+[ "$fix_u" -lt "$unwire_u" ] || fail "do_uninstall talks to Hyprland before correcting a dead signature"
+[ "$unwire_u" -lt "$restore_u" ] || fail "do_uninstall tiles windows before the pack's Lua is gone, so the float rule puts them straight back"
+[ "$restore_u" -lt "$unload_u" ] || fail "do_uninstall unloads hyprbars before the windows are tiled"
+[ "$unload_u" -lt "$shells" ] || fail "do_uninstall removes the shell plugins before hyprbars is unloaded"
 
-# do_install: the copy happens after the unload, never over a mapped file.
 install_block="$TMP/do_install.sh"
 sed -n '/^do_install() {/,/^}/p' "$INSTALL" > "$install_block"
-load_unload=$(line_of 'hyprctl plugin unload "\$HYPRBARS_SO"' "$install_block")
-# The copy into the live path, not the staged `$HYPRBARS_SO.new` one.
+fix_i=$(line_of 'fix_hypr_instance' "$install_block")
+release_i=$(line_of 'release_hyprbars' "$install_block")
+[ -n "$fix_i" ] || fail "do_install does not correct a dead Hyprland signature"
+[ "$fix_i" -lt "$release_i" ] || fail "do_install releases the plugin before correcting a dead signature"
 copy=$(line_of 'install -m644 .*"\$HYPRBARS_SO" ' "$install_block")
-[ -n "$load_unload" ] || fail "do_install no longer unloads the old plugin"
+[ -n "$release_i" ] || fail "do_install no longer releases the old plugin"
 [ -n "$copy" ] || fail "do_install no longer copies the plugin into place"
-[ "$load_unload" -lt "$copy" ] || fail "do_install copies the plugin over a loaded .so"
+[ "$release_i" -lt "$copy" ] || fail "do_install copies the plugin over a loaded .so"
 
 echo "  ok   the installer unloads the plugin before it copies or removes the .so"
