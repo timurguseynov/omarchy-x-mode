@@ -540,11 +540,11 @@ Panel {
 
     readonly property var flagRows: [
       { flag: "ctrlAsSuper", label: "Super as Ctrl", description: "⌘T, ⌘R, ⌘L reach the app" },
-      { flag: "moveCode", label: "⌘[ ] move code", description: "Indent instead of Back" },
       { flag: "digitTabs", label: "⌘1..0 switch tabs", description: "Needs Workspaces on F1..F10" },
       { flag: "ctrlTabSwitch", label: "⌃1..0 switch tabs", description: "Works without F1..F10" },
       { flag: "ctrlClick", label: "⌘-click as ⌃-click", description: "Links, multi-select" },
-      { flag: "ctrlCShift", label: "⌃C as ⌃⇧C", description: "Interrupt in a terminal" }
+      { flag: "ctrlCShift", label: "⌃C as ⌃⇧C", description: "Interrupt in a terminal" },
+      { flag: "moveCode", label: "⌘[ ] move code", description: "Indent instead of Back" }
     ]
 
     // Green, red, or nothing: the theme's own colours for the two pinned states, out

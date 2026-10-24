@@ -651,7 +651,7 @@ function withoutId(list, id) {
 // what lets a desktop-wide setting keep one app that disagrees -- Ctrl+1..6 handed
 // to an editor while the desktop keeps them for the pack's tabs.
 
-var KEY_FLAG_NAMES = ["ctrlAsSuper", "moveCode", "digitTabs", "ctrlTabSwitch", "ctrlClick", "ctrlCShift"]
+var KEY_FLAG_NAMES = ["ctrlAsSuper", "digitTabs", "ctrlTabSwitch", "ctrlClick", "ctrlCShift", "moveCode"]
 
 // The row for one flag in an app's card: the state, whether the switch reads as on
 // (the effective answer, so an inherited on looks on), and where that answer comes

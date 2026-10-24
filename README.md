@@ -110,11 +110,11 @@ The every-app list starts with:
 Then the same rows in both lists:
 
 * **Super as Ctrl** — Super+letter and Super+punctuation become Ctrl+letter and Ctrl+punctuation, so `⌘T`, `⌘R`, `⌘L` and `⌘⇧\` work like Command on a Mac
-* **`⌘[` `⌘]` move code** — outdent and indent, the way an editor binds `Ctrl+[` / `Ctrl+]`. Off, the same keys go back and forward
 * **`⌘1`…`0` switch tabs** — needs Workspaces on F1…F10
 * **`⌃1`…`0` switch tabs** — works without it; off, they switch the app’s own tabs (browser, editor)
 * **`⌘`-click as `⌃`-click**
 * **`⌃C` as `⌃⇧C`** — interrupt in a terminal; `⌘C` still copies
+* **`⌘[` `⌘]` move code** — outdent and indent, the way an editor binds `Ctrl+[` / `Ctrl+]`. Off, the same keys go back and forward
 * Keys the desktop already uses (`⌘Q` quit, `⌘W` close, `⌘F` fullscreen, `⌘Tab` the switcher, …). Turn one on and the app gets it as Ctrl instead (`⌘W` closes a tab inside the app)
 
 `⌘C` / `⌘V` / `⌘X` always copy, paste and cut. They are not in this list.
