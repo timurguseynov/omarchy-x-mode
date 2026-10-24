@@ -89,6 +89,23 @@ do
   end
 end
 
+-- Omarchy's titlebars module queues its own hyprbars the moment a workspace
+-- floats. The pack's plugin is already that hyprbars; a second copy reloads the
+-- config and the two decorations fight. Drop the queue before workspace-modes
+-- runs, on a reload as well as the first parse. x-mode.lua wraps the same call
+-- again for a click that happens after this file.
+do
+  local ok, load_plugin = pcall(function() return hl.plugin.load end)
+  if ok and type(load_plugin) == "function" then
+    hl.plugin.load = function(path)
+      if type(path) == "string" and path:find("omarchy-hyprland-titlebars", 1, true) then
+        return
+      end
+      return load_plugin(path)
+    end
+  end
+end
+
 -- Workspace modes. Omarchy keeps one per workspace in
 -- $XDG_STATE_HOME/omarchy/workspace-layouts and replays those files while the
 -- config loads, before the pack is required; the pack adds its own, xmode, and

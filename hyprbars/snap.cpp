@@ -1,6 +1,7 @@
 #include "snap.hpp"
 #include "dragSession.hpp"
 #include "globals.hpp"
+#include "titlebarGate.hpp"
 
 #include <hyprland/src/config/ConfigValue.hpp>
 #include <hyprland/src/config/shared/complex/ComplexDataTypes.hpp>
@@ -118,7 +119,7 @@ bool Snap::compactTabs(PHLWINDOW w) {
 int Snap::chromeH(PHLWINDOW w) {
     if (windowHasEffect(w, g_pGlobalState->nobarRuleIdx))
         return 0;
-    int h = sc<int>(g_pGlobalState->config.barHeight->value());
+    int h = titlebarHeight(w);
     bool tabs = !w || (w->m_group && w->m_group->size() > 0);
     if (!tabs)
         tabs = windowHasEffect(w, g_pGlobalState->alwaysTabbarRuleIdx);

@@ -30,6 +30,7 @@
 #include "globals.hpp"
 #include "dragSession.hpp"
 #include "snap.hpp"
+#include "titlebarGate.hpp"
 #include "BarPassElement.hpp"
 
 #include <algorithm>
@@ -102,33 +103,11 @@ bool holdUnderFullscreen(PHLWINDOW w) {
     return true;
 }
 
-// The bar belongs to the pack's own workspaces. xmode is a workspace mode the
-// Lua side owns: it tags every window it claimed, and a workspace Omarchy tiles,
-// scrolls or floats itself has no such tag, so no titlebar is drawn there and
-// nothing is reserved above the window -- the layout gets the whole box.
-// An empty option draws everywhere, which is what a stock hyprbars does.
+// The pack's tag and Omarchy's floating-workspace tag each draw a bar (see
+// titlebarGate.hpp). A tiled or scrolling workspace carries neither, so nothing
+// is reserved above the window and the layout gets the whole box.
 static bool onXmodeWorkspace(PHLWINDOW w) {
-    std::string TAG;
-    if (g_pGlobalState) {
-        if (g_pGlobalState->config.xModeWorkspaceTag)
-            TAG = g_pGlobalState->config.xModeWorkspaceTag->value();
-        // Omarchy's workspace-modes module sets her own name for this when a
-        // workspace floats; either spelling gates the titlebar.
-        if (TAG.empty() && g_pGlobalState->config.omarchyWorkspaceTag)
-            TAG = g_pGlobalState->config.omarchyWorkspaceTag->value();
-    }
-    if (TAG.empty())
-        return true;
-    if (!w || !w->m_ruleApplicator)
-        return false;
-
-    for (const auto& tag : w->m_ruleApplicator->m_tagKeeper.getTags()) {
-        // A rule's tag is listed with a trailing "*".
-        if (tag == TAG || tag == TAG + "*")
-            return true;
-    }
-
-    return false;
+    return wantsTitlebarWindow(w);
 }
 
 // Hyprland's CWindowState::moveToZ lifts the whole X11 transient stack when it
@@ -263,8 +242,9 @@ bool CHyprBar::groupCurrent() {
 }
 
 SDecorationPositioningInfo CHyprBar::getPositioningInfo() {
-    const auto                 HEIGHT     = g_pGlobalState->config.barHeight->value();
-    const auto                 ENABLED    = g_pGlobalState->config.enabled->value() && xModeEnabled() && onXmodeWorkspace(m_pWindow.lock());
+    const auto                 PWINDOW    = m_pWindow.lock();
+    const auto                 HEIGHT     = titlebarHeight(PWINDOW);
+    const auto                 ENABLED    = g_pGlobalState->config.enabled->value() && xModeEnabled() && onXmodeWorkspace(PWINDOW);
     const auto                 PRECEDENCE = g_pGlobalState->config.barPrecedenceOverBorder->value();
     // Reserve the tabbar for every group member, not only the current one: the
     // positioner caches these extents and its fast path never recomputes them
@@ -444,11 +424,12 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
         COORDS   = Vector2D(PMONITOR->m_position.x + e.pos.x * PMONITOR->m_size.x, PMONITOR->m_position.y + e.pos.y * PMONITOR->m_size.y) - assignedBoxGlobal().pos();
     }
 
-    const auto HEIGHT           = g_pGlobalState->config.barHeight->value();
-    const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
-    const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-    const auto ALIGNBUTTONS     = g_pGlobalState->config.barButtonsAlignment->value();
-    const auto ON_DOUBLE_CLICK  = g_pGlobalState->config.onDoubleClick->value();
+    const auto PWINFORSTYLE     = m_pWindow.lock();
+    const auto HEIGHT           = titlebarHeight(PWINFORSTYLE);
+    const auto BARBUTTONPADDING = titlebarButtonPadding(PWINFORSTYLE);
+    const auto BARPADDING       = titlebarPadding(PWINFORSTYLE);
+    const auto ALIGNBUTTONS     = titlebarButtonsAlign(PWINFORSTYLE);
+    const auto ON_DOUBLE_CLICK  = titlebarDoubleClick(PWINFORSTYLE);
 
     const bool BUTTONSRIGHT = ALIGNBUTTONS != "left";
 
@@ -660,7 +641,7 @@ bool CHyprBar::doButtonPress(Config::INTEGER barPadding, Config::INTEGER barButt
     //check if on a button
     float offset = barPadding;
 
-    for (auto& b : g_pGlobalState->buttons) {
+    for (auto& b : titlebarButtons(m_pWindow.lock())) {
         const auto BARBUF     = Vector2D{(int)assignedBoxGlobal().w, barHeight};
         Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - barButtonPadding - b.size - offset : offset), (BARBUF.y - b.size) / 2.0}.floor();
 
@@ -676,16 +657,17 @@ bool CHyprBar::doButtonPress(Config::INTEGER barPadding, Config::INTEGER barButt
 }
 
 void CHyprBar::renderBarTitle(const Vector2D& bufferSize, const float scale) {
-    const auto COLORVAL         = g_pGlobalState->config.textColor->value();
-    const auto SIZE             = g_pGlobalState->config.barTextSize->value();
+    const auto PWINDOW          = m_pWindow.lock();
+    const auto COLORVAL         = titlebarTextColor(PWINDOW);
+    const auto SIZE             = omarchyTitlebarWindow(PWINDOW) ? g_pGlobalState->omarchy.textSize : g_pGlobalState->config.barTextSize->value();
     const auto WEIGHT           = g_pGlobalState->config.barTextWeight->value();
-    const auto FONT             = g_pGlobalState->config.barTextFont->value();
-    const auto ALIGN            = g_pGlobalState->config.barTextAlign->value();
-    const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-    const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
+    const auto FONT             = omarchyTitlebarWindow(PWINDOW) ? g_pGlobalState->omarchy.textFont : g_pGlobalState->config.barTextFont->value();
+    const auto ALIGN            = titlebarTextAlign(PWINDOW);
+    const auto BARPADDING       = titlebarPadding(PWINDOW);
+    const auto BARBUTTONPADDING = titlebarButtonPadding(PWINDOW);
 
     float      buttonSizes = BARBUTTONPADDING;
-    for (auto& b : g_pGlobalState->buttons) {
+    for (auto& b : titlebarButtons(PWINDOW)) {
         buttonSizes += b.size + BARBUTTONPADDING;
     }
 
@@ -700,7 +682,7 @@ void CHyprBar::renderBarTitle(const Vector2D& bufferSize, const float scale) {
         return;
     }
 
-    const CHyprColor COLOR = m_bForcedTitleColor.value_or(configColor(COLORVAL));
+    const CHyprColor COLOR = m_bForcedTitleColor.value_or(COLORVAL);
     m_pTextTex             = g_pHyprRenderer->renderText(m_szLastTitle, COLOR, scaledSize, false, FONT, maxWidth, WEIGHT.m_value);
 }
 
@@ -708,7 +690,7 @@ size_t CHyprBar::getVisibleButtonCount(Config::INTEGER barButtonPadding, Config:
     float  availableSpace = bufferSize.x - barPadding * scale * 2;
     size_t count          = 0;
 
-    for (const auto& button : g_pGlobalState->buttons) {
+    for (const auto& button : titlebarButtons(m_pWindow.lock())) {
         const float buttonSpace = (button.size + barButtonPadding) * scale;
         if (availableSpace >= buttonSpace) {
             count++;
@@ -721,18 +703,20 @@ size_t CHyprBar::getVisibleButtonCount(Config::INTEGER barButtonPadding, Config:
 }
 
 void CHyprBar::renderBarButtons(CBox* barBox, const float scale, const float a) {
-    const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
-    const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-    const auto ALIGNBUTTONS     = g_pGlobalState->config.barButtonsAlignment->value();
+    const auto PWINDOW          = m_pWindow.lock();
+    const auto BARBUTTONPADDING = titlebarButtonPadding(PWINDOW);
+    const auto BARPADDING       = titlebarPadding(PWINDOW);
+    const auto ALIGNBUTTONS     = titlebarButtonsAlign(PWINDOW);
     const auto INACTIVECOLOR    = g_pGlobalState->config.inactiveButtonColor->value();
 
     const bool BUTTONSRIGHT    = ALIGNBUTTONS != "left";
     const auto visibleCount    = getVisibleButtonCount(BARBUTTONPADDING, BARPADDING, Vector2D{barBox->w, barBox->h}, scale);
     const bool INVALIDATEICONS = m_bButtonsDirty || m_bWindowSizeChanged;
 
-    int        offset = BARPADDING * scale;
+    auto&      buttons = titlebarButtons(PWINDOW);
+    int        offset  = BARPADDING * scale;
     for (size_t i = 0; i < visibleCount; ++i) {
-        auto&      button           = g_pGlobalState->buttons[i];
+        auto&      button           = buttons[i];
         const auto scaledButtonSize = button.size * scale;
         const auto scaledButtonsPad = BARBUTTONPADDING * scale;
 
@@ -757,21 +741,23 @@ void CHyprBar::renderBarButtons(CBox* barBox, const float scale, const float a) 
 }
 
 void CHyprBar::renderBarButtonsText(CBox* barBox, const float scale, const float a) {
-    const auto HEIGHT           = g_pGlobalState->config.barHeight->value();
-    const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
-    const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-    const auto ALIGNBUTTONS     = g_pGlobalState->config.barButtonsAlignment->value();
+    const auto PWINDOW          = m_pWindow.lock();
+    const auto HEIGHT           = titlebarHeight(PWINDOW);
+    const auto BARBUTTONPADDING = titlebarButtonPadding(PWINDOW);
+    const auto BARPADDING       = titlebarPadding(PWINDOW);
+    const auto ALIGNBUTTONS     = titlebarButtonsAlign(PWINDOW);
     const auto ICONONHOVER      = g_pGlobalState->config.iconOnHover->value();
 
     const bool BUTTONSRIGHT = ALIGNBUTTONS != "left";
     const auto visibleCount = getVisibleButtonCount(BARBUTTONPADDING, BARPADDING, Vector2D{barBox->w, barBox->h}, scale);
     const auto COORDS       = cursorRelativeToBar();
 
+    auto&      buttons      = titlebarButtons(PWINDOW);
     int        offset        = BARPADDING * scale;
     float      noScaleOffset = BARPADDING;
 
     for (size_t i = 0; i < visibleCount; ++i) {
-        auto&      button           = g_pGlobalState->buttons[i];
+        auto&      button           = buttons[i];
         const auto scaledButtonSize = button.size * scale;
         const auto scaledButtonsPad = BARBUTTONPADDING * scale;
 
@@ -1145,10 +1131,10 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     const auto  PWINDOW = m_pWindow.lock();
 
     static auto PENABLEBLURGLOBAL = CConfigValue<Config::BOOL>("decoration:blur:enabled");
-    const auto  BARCOLOR          = g_pGlobalState->config.barColor->value();
-    const auto  HEIGHT            = g_pGlobalState->config.barHeight->value();
+    const auto  BARCOLOR          = titlebarBarColor(PWINDOW);
+    const auto  HEIGHT            = titlebarHeight(PWINDOW);
     const auto  PRECEDENCE        = g_pGlobalState->config.barPrecedenceOverBorder->value();
-    const auto  ALIGNBUTTONS      = g_pGlobalState->config.barButtonsAlignment->value();
+    const auto  ALIGNBUTTONS      = titlebarButtonsAlign(PWINDOW);
     const auto  ENABLETITLE       = g_pGlobalState->config.barTitleEnabled->value();
     const auto  ENABLEBLUR        = g_pGlobalState->config.barBlur->value();
     const auto  INACTIVECOLOR     = g_pGlobalState->config.inactiveButtonColor->value();
@@ -1166,7 +1152,7 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
         }
     }
 
-    const CHyprColor DEST_COLOR = m_bForcedBarColor.value_or(configColor(BARCOLOR));
+    const CHyprColor DEST_COLOR = m_bForcedBarColor.value_or(BARCOLOR);
     if (DEST_COLOR != m_cRealBarColor->goal())
         *m_cRealBarColor = DEST_COLOR;
 
@@ -1270,12 +1256,12 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
 
     CBox textBox = {titleBarBox.x, titleBarBox.y, (int)BARBUF.x, (int)(HEIGHT * pMonitor->m_scale)};
     if (ENABLETITLE && !COMPACTTABS && m_pTextTex) {
-        const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-        const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
-        const auto ALIGN            = g_pGlobalState->config.barTextAlign->value();
+        const auto BARPADDING       = titlebarPadding(PWINDOW);
+        const auto BARBUTTONPADDING = titlebarButtonPadding(PWINDOW);
+        const auto ALIGN            = titlebarTextAlign(PWINDOW);
 
         float      buttonSizes = BARBUTTONPADDING;
-        for (auto& b : g_pGlobalState->buttons) {
+        for (auto& b : titlebarButtons(PWINDOW)) {
             buttonSizes += b.size + BARBUTTONPADDING;
         }
 
@@ -1413,17 +1399,18 @@ void CHyprBar::updateRules() {
 }
 
 void CHyprBar::damageOnButtonHover() {
-    const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-    const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
-    const auto HEIGHT           = g_pGlobalState->config.barHeight->value();
-    const auto ALIGNBUTTONS     = g_pGlobalState->config.barButtonsAlignment->value();
+    const auto PWINDOW          = m_pWindow.lock();
+    const auto BARPADDING       = titlebarPadding(PWINDOW);
+    const auto BARBUTTONPADDING = titlebarButtonPadding(PWINDOW);
+    const auto HEIGHT           = titlebarHeight(PWINDOW);
+    const auto ALIGNBUTTONS     = titlebarButtonsAlign(PWINDOW);
     const bool BUTTONSRIGHT     = ALIGNBUTTONS != "left";
 
     float      offset = BARPADDING;
 
     const auto COORDS = cursorRelativeToBar();
 
-    for (auto& b : g_pGlobalState->buttons) {
+    for (auto& b : titlebarButtons(PWINDOW)) {
         const auto BARBUF     = Vector2D{(int)assignedBoxGlobal().w, HEIGHT};
         Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - BARBUTTONPADDING - b.size - offset : offset), (BARBUF.y - b.size) / 2.0}.floor();
 

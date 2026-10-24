@@ -365,11 +365,20 @@ end
 ensure_hyprbars()
 
 pcall(function()
+  -- A reload re-runs Omarchy's titlebars() before this file. She writes her
+  -- floating-workspace look into the plugin that is already loaded (this one)
+  -- and appends her buttons. Keep that look for her windows, then put the
+  -- pack's own back: the two never share a bar.
+  local ok_tag, tag = pcall(hl.get_config, "plugin:hyprbars:workspace_tag")
+  if ok_tag and type(tag) == "string" and tag ~= "" and hl.plugin and hl.plugin.hyprbars and hl.plugin.hyprbars.stash_omarchy then
+    pcall(hl.plugin.hyprbars.stash_omarchy)
+  end
   hl.config({
     plugin = {
       hyprbars = {
         enabled = true,
         bar_height = TITLEBAR_FALLBACK,
+        on_double_click = "",
         bar_color = bar_bg,
         ["col.text"] = bar_fg,
         bar_title_enabled = true,
@@ -391,6 +400,9 @@ pcall(function()
     },
   })
   if hl.plugin and hl.plugin.hyprbars and hl.plugin.hyprbars.add_button then
+    if hl.plugin.hyprbars.clear_buttons then
+      hl.plugin.hyprbars.clear_buttons()
+    end
     hl.plugin.hyprbars.add_button({
       -- Match the tabbar close (✕): the theme's text color, not macOS red.
       bg_color = bar_fg,
@@ -3050,7 +3062,10 @@ local function leave_xmode(id)
         win = refresh_window(win) or win
       end
       set_window_tag(win, XMODE_TAG, false)
-      if win.floating then
+      -- Floating is Omarchy's own mode. She has already arranged the window (her
+      -- call runs before this one); tiling it here takes the titlebar's window
+      -- away. Dwindle and scrolling do want it tiled.
+      if modes.get(X_MODE_MODES, id) ~= "floating" and win.floating then
         hl.dispatch(hl.dsp.window.float({ action = "disable", window = win }))
       end
     end
@@ -3082,9 +3097,17 @@ claim_window = function(w)
   if id == nil then
     return
   end
-  -- Someone else's workspace: hand it back. The float rule matches on the class,
-  -- so it arrived floating, and there is no tag to take off -- the rule does not
-  -- carry one.
+  -- Omarchy's floating mode owns this window: it floated it and tagged it so her
+  -- titlebar can draw. The pack's catch-all float rule is what made a window on
+  -- a tiled workspace float, and handing that one back is tiling it. Doing the
+  -- same here undoes the layout the click just chose, and the titlebar has
+  -- nothing to sit on.
+  if modes.get(X_MODE_MODES, id) == "floating" then
+    return
+  end
+  -- Someone else's tiled workspace: hand it back. The float rule matches on the
+  -- class, so it arrived floating, and there is no tag to take off -- the rule
+  -- does not carry one.
   if win.floating then
     hl.dispatch(hl.dsp.window.float({ action = "disable", window = win }))
   end
@@ -3166,11 +3189,71 @@ apply_active_mode()
 -- Where the pack hears about a mode change. Omarchy's own function runs first (its
 -- table, its rules, its tags); then the pack records the mode and hands the
 -- workspace over or gives it back.
+--
+-- Her titlebars() loads a second hyprbars and, because this plugin is already
+-- loaded, also writes her metrics and buttons into it. hl.plugin.load only
+-- queues a plugin for the next config reload, so the click that floats a
+-- workspace never brings her plugin in: it restyles every bar the pack draws
+-- and leaves her windows with no bar of their own (the pack's tag is the only
+-- one the bar used to check). Refuse that .so, and keep the look she asks for
+-- beside the pack's instead of on top of it.
+local in_omarchy_mode = false
+local applying_tag = false
+
+if hl.plugin and type(hl.plugin.load) == "function" then
+  local load_plugin = hl.plugin.load
+  hl.plugin.load = function(path)
+    if type(path) == "string" and path:find("omarchy-hyprland-titlebars", 1, true) then
+      return
+    end
+    return load_plugin(path)
+  end
+end
+
+if type(hl.config) == "function" then
+  local config = hl.config
+  hl.config = function(spec)
+    local hb = type(spec) == "table" and type(spec.plugin) == "table" and spec.plugin.hyprbars or nil
+    if in_omarchy_mode and not applying_tag and type(hb) == "table" then
+      if hb.workspace_tag ~= nil then
+        applying_tag = true
+        pcall(config, { plugin = { hyprbars = { workspace_tag = hb.workspace_tag } } })
+        applying_tag = false
+      end
+      local bars = hl.plugin and hl.plugin.hyprbars
+      if bars and bars.omarchy_style then
+        bars.omarchy_style(hb)
+      end
+      return
+    end
+    return config(spec)
+  end
+end
+
+do
+  local bars = hl.plugin and hl.plugin.hyprbars
+  if type(bars) == "table" and type(bars.add_button) == "function" and not bars._xmode_button_wrapped then
+    local add_button = bars.add_button
+    bars.add_button = function(button)
+      if in_omarchy_mode and bars.omarchy_button then
+        return bars.omarchy_button(button)
+      end
+      return add_button(button)
+    end
+    bars._xmode_button_wrapped = true
+  end
+end
+
 local omarchy_workspace_mode = o.workspace_mode
 
 if type(omarchy_workspace_mode) == "function" then
   o.workspace_mode = function(spec)
-    omarchy_workspace_mode(spec)
+    in_omarchy_mode = true
+    local ok, err = pcall(omarchy_workspace_mode, spec)
+    in_omarchy_mode = false
+    if not ok then
+      error(err, 0)
+    end
 
     if type(spec) ~= "table" then
       return

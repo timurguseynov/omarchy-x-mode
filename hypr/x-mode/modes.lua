@@ -14,9 +14,10 @@
 -- compositor, so tests/unit can cover it (tests/unit/modes_test.lua).
 --
 -- The pack is on only where the mode is xmode. Every other mode belongs to
--- Omarchy: tiling, scrolling, its own floating with its own titlebars. That is
--- what makes the two mutually exclusive -- a workspace cannot be floating and
--- xmode at once, so two titlebar implementations never meet.
+-- Omarchy: tiling, scrolling, its own floating. A workspace cannot be floating
+-- and xmode at once. The titlebar plugin stays the pack's: it draws Omarchy's
+-- bar on a floating workspace and its own on xmode, and does not load her
+-- titlebars.so beside itself.
 local M = {}
 
 M.XMODE = "xmode"

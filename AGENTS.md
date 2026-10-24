@@ -149,6 +149,19 @@ no timer, no poll, no token. The user's token (`готово` when the run is gr
 the watcher is not loaded, such as a session started before the extension was
 added.
 
+The stamp is `PI_SESSION_ID`, which Pi's own bash tool exports. Grok's
+`run_terminal_command` (package `pi-xai-oauth`,
+`extensions/xai/tools/grok-native.ts`) deletes it, together with the transcript
+path and the model fingerprint, so a run started from that tool writes a status
+file with no `session:` line and the watcher stays quiet. `tests/keep-pi-session-id.py`
+puts `PI_SESSION_ID` back and leaves the other four deleted. It rewrites only
+the `PI_SESSION_ENVIRONMENT_KEYS` list, and it does not write at all if that
+list is no longer a plain list of names or no longer the list the terminal hook
+deletes. Run it when a status file from this session has no `session:` line, and
+again after the package is updated: the edit is in `node_modules` and a
+reinstall drops it. The pi process that is already running keeps the old hook
+until it is restarted.
+
 Once a run has reported itself (or been reported), the agent may read the log,
 the status file and the run's counts -- that is looking at a finished run, not
 polling a going one. Only the sanctioned invocation counts as evidence, and a run

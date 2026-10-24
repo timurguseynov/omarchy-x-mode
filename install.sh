@@ -18,10 +18,15 @@ X_MODE_MANIFEST="${X_MODE_STATE_DIR}/installed.txt"
 manifest_reset() { mkdir -p "$X_MODE_STATE_DIR"; : > "$X_MODE_MANIFEST"; }
 manifest_add() { mkdir -p "$X_MODE_STATE_DIR"; printf '%s\n' "$1" >> "$X_MODE_MANIFEST"; }
 
-# The single sentinel block we add to hyprland.lua (removed verbatim on uninstall).
+# The sentinel blocks we add to hyprland.lua (removed verbatim on uninstall).
+# The early one has to run before Omarchy's workspace modes: her titlebars
+# module queues its own hyprbars.so as soon as a workspace floats, and the
+# pack's plugin is already that hyprbars. The block at the end loads the pack.
 X_MODE_BEGIN='-- >>> omarchy-x-mode >>>'
 X_MODE_END='-- <<< omarchy-x-mode <<<'
 X_MODE_LOAD='dofile((os.getenv("HOME") or "") .. "/.config/hypr/x-mode/x-mode.lua")'
+EARLY_BEGIN='-- >>> omarchy-x-mode-plugins >>>'
+EARLY_END='-- <<< omarchy-x-mode-plugins <<<'
 sentinel_present() { grep -qF -e "$X_MODE_BEGIN" "$1" 2>/dev/null; }
 # Drop trailing blank lines so reinstall/uninstall does not accumulate gaps.
 sentinel_trim() {
@@ -35,9 +40,43 @@ PY
 }
 sentinel_remove() {
   if [ -f "$1" ]; then
-    sed -i "/^${X_MODE_BEGIN}$/,/^${X_MODE_END}$/d" "$1"
+    sed -i "/^${X_MODE_BEGIN}$/,/^${X_MODE_END}$/d;/^${EARLY_BEGIN}$/,/^${EARLY_END}$/d" "$1"
     sentinel_trim "$1"
   fi
+}
+# Before require("default.hypr.omarchy"), so a reload does not queue her
+# titlebars plugin. A keybinding scan dofiles this file with a stub hl; the
+# pcall is what keeps that scan from dying on the wrap.
+early_add() {
+  [ -f "$1" ] || return 0
+  python3 - "$1" "$EARLY_BEGIN" "$EARLY_END" <<'PY'
+import pathlib, re, sys
+path, begin, end = sys.argv[1:4]
+file = pathlib.Path(path)
+text = file.read_text()
+text = re.sub(r"\n?" + re.escape(begin) + r".*?" + re.escape(end) + r"\n?", "\n", text, flags=re.S)
+body = """%s
+do
+  local ok, load_plugin = pcall(function() return hl.plugin.load end)
+  if ok and type(load_plugin) == "function" then
+    hl.plugin.load = function(path)
+      if type(path) == "string" and path:find("omarchy-hyprland-titlebars", 1, true) then
+        return
+      end
+      return load_plugin(path)
+    end
+  end
+end
+%s
+""" % (begin, end)
+needle = 'require("default.hypr.omarchy")'
+idx = text.find(needle)
+if idx < 0:
+    text = body + "\n" + text.lstrip("\n")
+else:
+    text = text[:idx] + body + "\n" + text[idx:]
+file.write_text(text)
+PY
 }
 sentinel_add() {
   [ -f "$1" ] || return 0
@@ -376,6 +415,7 @@ print(json.dumps(out))
   menu_write "$HYPR/x-mode/xmode"
 
   log "wiring x-mode into hyprland.lua"
+  early_add "$HYPR/hyprland.lua"
   sentinel_add "$HYPR/hyprland.lua"
 
   # The one arrange marker. The config deals the already-open windows out (groups

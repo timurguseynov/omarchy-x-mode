@@ -26,8 +26,28 @@ class CDragSession;
 
 extern UP<CDragSession> g_pDragSession;
 
+// The look Omarchy's floating workspaces ask for. Her workspace-modes module
+// writes it into plugin:hyprbars whenever a workspace starts floating. The pack
+// is already the loaded hyprbars, so that write is kept here and drawn only on
+// her windows; the fields above stay the pack's, for its own workspaces.
+struct SOmarchyChrome {
+    bool        set            = false;
+    int         height         = 30;
+    int         textSize       = 12;
+    int         padding        = 10;
+    int         buttonPadding  = 8;
+    std::string textFont       = "monospace";
+    std::string textAlign      = "left";
+    std::string buttonsAlign   = "right";
+    std::string onDoubleClick;
+    CHyprColor  barColor  = CHyprColor(0, 0, 0, 0);
+    CHyprColor  textColor = CHyprColor(0xFFFFFFFF);
+};
+
 struct SGlobalState {
     std::vector<SHyprButton>  buttons;
+    std::vector<SHyprButton>  omarchyButtons;
+    SOmarchyChrome            omarchy;
     std::vector<WP<CHyprBar>> bars;
     uint32_t                  nobarRuleIdx        = 0;
     uint32_t                  alwaysTabbarRuleIdx = 0;
@@ -54,9 +74,10 @@ struct SGlobalState {
         // Omarchy's own titlebars build registers `workspace_tag` and
         // `button_rounding` in the same namespace, and her workspace-modes module
         // sets them whenever a workspace floats. Unknown keys there are reported as
-        // config errors, so both are accepted here: the tag is the same gate as
-        // xModeWorkspaceTag (either one turns the titlebar on for its windows), and
-        // the rounding is hers to draw -- this build does not use it.
+        // config errors, so both are accepted here. The tag gates her titlebar the
+        // same way xModeWorkspaceTag gates the pack's (either one draws a bar; the
+        // looks stay separate), and the rounding is hers to draw -- this build
+        // does not use it.
         SP<Config::Values::CStringValue>     omarchyWorkspaceTag;
         SP<Config::Values::CStringValue>     omarchyButtonRounding;
         // (tim) x-mode: tabbar height and snap/grouping tunables. Real Hyprland

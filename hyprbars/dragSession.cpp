@@ -1,5 +1,6 @@
 #include "dragSession.hpp"
 #include "globals.hpp"
+#include "titlebarGate.hpp"
 
 UP<CDragSession> g_pDragSession;
 
@@ -42,7 +43,7 @@ void CDragSession::stealCompositorMove() {
     if (!target)
         return;
     const auto w = target->window();
-    if (!w || !w->m_isFloating)
+    if (!w || !w->m_isFloating || !packTitlebarWindow(w))
         return;
     // Chromium (and others) start a compositor move from their own tab strip.
     // Abort that drag and run ours so edge-snap still works.
@@ -156,7 +157,8 @@ void CDragSession::moveWindow(const Vector2D& coords) {
 
 void CDragSession::updatePreview() {
     const auto w = m_window.lock();
-    if (!w) {
+    if (!w || !packTitlebarWindow(w)) {
+        m_zone = Snap::eKind::None;
         setPreview("hide");
         return;
     }
