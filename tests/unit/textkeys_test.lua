@@ -97,6 +97,14 @@ check("select.word.gui", spell(by_id["ALT+SHIFT+LEFT"].gui), "CTRL+SHIFT+LEFT")
 check("back.terminal", #by_id["SUPER+bracketleft"].terminal, 0)
 check("back.gui", spell(by_id["SUPER+bracketleft"].gui), "ALT+LEFT")
 check("forward.gui", spell(by_id["SUPER+bracketright"].gui), "ALT+RIGHT")
+-- The Shortcuts row "⌘[ ] move code". On, the same chords outdent and indent
+-- (Ctrl+[ / Ctrl+], what an editor binds). Off, they stay Back and Forward.
+-- A terminal still gets nothing: Ctrl+[ there is Escape.
+check("back.code", spell(textkeys.chords("SUPER+bracketleft", false, true)), "CTRL+bracketleft")
+check("forward.code", spell(textkeys.chords("SUPER+bracketright", false, true)), "CTRL+bracketright")
+check("back.nav", spell(textkeys.chords("SUPER+bracketleft", false, false)), "ALT+LEFT")
+check("back.code.terminal", #textkeys.chords("SUPER+bracketleft", true, true), 0)
+check("line.not-code", spell(textkeys.chords("SUPER+LEFT", false, true)), "HOME")
 
 -- Nothing may send the chord it was bound to back out again: a synthetic chord
 -- does not re-enter the bind table, but re-sending the same key is a sign the

@@ -116,6 +116,7 @@ function emptyAppCfg() {
         ctrlClick: undefined,
         digitTabs: undefined,
         ctrlTabSwitch: undefined,
+        moveCode: undefined,
         ctrlAsSuperKeys: [],
         ctrlAsSuperKeysOff: []
     }
@@ -185,6 +186,7 @@ function parseApps(raw) {
                         ctrlClick: triFlag(e.ctrlClick),
                         digitTabs: triFlag(e.digitTabs),
                         ctrlTabSwitch: triFlag(e.ctrlTabSwitch),
+                        moveCode: triFlag(e.moveCode),
                         ctrlAsSuperKeys: keys,
                         ctrlAsSuperKeysOff: keysOff
                     }
@@ -479,7 +481,7 @@ function panelCfgFor(appsCfg, cls) {
     var key = String(cls || "").toLowerCase()
     var e = (appsCfg || {})[key]
     if (!e)
-        return { chrome: true, alwaysTabbar: false, compactTabs: false, ctrlAsSuper: undefined, ctrlCShift: undefined, ctrlClick: undefined, digitTabs: undefined, ctrlTabSwitch: undefined, ctrlAsSuperKeys: [], ctrlAsSuperKeysOff: [] }
+        return { chrome: true, alwaysTabbar: false, compactTabs: false, ctrlAsSuper: undefined, ctrlCShift: undefined, ctrlClick: undefined, digitTabs: undefined, ctrlTabSwitch: undefined, moveCode: undefined, ctrlAsSuperKeys: [], ctrlAsSuperKeysOff: [] }
     var keys = copyOccupiedKeys(e.ctrlAsSuperKeys)
     var keysOff = copyOccupiedKeys(e.ctrlAsSuperKeysOff)
     foldLegacyCtrlW(e, keys, keysOff)
@@ -492,6 +494,7 @@ function panelCfgFor(appsCfg, cls) {
         ctrlClick: triFlag(e.ctrlClick),
         digitTabs: triFlag(e.digitTabs),
         ctrlTabSwitch: triFlag(e.ctrlTabSwitch),
+        moveCode: triFlag(e.moveCode),
         ctrlAsSuperKeys: keys,
         ctrlAsSuperKeysOff: keysOff
     }
@@ -648,7 +651,7 @@ function withoutId(list, id) {
 // what lets a desktop-wide setting keep one app that disagrees -- Ctrl+1..6 handed
 // to an editor while the desktop keeps them for the pack's tabs.
 
-var KEY_FLAG_NAMES = ["ctrlAsSuper", "digitTabs", "ctrlTabSwitch", "ctrlClick", "ctrlCShift"]
+var KEY_FLAG_NAMES = ["ctrlAsSuper", "moveCode", "digitTabs", "ctrlTabSwitch", "ctrlClick", "ctrlCShift"]
 
 // The row for one flag in an app's card: the state, whether the switch reads as on
 // (the effective answer, so an inherited on looks on), and where that answer comes

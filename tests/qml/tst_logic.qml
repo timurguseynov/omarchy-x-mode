@@ -102,7 +102,12 @@ TestCase {
         compare(s["zed"].ctrlClick, undefined)
         compare(s["zed"].digitTabs, undefined)
         compare(s["zed"].ctrlTabSwitch, undefined)
+        compare(s["zed"].moveCode, undefined)
         compare(s["zed"].ctrlAsSuperKeys.length, 0)
+        var moved = Logic.parseApps('{"Zed":{"moveCode":true},"Chromium":{"moveCode":false}}')
+        compare(moved["zed"].moveCode, true)
+        compare(moved["chromium"].moveCode, false, "an explicit false is Always off")
+        compare(Logic.setGlobalFlag({}, "moveCode", true).moveCode, true)
     }
 
     function test_parseApps_accepts_object() {

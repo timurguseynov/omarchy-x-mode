@@ -1524,7 +1524,9 @@ local function text_chord(e)
       -- Hyprland error on every press and types nothing anyway.
       return { pass_event = true }
     end
-    local chords = textkeys.chords(e.id, textkeys.is_terminal(w.tags))
+    -- "⌘[ ] move code" in Shortcuts: this app's Cmd+[ / Cmd+] indent instead of
+    -- going back and forward. Every other chord ignores the flag.
+    local chords = textkeys.chords(e.id, textkeys.is_terminal(w.tags), key_flag("move_code", window_class(w)))
     if chords == nil or #chords == 0 then
       -- Nothing to send in this context (readline has no selection to
       -- extend), so the key stays the app's rather than being swallowed.

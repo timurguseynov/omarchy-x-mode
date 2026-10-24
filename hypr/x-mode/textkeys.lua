@@ -102,16 +102,21 @@ local DELETE = {
 -- Option+arrow is word motion from here on, so this is where Back lives now.
 -- A shell has no Back to go to, and readline has no history for these to mean
 -- anything, so the key is left to the app there.
+-- The Shortcuts row "⌘[ ] move code" asks for the other meaning: an editor's
+-- Ctrl+[ / Ctrl+] outdents and indents, which is what Cmd+[ / Cmd+] do to code
+-- on a Mac. That target is `code`; the row decides, per app, which one is sent.
 local NAVIGATE = {
   {
     id = "SUPER+bracketleft", keys = "SUPER + bracketleft", label = "Back",
     terminal = {},
     gui = { chord("ALT", "LEFT") },
+    code = { chord("CTRL", "bracketleft") },
   },
   {
     id = "SUPER+bracketright", keys = "SUPER + bracketright", label = "Forward",
     terminal = {},
     gui = { chord("ALT", "RIGHT") },
+    code = { chord("CTRL", "bracketright") },
   },
 }
 
@@ -152,6 +157,8 @@ local function add(entry, fallback)
     label = entry.label,
     terminal = terminal,
     gui = gui,
+    -- The Shortcuts "move code" target, when this chord has one. Nil otherwise.
+    code = entry.code,
     -- What has to be in the keymap for the entry to be sendable at all; nil is
     -- "nothing" (see compose_key).
     needs = entry.needs,
@@ -183,13 +190,19 @@ end
 
 -- What to send for one chord in this context. An empty list means the app gets
 -- the key as it was; nil means the id is not in the plan (a caller's typo).
-function M.chords(id, is_terminal)
+-- `move_code` is the Shortcuts row: for a chord that has a code target, send
+-- that instead of the generic GUI one. A terminal still wins, so a shell never
+-- receives Ctrl+[ (that chord is Escape) just because the row is on.
+function M.chords(id, is_terminal, move_code)
   local e = BY_ID[id]
   if e == nil then
     return nil
   end
   if is_terminal then
     return e.terminal
+  end
+  if move_code and e.code ~= nil then
+    return e.code
   end
   return e.gui
 end

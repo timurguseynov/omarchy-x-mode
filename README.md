@@ -29,7 +29,7 @@ The Mac habits that keep you fast — on Omarchy.
 * **Snaps.** Rectangle-like snapping from the titlebar: drag to a side for a half, a corner for a quarter, the top edge to maximize. `Super+Alt+←/→` cycles `½ → ⅔ → ⅓`.
 * **The Dock.** The familiar column of pinned and running apps, on the right edge. Click to focus or launch, right-click for a new window, the window list, pin or quit, drag pins to reorder. A new app joins the bottom of the running icons, the way it does on a Mac.
 * **Command-Tab.** Hold Super and tap Tab — the app switcher you use all day, most recently used first. Click an icon or release Super to switch.
-* **The rest of the Mac keys.** Copy, paste and cut Omarchy already does. X Mode adds `Super+←`/`→` by line, `Super+↑`/`↓` by document, `Alt+←`/`→` by word, deleting a word, or to the start and end of the line, `Super+[`/`]` back and forward, `Super+Shift+3…5` screenshots and `Super+Ctrl+Q` lock. Shortcuts are configurable app by app, so the Mac experience stays seamless even where one app disagrees.
+* **The rest of the Mac keys.** Copy, paste and cut Omarchy already does. X Mode adds `Super+←`/`→` by line, `Super+↑`/`↓` by document, `Alt+←`/`→` by word, deleting a word, or to the start and end of the line, `Super+[`/`]` back and forward (or moving code, from Shortcuts), `Super+Shift+3…5` screenshots and `Super+Ctrl+Q` lock. Shortcuts are configurable app by app, so the Mac experience stays seamless even where one app disagrees.
 * **The settings panel.** Open it from the top-bar button: X Mode on or off, per-app titlebars and grouping, and the shortcuts. Settings survive uninstall.
 
 ---
@@ -110,6 +110,7 @@ The every-app list starts with:
 Then the same rows in both lists:
 
 * **Super as Ctrl** — Super+letter and Super+punctuation become Ctrl+letter and Ctrl+punctuation, so `⌘T`, `⌘R`, `⌘L` and `⌘⇧\` work like Command on a Mac
+* **`⌘[` `⌘]` move code** — outdent and indent, the way an editor binds `Ctrl+[` / `Ctrl+]`. Off, the same keys go back and forward
 * **`⌘1`…`0` switch tabs** — needs Workspaces on F1…F10
 * **`⌃1`…`0` switch tabs** — works without it; off, they switch the app’s own tabs (browser, editor)
 * **`⌘`-click as `⌃`-click**
