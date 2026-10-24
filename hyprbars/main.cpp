@@ -667,7 +667,13 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.compactTabs);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeDockInset);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeBarTopMemoryMs);
+    g_pGlobalState->config.omarchyWorkspaceTag = makeShared<Config::Values::CStringValue>(
+        "plugin:hyprbars:workspace_tag", "Omarchy's name for x_mode_workspace_tag (either one gates the titlebar)", "");
+    g_pGlobalState->config.omarchyButtonRounding =
+        makeShared<Config::Values::CStringValue>("plugin:hyprbars:button_rounding", "Accepted for Omarchy's titlebars build; not used here", "");
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeWorkspaceTag);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.omarchyWorkspaceTag);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.omarchyButtonRounding);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapMargin);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapCorner);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapShortEdge);

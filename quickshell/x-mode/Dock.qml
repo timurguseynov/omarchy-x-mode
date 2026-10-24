@@ -50,6 +50,12 @@ Item {
   // to turn an icon's window-local Y into a screen Y for the menu.
   property real dockPanelTop: 0
   property bool xModeOn: true
+  // The mode of the workspace on screen, as the pack publishes it
+  // ($XDG_RUNTIME_DIR/omarchy-x-mode.workspace, written whenever the active
+  // workspace changes). The dock is a layer surface, so it belongs to the monitor
+  // and not to a workspace: "only on xmode desktops" means the dock hides itself,
+  // and this is the one piece of the pack's state it cannot get from Hyprland.
+  property string workspaceMode: ""
   // Pinned-icon drag reorder (Mac dock style). Track by class so Repeater
   // reshuffles do not flash the icon back to its old slot on drop.
   property string dragCls: ""
@@ -709,6 +715,20 @@ Item {
   }
 
   FileView {
+    path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode.workspace"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      var parts = String(text()).trim().split(/\s+/)
+      root.workspaceMode = parts.length > 1 ? parts[1] : ""
+    }
+    // No file: an install that has not loaded the config yet, or a pack without the
+    // publication. Show the dock rather than take it away.
+    onLoadFailed: root.workspaceMode = ""
+  }
+
+  FileView {
     path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode.state"
     watchChanges: true
     printErrors: false
@@ -777,7 +797,7 @@ Item {
         PanelWindow {
           id: panel
           screen: modelData
-          visible: root.xModeOn
+          visible: root.xModeOn && (root.workspaceMode === "" || root.workspaceMode === "xmode")
           anchors {
             top: true
             right: true

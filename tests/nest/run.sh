@@ -84,12 +84,10 @@ trap 'nest_host_rule_off' EXIT
 
 report() { # STATUS NAME FILE
   flock 9
-  local mark=""
-  [ "${PASS:-1}" != 1 ] && mark=" ${YELLOW}(retry)${RESET}"
   if [ "$1" = ok ]; then
-    echo "  ${GREEN}ok${RESET}   $2$mark"
+    echo "  ${GREEN}ok${RESET}   $2"
   else
-    echo "  ${RED}FAIL${RESET} $2${NEST_SLOT:+ (slot $NEST_SLOT)}$mark"
+    echo "  ${RED}FAIL${RESET} $2${NEST_SLOT:+ (slot $NEST_SLOT)}"
   fi
   # What was actually reported, by name: the end-of-run check diffs the chosen
   # scenarios against this, so a scenario taken from the queue and then lost (a
@@ -176,19 +174,21 @@ worker() { # SLOT
   # background job in a group of its own, and the `setsid` the nest, the bar and
   # the dock are started with then has to fork, which changes how they come up.
   set +m
-  # A missed bar used to exit the worker, so the retry below never ran and
-  # the compositor stayed up. The trap still covers a real exit.
+  # Whichever way this worker ends, its nest and dock go with it.
   trap 'dock_stop; nest_stop' EXIT
   # A nest whose bar never reserves has no geometry the scenarios can trust.
   # Starting it again is a new compositor. The first attempt returns instead of
   # exiting, which is what lets this second start happen; a second miss is this
   # slot's to lose, and it is told apart from a failing scenario by the status:
   # 2 is "no nest", so the runner starts the slot again for the queue.
+  # One attempt. A nest whose bar never reserves has no geometry the scenarios can
+  # trust, and starting it again is a new compositor -- but it is also another half
+  # a minute of nothing on screen, and the scenarios this slot does not reach stay in
+  # the queue for the others either way. So it is reported and the slot gives up.
   if ! nest_start; then
-    echo "nest bar missed on slot $NEST_SLOT, starting again" >&2
+    echo "slot $NEST_SLOT: the nest did not come up" >&2
     nest_stop
-    sleep 0.5
-    nest_start || return 2
+    return 2
   fi
   local t name out rc=0 errors_seen check_errors
   # Anything the nest already reports at startup -- the first parse happens before
@@ -211,25 +211,16 @@ worker() { # SLOT
     name="$(name_of "$t")"
     nest_clean
     out="$(mktemp)"
+    # One run per scenario, and a failure is reported as a failure. Nothing here
+    # retries: a scenario that comes back red is looked at by whoever asked for the
+    # run, and run again by hand when the reason is known -- an automatic second
+    # pass hides which of the two runs the answer is about, and a scenario that only
+    # passes on the second try is a different problem from one that passes.
     if bash "$t" >"$out" 2>&1; then
       report ok "$name" "$out"
     else
-      # Three nests on this machine drop the occasional dock event. A second
-      # pass on the same nest is that event arriving; a real failure fails
-      # again. The first output is discarded so the report is the one that
-      # still failed.
-      nest_clean
-      if bash "$t" >"$out" 2>&1; then
-        report ok "$name" "$out"
-      else
-        report fail "$name" "$out"
-        # Remembered for the pass at the end of the run: that one starts fresh
-        # nests, which is what tells "the nest this scenario happened to land on
-        # was dirty" apart from "the scenario is broken".
-        flock 9
-        printf '%s\n' "$t" >> "$NEST_ROOT/failed"
-        rc=1
-      fi
+      report fail "$name" "$out"
+      rc=1
     fi
     check_errors "$name"
     rm -f "$out"
@@ -243,28 +234,20 @@ worker() { # SLOT
 # One process per slot, outliving the workers in it: a worker that could not
 # bring its nest up returns, and this starts it again so the queue keeps moving.
 slot_runner() { # SLOT
-  local tries=0 rc
-  while :; do
-    worker "$1"
-    rc=$?
-    case $rc in
-      2)
-        tries=$((tries + 1))
-        if [ "$tries" -ge 3 ]; then
-          # Not a failure by itself: the scenarios this slot did not reach stay
-          # in the queue for the others, and whatever is left at the end is what
-          # the run reports. This is only here so the operator can see it.
-          echo "slot $1 gave up after $tries nests" >&2
-          return 0
-        fi
-        # The bar that did not reserve is the nest's output not being registered
-        # yet (`bar reserved '0' with the output '0x0'`). Retrying straight away
-        # runs into the same state, so each retry waits longer than the last.
-        sleep $((tries * 3))
-        ;;
-      *) return "$rc" ;;
-    esac
-  done
+  # One worker, no retries. A slot whose nest would not come up leaves its scenarios
+  # in the queue for the others, and whatever is still unreported at the end is what
+  # the run names as NOT RUN -- with the reason above it. Retrying the slot here used
+  # to mean a minute of waiting per attempt, and a run that looked stuck.
+  local rc
+  worker "$1"
+  rc=$?
+  # A nest that did not come up has already said so, and the worker left its
+  # scenarios in the queue for the other slots. Whether that costs the run anything
+  # is decided at the end, by the scenarios that never ran: a slot that lost its nest
+  # while the others picked its work up is not a failure, and a nest lost at the
+  # start of a run is -- because then scenarios are left over and reported NOT RUN.
+  [ "$rc" = 2 ] && return 0
+  return "$rc"
 }
 
 fail=0
@@ -305,10 +288,8 @@ abort() {
 trap abort INT TERM HUP
 
 queue_fill
-# Reported scenarios, by name, for the end-of-run diff (see report()), and the
-# failures the retry pass at the end picks up.
+# Reported scenarios, by name, for the end-of-run diff (see report()).
 : > "$NEST_ROOT/reported"
-: > "$NEST_ROOT/failed"
 
 for s in $(seq 0 $((JOBS - 1))); do
   # A second apart. Mapping several nests in the same instant makes the
@@ -320,12 +301,19 @@ for s in $(seq 0 $((JOBS - 1))); do
   pids+=($!)
 done
 for pid in "${pids[@]}"; do
-  wait "$pid" || fail=1
+  wait "$pid"
+  rc=$?
+  [ "$rc" = 0 ] || {
+    fail=1
+    echo "a slot exited with status $rc" >&2
+  }
 done
-main_fail="$fail"
 
-# Anything chosen that was never reported, checked before the retry so it stays a
-# property of the pass it belongs to.
+# Anything chosen that was never reported: a slot whose nest would not come up
+# leaves scenarios behind, and a scenario can also be taken from the queue and lost
+# with the worker that held it. The diff is against what was *reported*, not against
+# how far the queue counter got, because the counter moves when a scenario is taken
+# and says nothing about whether it ran.
 not_run_check() { # CHOICES...
   local t name missing=0
   for t in "$@"; do
@@ -336,42 +324,9 @@ not_run_check() { # CHOICES...
   done
   return "$missing"
 }
-not_run_check "${chosen[@]}" || main_fail=1
+not_run_check "${chosen[@]}" || fail=1
 
-# One retry of exactly the scenarios that failed, on new nests, when there were
-# any. A scenario that fails and then passes here was carried by a dirty nest (the
-# worker retries on the *same* nest first, so a flake has already had its second
-# chance); one that fails again is what the run reports as a failure. NEST_RETRY=0
-# turns this off.
-if [ -s "$NEST_ROOT/failed" ] && [ "${NEST_RETRY:-1}" != 0 ]; then
-  mapfile -t retry < <(sort -u "$NEST_ROOT/failed")
-  : > "$NEST_ROOT/failed"
-  : > "$NEST_ROOT/reported"
-  chosen=("${retry[@]}")
-  PASS=2
-  fail=0
-  echo "== retry (fresh nests): ${#chosen[@]} scenario(s):"
-  printf '     %s\n' "${chosen[@]##*/}"
-  queue_fill
-  pids=()
-  for s in $(seq 0 $((JOBS - 1))); do
-    [ "$s" -gt 0 ] && sleep 1
-    set -m
-    slot_runner "$s" &
-    set +m
-    pids+=($!)
-  done
-  for pid in "${pids[@]}"; do
-    wait "$pid" || fail=1
-  done
-  not_run_check "${chosen[@]}" || fail=1
-  # The main pass's failures are the retry's list; what stands now is the retry's
-  # own answer, and a run whose scenarios all came back green here is green.
-  main_fail="$fail"
-fi
-fail="$main_fail"
-
-rm -f "$NEST_ROOT/reported" "$NEST_ROOT/failed"
+rm -f "$NEST_ROOT/reported"
 
 # The scenarios' own lines say what ran. This is the one line that says whether
 # the layer came out clean, for a run started on its own -- the suite above

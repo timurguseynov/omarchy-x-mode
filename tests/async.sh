@@ -38,49 +38,31 @@ status_text() { # LABEL LOG
   else
     tail -3 "$log"
   fi
-  # Counted from the verdicts, not from the lines: a scenario that failed in the
-  # main pass and passed on the retry pass at the end is reported as `ok … (retry)`,
-  # and its earlier FAIL line must not still make the run look red.
+  # Counted from the report lines, not by grep over the whole log: a scenario name
+  # or a test's own output can contain the word FAIL, and a line with "(slot N)" has
+  # to be parsed like any other.
   python3 - "$log" <<'PY'
 import re, sys
 
 strip = re.compile(r'\x1b\[[0-9;]*m')
-ok = fail = warn = notrun = 0
-resolved = set()
-fails = []
+ok = failures = warn = notrun = 0
+names = []
 for raw in open(sys.argv[1], errors='replace'):
     line = strip.sub('', raw).rstrip('\n')
-    m = re.match(r'^  (ok|FAIL|NOT RUN) +(\S+)(?: +\(slot \d+\))?(?: +\(retry\))?$', line)
+    m = re.match(r'^  (ok|FAIL|NOT RUN) +(\S+)(?: +\(slot \d+\))?$', line)
     if m:
         status, name = m.group(1), m.group(2)
-        retry = line.rstrip().endswith('(retry)')
         if status == 'ok':
             ok += 1
-            if retry:
-                resolved.add(name)
         elif status == 'FAIL':
-            if retry:
-                fail += 1
-                fails.append(name)
-            else:
-                fails.append((name, retry))
+            failures += 1
+            names.append(name)
         else:
             notrun += 1
     elif 'hyprland reported an error' in line:
         warn += 1
-# A main-pass FAIL whose scenario came back green on retry is not a failure, and one
-# scenario that failed twice is one failure, not two.
-real = []
-seen = set()
-for f in fails:
-    name = f[0] if isinstance(f, tuple) else f
-    if name in resolved or name in seen:
-        continue
-    seen.add(name)
-    real.append(name)
-fail = len(real)
-print('ok: %d  FAIL: %d  WARN: %d  NOT RUN: %d' % (ok, fail, warn, notrun))
-for name in real[:5]:
+print('ok: %d  FAIL: %d  WARN: %d  NOT RUN: %d' % (ok, failures, warn, notrun))
+for name in names[:5]:
     print('  ' + name)
 PY
   grep -a "hyprland reported an error" "$log" | head -5

@@ -450,24 +450,21 @@ nest_bar_spawn() {
 }
 
 nest_bar_start() {
-  local attempt _
-  # The first shell sometimes connects before the nest has an output, or
-  # the host drops that wayland client while several nests are mapping.
-  # A later try has the output, and a shell that already bound a placeholder
-  # is thrown away rather than waited on.
-  for attempt in 1 2 3 4; do
-    nest_bar_spawn || {
-      sleep 0.3
-      continue
-    }
+  local _ attempt
+  # One attempt. Retrying (four spawns, four seconds each) meant a nest that sat
+  # there for the better part of a minute with nothing on screen to say what it was
+  # waiting for, and the retry never told a real nest problem from a slow one: a bar
+  # that misses is reported, the slot gives up, and the scenarios it did not reach
+  # stay in the queue for the others. Run again by hand when you want another try.
+  attempt=1
+  if nest_bar_spawn; then
     for _ in $(seq 1 40); do
       nest_bar_ready && return 0
       sleep 0.1
     done
     nest_bar_stop
-  done
-  # return, do not exit. fail() ends the worker, so the caller's
-  # "start the nest again" never runs and one missed bar drops the slot.
+  fi
+  # return, do not exit: fail() ends the worker and the caller's cleanup with it.
   # The output is printed with it: an empty reserved top says the nest has no
   # output at all, '0' that it has one and the bar reserved nothing on it, and
   # a width that is not the settled one says the bar bound the mode the host
@@ -707,6 +704,9 @@ nest_clean() {
   # file, so the pack has to be pointed at the empty one it was just given.
   nest_hyprctl eval 'if x_mode and x_mode.refresh_options then x_mode.refresh_options() end' >/dev/null 2>&1 || true
   nest_hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null 2>&1 || true
+  # The published mode is how the dock decides to show itself: a leftover would hide
+  # it for the next scenario (the dock stays when the file is missing).
+  rm -f "$NEST_RUNTIME/omarchy-x-mode.workspace"
   # Workspace modes are nest state like the settings above, but putting them back
   # costs eleven o.workspace_mode calls, and a compositor busy with those missed the
   # dock's clicks in the next scenario (measured: disabling this fixed

@@ -71,10 +71,12 @@ Pack code, in this repo:
   anything that is related to it (the grouping of the dock, the keys of a mode,
   the plugin under an install). So a red scenario is read alone, first at its own
   name and then against whatever it shares state with, and the full run comes back
-  as the last check before a commit, not as the way to investigate. The retry pass
-  at the end of a nest run (fresh nests, see `NEST_RETRY` in `tests/nest/run.sh`)
-  already rules out "it landed on a dirty nest"; a scenario that is red after that
-  is a real one, and a full run is not what tells you why.
+  as the last check before a commit, not as the way to investigate. Nothing in the
+  suite retries anything: a red line is a red line, and it is the agent that runs it
+  again, by hand, once the reason is known. Run *that scenario* -- not a group of
+  them, not a filter that happens to match its neighbours: a group is a different
+  run with a different order, so it neither reproduces what the full run did nor
+  proves the scenario is fine, and it costs the same minutes for nothing.
 - Do not test by hand on the live session. If something needs to be checked
   there, say so and wait: the user will check it. If you need log output, ask
   for it instead of collecting it yourself.

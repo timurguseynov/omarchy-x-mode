@@ -108,7 +108,15 @@ bool holdUnderFullscreen(PHLWINDOW w) {
 // nothing is reserved above the window -- the layout gets the whole box.
 // An empty option draws everywhere, which is what a stock hyprbars does.
 static bool onXmodeWorkspace(PHLWINDOW w) {
-    const auto TAG = g_pGlobalState && g_pGlobalState->config.xModeWorkspaceTag ? g_pGlobalState->config.xModeWorkspaceTag->value() : std::string{};
+    std::string TAG;
+    if (g_pGlobalState) {
+        if (g_pGlobalState->config.xModeWorkspaceTag)
+            TAG = g_pGlobalState->config.xModeWorkspaceTag->value();
+        // Omarchy's workspace-modes module sets her own name for this when a
+        // workspace floats; either spelling gates the titlebar.
+        if (TAG.empty() && g_pGlobalState->config.omarchyWorkspaceTag)
+            TAG = g_pGlobalState->config.omarchyWorkspaceTag->value();
+    }
     if (TAG.empty())
         return true;
     if (!w || !w->m_ruleApplicator)

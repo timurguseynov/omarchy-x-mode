@@ -51,6 +51,14 @@ struct SGlobalState {
         // overlap its layout. Empty means "draw everywhere", which is what a
         // stock hyprbars does.
         SP<Config::Values::CStringValue>     xModeWorkspaceTag;
+        // Omarchy's own titlebars build registers `workspace_tag` and
+        // `button_rounding` in the same namespace, and her workspace-modes module
+        // sets them whenever a workspace floats. Unknown keys there are reported as
+        // config errors, so both are accepted here: the tag is the same gate as
+        // xModeWorkspaceTag (either one turns the titlebar on for its windows), and
+        // the rounding is hers to draw -- this build does not use it.
+        SP<Config::Values::CStringValue>     omarchyWorkspaceTag;
+        SP<Config::Values::CStringValue>     omarchyButtonRounding;
         // (tim) x-mode: tabbar height and snap/grouping tunables. Real Hyprland
         // config keys (plugin:hyprbars:*) so they are edited in the config, not
         // in code; the C++ snap engine and Lua grouping read the same value.

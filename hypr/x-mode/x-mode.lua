@@ -260,15 +260,15 @@ hl.config({
   },
 })
 
--- Instant window appearance and movement: a new same-app window must jump to
--- the existing window's position in the same frame, and switching a group tab
--- must not animate borders (it looked like a flicker).
-hl.animation({ leaf = "windowsIn", enabled = false })
-hl.animation({ leaf = "windowsOut", enabled = false })
-hl.animation({ leaf = "windowsMove", enabled = false })
-hl.animation({ leaf = "fadeIn", enabled = false })
-hl.animation({ leaf = "fadeOut", enabled = false })
-hl.animation({ leaf = "border", enabled = false })
+-- Instant window appearance and movement on the pack's own workspaces: a new
+-- same-app window must jump to the existing window's position in the same frame,
+-- and switching a group tab must not animate borders (it looked like a flicker).
+-- Everywhere else these are Omarchy's, so they follow the active workspace's mode
+-- (apply_animations, with the other mode switches at the end of this file). The
+-- leaves are turned back *on*, not restored to a remembered value: Hyprland does
+-- not report an animation leaf through hyprctl, and Omarchy ships them on.
+local ANIMATION_LEAVES = { "windowsIn", "windowsOut", "windowsMove", "fadeIn", "fadeOut", "border" }
+local apply_animations
 
 -- Desktop-style window rules: the pack floats the windows on its own workspaces.
 -- Registered here, early, and not from a helper later in the file: window rules
@@ -328,6 +328,34 @@ end
 
 local palette = omarchy_theme_colors()
 local bar_bg, bar_fg = theme.bar_colors(palette)
+
+-- The plugin has to be loaded before its own keys are set. Hyprland parses this file
+-- before anything has loaded it, and a `plugin:hyprbars:*` key that no plugin
+-- registered is reported as an unknown key and dropped -- a dozen errors on every
+-- login, with the bar height, the tab height and the colours lost on that parse.
+-- So it is loaded here, the way Omarchy's own titlebars module does it, and the
+-- staged build from an install that could not swap the plugin in place is moved
+-- over first: at a login nothing is mapped yet, so that move is the safe one.
+local function ensure_hyprbars()
+  local dir = (os.getenv("HOME") or "") .. "/.local/share/hyprbars/"
+  local so, staged = dir .. "x-mode-hyprbars.so", dir .. "x-mode-hyprbars.so.new"
+  local file = io.open(staged, "r")
+  if file ~= nil then
+    file:close()
+    os.rename(staged, so)
+  end
+  -- Only when there is a build to load: the nest has no installed copy (its
+  -- harness loads the repo build itself), and asking the loader for a missing file
+  -- there is not something the config should do.
+  local base = io.open(so, "r")
+  if base ~= nil then
+    base:close()
+    if hl.plugin ~= nil and hl.plugin.load ~= nil then
+      pcall(hl.plugin.load, so)
+    end
+  end
+end
+ensure_hyprbars()
 
 pcall(function()
   hl.config({
@@ -3057,6 +3085,50 @@ local function apply_all_modes(place)
   end
 end
 
+-- The animations the pack wants off (windowsIn/Out/Move, the fades, the border)
+-- belong to Omarchy on her workspaces, so they are set per active mode rather than
+-- once at load. Hyprland keeps one animation tree for the whole compositor: this is
+-- the closest a per-workspace wish gets, and it is what the eye sees -- the workspace
+-- you are looking at either animates or it does not.
+apply_animations = function()
+  local workspace = hl.get_active_workspace()
+  local id = workspace and workspace.id
+  local ours = (id == nil and X_MODE_MODES.default == modes.XMODE) or (id ~= nil and modes.is_xmode(X_MODE_MODES, id))
+  for _, leaf in ipairs(ANIMATION_LEAVES) do
+    hl.animation({ leaf = leaf, enabled = not ours })
+  end
+end
+
+-- The dock is a layer surface, so it belongs to the monitor and not to a
+-- workspace: "the dock on xmode desktops only" is the dock hiding itself, and it
+-- cannot read this Lua state. The active workspace's mode is published next to the
+-- other files the shell reads, and Dock.qml watches it.
+local ACTIVE_MODE_PATH = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/omarchy-x-mode.workspace"
+
+-- forward-declared for the mode hook above
+local publish_active_mode
+
+publish_active_mode = function()
+  local workspace = hl.get_active_workspace()
+  local id = workspace and workspace.id
+  local mode = "unknown"
+  if id ~= nil then
+    mode = modes.get(X_MODE_MODES, id) or "unknown"
+  elseif X_MODE_MODES.default ~= nil then
+    mode = X_MODE_MODES.default
+  end
+  local out = io.open(ACTIVE_MODE_PATH, "w")
+  if out ~= nil then
+    out:write(string.format("%s %s\n", tostring(id or 0), mode))
+    out:close()
+  end
+end
+
+local function apply_active_mode()
+  apply_animations()
+  publish_active_mode()
+end
+
 -- `input.follow_mouse` is Omarchy's as much as the pack's: its workspace modes set
 -- 0 on their floating workspaces and put back the value they captured when they
 -- started watching -- which is not the pack's 2, because this file runs later. So
@@ -3080,6 +3152,10 @@ hl.on("workspace.active", assert_follow_mouse)
 hl.on("monitor.focused", assert_follow_mouse)
 hl.on("window.active", assert_follow_mouse)
 assert_follow_mouse()
+
+hl.on("workspace.active", apply_active_mode)
+hl.on("monitor.focused", apply_active_mode)
+apply_active_mode()
 
 -- Where the pack hears about a mode change. Omarchy's own function runs first (its
 -- table, its rules, its tags); then the pack records the mode and hands the
@@ -3115,6 +3191,9 @@ if type(omarchy_workspace_mode) == "function" then
       leave_xmode(id)
     end
     assert_follow_mouse()
+    -- The dock watches the published mode, and switching the mode of the workspace
+    -- already on screen fires no workspace.active: it has to be published here.
+    publish_active_mode()
   end
 end
 
