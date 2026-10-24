@@ -102,6 +102,27 @@ bool holdUnderFullscreen(PHLWINDOW w) {
     return true;
 }
 
+// The bar belongs to the pack's own workspaces. xmode is a workspace mode the
+// Lua side owns: it tags every window it claimed, and a workspace Omarchy tiles,
+// scrolls or floats itself has no such tag, so no titlebar is drawn there and
+// nothing is reserved above the window -- the layout gets the whole box.
+// An empty option draws everywhere, which is what a stock hyprbars does.
+static bool onXmodeWorkspace(PHLWINDOW w) {
+    const auto TAG = g_pGlobalState && g_pGlobalState->config.xModeWorkspaceTag ? g_pGlobalState->config.xModeWorkspaceTag->value() : std::string{};
+    if (TAG.empty())
+        return true;
+    if (!w || !w->m_ruleApplicator)
+        return false;
+
+    for (const auto& tag : w->m_ruleApplicator->m_tagKeeper.getTags()) {
+        // A rule's tag is listed with a trailing "*".
+        if (tag == TAG || tag == TAG + "*")
+            return true;
+    }
+
+    return false;
+}
+
 // Hyprland's CWindowState::moveToZ lifts the whole X11 transient stack when it
 // raises a window, and on Wayland only the window itself. A Wayland dialog is a
 // toplevel with a parent -- the parent is what makes it float, and what makes
@@ -235,7 +256,7 @@ bool CHyprBar::groupCurrent() {
 
 SDecorationPositioningInfo CHyprBar::getPositioningInfo() {
     const auto                 HEIGHT     = g_pGlobalState->config.barHeight->value();
-    const auto                 ENABLED    = g_pGlobalState->config.enabled->value() && xModeEnabled();
+    const auto                 ENABLED    = g_pGlobalState->config.enabled->value() && xModeEnabled() && onXmodeWorkspace(m_pWindow.lock());
     const auto                 PRECEDENCE = g_pGlobalState->config.barPrecedenceOverBorder->value();
     // Reserve the tabbar for every group member, not only the current one: the
     // positioner caches these extents and its fast path never recomputes them
@@ -267,7 +288,7 @@ std::string CHyprBar::getDisplayName() {
 }
 
 bool CHyprBar::inputIsValid() {
-    if (m_hidden || !xModeEnabled())
+    if (m_hidden || !xModeEnabled() || !onXmodeWorkspace(m_pWindow.lock()))
         return false;
 
     if (g_pSeatManager->m_seatGrab && !g_pSeatManager->m_seatGrab->accepts(m_pWindow->wlSurface()->resource()))
@@ -1067,13 +1088,16 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
 }
 
 void CHyprBar::applyEnabled() {
-    m_bLastEnabledState = g_pGlobalState->config.enabled->value() && xModeEnabled();
+    // The same expression draw() compares against, tag included: leaving the tag
+    // term out made the two never agree, so every frame repositioned the bar and
+    // damaged it again.
+    m_bLastEnabledState = g_pGlobalState->config.enabled->value() && xModeEnabled() && onXmodeWorkspace(m_pWindow.lock());
     g_pDecorationPositioner->repositionDeco(this);
     damageEntire();
 }
 
 void CHyprBar::draw(PHLMONITOR pMonitor, const float& a) {
-    const auto ENABLED = g_pGlobalState->config.enabled->value() && xModeEnabled();
+    const auto ENABLED = g_pGlobalState->config.enabled->value() && xModeEnabled() && onXmodeWorkspace(m_pWindow.lock());
     if (m_bLastEnabledState != ENABLED)
         applyEnabled();
 

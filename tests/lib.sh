@@ -629,10 +629,19 @@ for b in sys.stdin.read().split('instance ')[1:]:
 
 # Close every window in the nest, so each test starts from nothing.
 nest_clean() {
-  local addrs a
+  local addrs a i
   addrs="$(nest_query addrs)"
   for a in $addrs; do
     nest_ctl dispatch "hl.dsp.window.close({ window = 'address:$a' })" >/dev/null 2>&1 || true
+  done
+  # A close is a client round-trip, and the next scenario's open_window() counts
+  # what is listed: a window still on its way out made it think the window it
+  # needed was already there, so the scenario then asserted against the previous
+  # one's window (a tiled leftover where a floating one was expected, or a group
+  # of one where two were). Wait for the list to empty instead of assuming.
+  for i in $(seq 1 50); do
+    [ -z "$(nest_query addrs 2>/dev/null)" ] && break
+    sleep 0.1
   done
   # Settings are written by the panel, and by the tests that drive it. Reset them
   # so a test that fails midway cannot change how the next one lays out windows.
@@ -688,6 +697,16 @@ nest_clean() {
   # file, so the pack has to be pointed at the empty one it was just given.
   nest_hyprctl eval 'if x_mode and x_mode.refresh_options then x_mode.refresh_options() end' >/dev/null 2>&1 || true
   nest_hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null 2>&1 || true
+  # Workspace modes are nest state like the settings above: a scenario that
+  # switched a workspace to dwindle and failed halfway left the next one in a
+  # tiled mode, and the next one then saw its own window tiled on a workspace it
+  # expected to be xmode. Back to the baseline tests/nest.lua sets at load --
+  # xmode by default and for every numbered workspace.
+  nest_hyprctl eval 'if o and o.workspace_mode then o.workspace_mode({ default = "xmode" }) end' >/dev/null 2>&1 || true
+  local ws
+  for ws in 1 2 3 4 5 6 7 8 9 10; do
+    nest_hyprctl eval "if o and o.workspace_mode then o.workspace_mode({ workspace = \"$ws\", mode = \"xmode\" }) end" >/dev/null 2>&1 || true
+  done
 }
 
 # The panel's path for an app-list change: write settings.json, then this.

@@ -44,6 +44,13 @@ struct SGlobalState {
         SP<Config::Values::CIntValue>        barButtonPadding;
         SP<Config::Values::CBoolValue>       barBlur, barTitleEnabled, barPartOfWindow, barPrecedenceOverBorder, enabled, iconOnHover;
         SP<Config::Values::CStringValue>     barTextFont, barTextAlign, barButtonsAlignment, onDoubleClick;
+        // The window tag that says "this window is on one of the pack's
+        // workspaces". The Lua side (hypr/x-mode/x-mode.lua) owns the mode and
+        // tags the windows it claimed; the bar is drawn for those only, so a
+        // workspace Omarchy tiles, scrolls or floats itself gets no titlebar to
+        // overlap its layout. Empty means "draw everywhere", which is what a
+        // stock hyprbars does.
+        SP<Config::Values::CStringValue>     xModeWorkspaceTag;
         // (tim) x-mode: tabbar height and snap/grouping tunables. Real Hyprland
         // config keys (plugin:hyprbars:*) so they are edited in the config, not
         // in code; the C++ snap engine and Lua grouping read the same value.

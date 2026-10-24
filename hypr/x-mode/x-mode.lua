@@ -28,6 +28,42 @@ local group = dofile(X_MODE_DIR .. "group.lua")
 local supermap = dofile(X_MODE_DIR .. "supermap.lua")
 local textkeys = dofile(X_MODE_DIR .. "textkeys.lua")
 local layout = dofile(X_MODE_DIR .. "layout.lua")
+local modes = dofile(X_MODE_DIR .. "modes.lua")
+
+-- Workspace modes. Omarchy keeps one per workspace -- dwindle, scrolling, its own
+-- floating -- in $XDG_STATE_HOME/omarchy/workspace-layouts, and replays those
+-- files while the config loads, which is before this file. So the pack reads the
+-- same files here rather than learning the modes from o.workspace_mode alone:
+-- that call only sees what changes afterwards. The pack adds one mode of its own,
+-- xmode, and owns everything about it.
+local X_MODE_MODES = modes.new()
+-- Every window the pack has claimed carries this, so leaving xmode knows which
+-- windows to hand back and hyprbars knows whose titlebar to draw.
+local XMODE_TAG = "xmode-workspace"
+-- Defined at the end of the file, once ws_id exists.
+local claim_window
+
+local function workspace_layouts_dir()
+  local state_home = os.getenv("XDG_STATE_HOME") or ((os.getenv("HOME") or "") .. "/.local/state")
+  return state_home .. "/omarchy/workspace-layouts"
+end
+
+local function read_saved_modes()
+  local listing = io.popen("ls -1 '" .. workspace_layouts_dir() .. "'/*.lua 2>/dev/null")
+  if listing == nil then
+    return
+  end
+  for path in listing:lines() do
+    local file = io.open(path, "r")
+    if file ~= nil then
+      modes.load(X_MODE_MODES, modes.parse_saved(file:read("*a")))
+      file:close()
+    end
+  end
+  listing:close()
+end
+
+read_saved_modes()
 
 -- A list out of a query result. Omarchy's keybindings scan
 -- (`omarchy-menu-keybindings`) dofiles hyprland.lua with a stub `hl` whose every
@@ -231,18 +267,43 @@ hl.animation({ leaf = "fadeIn", enabled = false })
 hl.animation({ leaf = "fadeOut", enabled = false })
 hl.animation({ leaf = "border", enabled = false })
 
--- Desktop-style window rules: everything opens floating (the pack is a
--- macOS-like desktop, not a tiler); Super+T (toggle floating/tiling) is unbound
--- below.
+-- Desktop-style window rules: the pack floats the windows on its own workspaces.
+-- Registered here, early, and not from a helper later in the file: window rules
+-- are applied in registration order, so one registered late loses to every rule
+-- the config (or a scenario) put in before it -- a nest rule that tiles
+-- Chromium-based apps beat this one and left a window tiled but still carrying the
+-- pack's tag.
+--
+-- The rule matches on the class, not on the workspace: a rule with a workspace
+-- match is what Hyprland turns into a work-area sized window (measured in a nest:
+-- `match = { workspace = "r[1-5]" }, float = true` opened a 148x178 terminal at
+-- 831x924, the whole work area). So the float applies everywhere and the mode is
+-- enforced per window: claim_window, on window.open, hands a window back to
+-- Omarchy when its workspace is not the pack's, and leaving xmode does the same
+-- for the windows already there.
+--
+-- suppress_event = maximize: a client request to maximize (Zed does this on
+-- startup) would enter Hyprland's FSMODE_MAXIMIZED. That mode is not a floating
+-- window, and a later move is ignored, so the titlebar drag does nothing until
+-- something (Super+Alt+F) takes it back out. Real fullscreen is a different
+-- request and is not suppressed.
+hl.window_rule({
+  name = "x-mode-float",
+  enabled = true,
+  match = { class = ".*" },
+  float = true,
+  opacity = "1.0 override 1.0 override",
+  suppress_event = "maximize",
+})
+-- Omarchy's browser defaults force Chromium-based apps to tile, and that tag rule
+-- would win over the one above.
+hl.window_rule({ name = "x-mode-float-browser", enabled = true, match = { class = ".*", tag = "chromium-based-browser" }, tile = false, float = true })
+--
 -- suppress_event = maximize: a client request to maximize (Zed does this on
 -- startup) would enter Hyprland's FSMODE_MAXIMIZED. That mode is not a
 -- floating window, and a later move is ignored, so the titlebar drag does
 -- nothing until something (Super+Alt+F) takes it back out. Real fullscreen
 -- is a different request and is not suppressed.
-o.window(".*", { float = true, opacity = "1.0 override 1.0 override", suppress_event = "maximize" })
--- Omarchy's browser defaults force Chromium-based apps to tile. That tag rule
--- wins over the catch-all above, so override it here.
-o.window({ tag = "chromium-based-browser" }, { tile = false, float = true })
 
 -- Mac-style titlebar via the patched hyprbars (native decoration, moves in
 -- lockstep with the window). One close button on the left; the tabbar sits
@@ -490,9 +551,28 @@ local refresh_window
 local consolidate
 local window_by_addr
 
+-- The mode of a workspace, and whether a window is on one of the pack's.
+-- Everything that belongs to the pack -- the float rule, the titlebar, the tabs,
+-- the keys, the geometry -- asks this, and answers no on a workspace Omarchy is
+-- tiling, scrolling or floating itself.
+local function ws_mode(id)
+  return modes.get(X_MODE_MODES, id)
+end
+
+local function in_xmode(w)
+  if w == nil then
+    return false
+  end
+  return modes.is_xmode(X_MODE_MODES, ws_id(w))
+end
+
 layout.init({
   plugin = bars,
   dragging = dragging,
+  -- layout.lua keeps its hands off a window that is not the pack's: the float on
+  -- load, the arrange and the re-apply all ask this first, so a tiled workspace
+  -- is never dealt into the pack's zones.
+  in_xmode = in_xmode,
   dock_card = function()
     return dock_card
   end,
@@ -875,47 +955,109 @@ hl.on("input.keyboard.key", function(keycode, _, state)
   end
 end)
 
--- Cmd+arrows focus the neighbour in Omarchy's defaults. This desktop does not
--- tile, and the keys should reach the app, so drop them. Snap stays on
--- Cmd+Alt+arrows.
-hl.unbind("SUPER + LEFT")
-hl.unbind("SUPER + RIGHT")
-hl.unbind("SUPER + UP")
-hl.unbind("SUPER + DOWN")
+-- --- tiling keys: the pack's only on its own workspaces -----------------------
+-- These are the keys the pack takes from Omarchy's tiler -- focus direction, the
+-- resize steps, floating/pseudo/split, pop-out, the tiled-width pair, the gaps
+-- toggle. Tiling, scrolling and Omarchy's own floating each still need them, so
+-- the key is bound once and the *mode* decides: inside xmode the key belongs to
+-- the pack (and to the app, since the Mac side of this desktop keeps the arrows
+-- and the resize steps free -- `pass_event` hands the key on), everywhere else it
+-- does exactly what Omarchy binds.
+--
+-- Omarchy's half is performed here rather than replayed from her files: her arrow
+-- and resize steps are Lua function dispatchers, and hyprctl prints `__lua` for
+-- those, so there is no command to replay -- the pack calls the same dispatcher
+-- instead. The four she wrote as commands are run as commands.
+local function resize_step(x, y)
+  return function()
+    hl.dispatch(hl.dsp.window.resize({ x = x, y = y, relative = true }))
+  end
+end
 
--- Cmd +/- (and Cmd+Shift+/-) resize the active window in Omarchy's defaults
--- (resizeactive on code:20 = '-' and code:21 = '='). The desktop resizes by
--- dragging the edge, so drop them.
-hl.unbind("SUPER + code:20")
-hl.unbind("SUPER + code:21")
-hl.unbind("SUPER + SHIFT + code:20")
-hl.unbind("SUPER + SHIFT + code:21")
+local TILING_KEYS = {
+  -- Focus, the four arrows.
+  { keys = "SUPER + LEFT", label = "Focus on left window", omarchy = function() hl.dispatch(hl.dsp.focus({ direction = "l" })) end },
+  { keys = "SUPER + RIGHT", label = "Focus on right window", omarchy = function() hl.dispatch(hl.dsp.focus({ direction = "r" })) end },
+  { keys = "SUPER + UP", label = "Focus on above window", omarchy = function() hl.dispatch(hl.dsp.focus({ direction = "u" })) end },
+  { keys = "SUPER + DOWN", label = "Focus on below window", omarchy = function() hl.dispatch(hl.dsp.focus({ direction = "d" })) end },
+  -- Swap with the neighbour (Omarchy's Shift+arrows).
+  { keys = "SUPER + SHIFT + LEFT", label = "Swap window to the left", omarchy = function() hl.dispatch(hl.dsp.window.swap({ direction = "l" })) end },
+  { keys = "SUPER + SHIFT + RIGHT", label = "Swap window to the right", omarchy = function() hl.dispatch(hl.dsp.window.swap({ direction = "r" })) end },
+  { keys = "SUPER + SHIFT + UP", label = "Swap window up", omarchy = function() hl.dispatch(hl.dsp.window.swap({ direction = "u" })) end },
+  { keys = "SUPER + SHIFT + DOWN", label = "Swap window down", omarchy = function() hl.dispatch(hl.dsp.window.swap({ direction = "d" })) end },
+  -- The resize steps: Cmd +/- and its Shift, Alt and Ctrl variants.
+  { keys = "SUPER + code:20", label = "Expand window left", omarchy = resize_step(-100, 0) },
+  { keys = "SUPER + code:21", label = "Shrink window left", omarchy = resize_step(100, 0) },
+  { keys = "SUPER + SHIFT + code:20", label = "Shrink window up", omarchy = resize_step(0, -100) },
+  { keys = "SUPER + SHIFT + code:21", label = "Expand window down", omarchy = resize_step(0, 100) },
+  { keys = "SUPER + ALT + code:20", label = "Expand window left a little", omarchy = resize_step(-25, 0) },
+  { keys = "SUPER + ALT + code:21", label = "Shrink window left a little", omarchy = resize_step(25, 0) },
+  { keys = "SUPER + SHIFT + ALT + code:20", label = "Shrink window up a little", omarchy = resize_step(0, -25) },
+  { keys = "SUPER + SHIFT + ALT + code:21", label = "Expand window down a little", omarchy = resize_step(0, 25) },
+  { keys = "SUPER + CTRL + code:20", label = "Expand window left a lot", omarchy = resize_step(-300, 0) },
+  { keys = "SUPER + CTRL + code:21", label = "Shrink window left a lot", omarchy = resize_step(300, 0) },
+  { keys = "SUPER + CTRL + SHIFT + code:20", label = "Shrink window up a lot", omarchy = resize_step(0, -300) },
+  { keys = "SUPER + CTRL + SHIFT + code:21", label = "Expand window down a lot", omarchy = resize_step(0, 300) },
+  -- The layout toggles.
+  { keys = "SUPER + T", label = "Toggle window floating/tiling", omarchy = function() hl.dispatch(hl.dsp.window.float({ action = "toggle" })) end },
+  { keys = "SUPER + J", label = "Toggle window split", omarchy = function() hl.dispatch(hl.dsp.layout("togglesplit")) end },
+  { keys = "SUPER + P", label = "Pseudo window", omarchy = function() hl.dispatch(hl.dsp.window.pseudo()) end },
+  { keys = "SUPER + O", label = "Pop window out (float & pin)", omarchy = function() hl.exec_cmd("omarchy-hyprland-window-pop") end },
+  { keys = "SUPER + CTRL + F", label = "Tiled full screen", omarchy = function() hl.exec_cmd("omarchy-hyprland-window-tiled-fullscreen-toggle") end },
+  { keys = "SUPER + Home", label = "Restore window width", omarchy = function() hl.exec_cmd("omarchy-hyprland-window-width restore") end },
+  { keys = "SUPER + ALT + Home", label = "Save window width", omarchy = function() hl.exec_cmd("omarchy-hyprland-window-width save") end },
+  -- The scratchpad pair.
+  { keys = "SUPER + S", label = "Toggle scratchpad", omarchy = function() hl.dispatch(hl.dsp.workspace.toggle_special("scratchpad")) end },
+  { keys = "SUPER + ALT + S", label = "Move window to scratchpad", omarchy = function() hl.dispatch(hl.dsp.window.move({ workspace = "special:scratchpad", follow = false })) end },
+}
 
--- Tiling leftovers from Omarchy's defaults. This desktop is always floating
--- (snap/resize by drag or Super+Alt+arrows), so drop the tiler keys.
--- Same-app grouping (tabs) stays; those binds are not tiling.
-hl.unbind("SUPER + T") -- toggle floating/tiling
-hl.unbind("SUPER + L") -- workspace layout picker (dwindle/scrolling)
-hl.unbind("SUPER + O") -- pop out: float + pin
-hl.unbind("SUPER + J") -- togglesplit
-hl.unbind("SUPER + P") -- pseudo (dwindle stretch)
--- Omarchy's own gaps toggle. The pack owns the gaps -- the panel's "No gaps" is
--- the switch, and it is the only thing that can put them back -- so this key is
--- free. Both spellings, since Omarchy may write it by keycode.
-hl.unbind("SUPER + SHIFT + BACKSPACE")
-hl.unbind("SUPER + SHIFT + code:22")
-hl.unbind("SUPER + CTRL + F") -- tiled fullscreen
-hl.unbind("SUPER + Home") -- restore saved tiled width
-hl.unbind("SUPER + ALT + Home") -- save tiled width
--- Remaining keyboard-resize steps (plain Cmd+/- already dropped above).
-hl.unbind("SUPER + ALT + code:20")
-hl.unbind("SUPER + ALT + code:21")
-hl.unbind("SUPER + SHIFT + ALT + code:20")
-hl.unbind("SUPER + SHIFT + ALT + code:21")
-hl.unbind("SUPER + CTRL + code:20")
-hl.unbind("SUPER + CTRL + code:21")
-hl.unbind("SUPER + CTRL + SHIFT + code:20")
-hl.unbind("SUPER + CTRL + SHIFT + code:21")
+-- The gaps toggle is the pack's own switch (the panel's "No gaps"), so in xmode
+-- the key is taken and does nothing; every other mode keeps Omarchy's key. Both
+-- spellings, since Omarchy writes it by keycode.
+for _, keys in ipairs({ "SUPER + SHIFT + BACKSPACE", "SUPER + SHIFT + code:22" }) do
+  table.insert(TILING_KEYS, { keys = keys, label = "Toggle window gaps", omarchy = "omarchy-hyprland-window-gaps-toggle" })
+end
+
+for _, e in ipairs(TILING_KEYS) do
+  hl.unbind(e.keys)
+  local command = e.omarchy
+  local own = e.xmode
+  -- The key an app with the Super-as-Ctrl flag would get. The plan that generates
+  -- those binds works off the live bind table and leaves alone whatever the
+  -- desktop binds -- which is every key below now -- so the pack sends the Ctrl
+  -- chord itself for the app that asked for it, and only on its own workspaces
+  -- (elsewhere these keys are the tiler's).
+  local id = supermap.steal_id_of(e.keys)
+  local shift = false
+  if id ~= nil then
+    local unshifted = id:match("^SHIFT%+(.+)$")
+    if unshifted ~= nil then
+      shift = true
+      id = unshifted
+    end
+  end
+  pcall(o.bind, e.keys, e.label or "", function()
+    local w = hl.get_active_window()
+    if in_xmode(w) then
+      if own ~= nil then
+        return own()
+      end
+      if id ~= nil and window_class(w) ~= "" and key_flag("ctrl_as_super", window_class(w)) then
+        send_ctrl(id, shift, w)
+        return
+      end
+      -- In xmode the key is not the tiler's: hand it to the app.
+      return { pass_event = true }
+    end
+    if type(command) == "string" then
+      hl.exec_cmd(command)
+      return
+    end
+    if command ~= nil then
+      command()
+    end
+  end)
+end
 
 -- [id] = true for every key the pack binds itself, in the steal list's spelling
 -- (Super or Super+Shift + one key). Omarchy's files describe what used to be on
@@ -1157,27 +1299,28 @@ o.bind("ALT + SHIFT + TAB", "Previous tab", function()
   switch_group_tab(false)
 end)
 
--- Cmd+Shift+arrows swap the window with its neighbour in Omarchy's defaults;
--- the desktop does not tile, so drop them.
-hl.unbind("SUPER + SHIFT + LEFT")
-hl.unbind("SUPER + SHIFT + RIGHT")
-hl.unbind("SUPER + SHIFT + UP")
-hl.unbind("SUPER + SHIFT + DOWN")
-
--- Super+Alt+Left/Right were "move window to group on left/right".
+-- Super+Alt+arrows were Omarchy's "move window into the neighbour's group". Inside
+-- xmode the pack snaps with them instead; every other mode keeps Omarchy's move,
+-- so those four keys are the pack's only on its own workspaces.
 hl.unbind("SUPER + ALT + LEFT")
 hl.unbind("SUPER + ALT + RIGHT")
-o.bind("SUPER + ALT + LEFT", "Snap or expand window left", function()
-  layout.cycle("left")
-end)
-o.bind("SUPER + ALT + RIGHT", "Snap or expand window right", function()
-  layout.cycle("right")
-end)
-
--- Super+Alt+Up/Down were "move window to group on top/bottom". We never want
--- the arrow keys to create a group, so drop those binds entirely.
 hl.unbind("SUPER + ALT + UP")
 hl.unbind("SUPER + ALT + DOWN")
+-- The dispatchers are built inside the handlers: at load they would be built while
+-- Omarchy's keybindings scan reads the config with a stub `hl`, and there the dsp
+-- table only answers one level deep (hl.dsp.window.move would index a function).
+local function alt_arrow(own, into_group)
+  pcall(o.bind, own.keys, own.label, function()
+    if in_xmode(hl.get_active_window()) then
+      return own.action()
+    end
+    hl.dispatch(hl.dsp.window.move({ into_group = into_group }))
+  end)
+end
+alt_arrow({ keys = "SUPER + ALT + LEFT", label = "Snap or expand window left", action = function() layout.cycle("left") end }, "l")
+alt_arrow({ keys = "SUPER + ALT + RIGHT", label = "Snap or expand window right", action = function() layout.cycle("right") end }, "r")
+alt_arrow({ keys = "SUPER + ALT + UP", label = "Move window into the group above", action = function() return { pass_event = true } end }, "u")
+alt_arrow({ keys = "SUPER + ALT + DOWN", label = "Move window into the group below", action = function() return { pass_event = true } end }, "d")
 
 -- Cmd+G toggles a Hyprland group, Cmd+Alt+G pulls the window out of one.
 -- Same-app tabs are made by the pack, so these keys should reach the app.
@@ -2051,12 +2194,16 @@ local function bind_super_ctrl(raw, gen)
   if gen ~= super_ctrl_gen then
     return
   end
+  -- A new plan replaces the last one instead of adding to it: the request that
+  -- triggered it may have arrived while an earlier plan was already installed.
+  drop_super_ctrl()
   ensure_omarchy_replay()
   write_occupied(raw)
   apply_steal_wraps(raw)
   if not key_flag_any("ctrl_as_super") then
     return
   end
+  local planned, bound = 0, 0
   for _, b in ipairs(supermap.plan(raw)) do
     local keys = b.shift and ("SUPER + SHIFT + " .. b.key) or ("SUPER + " .. b.key)
     -- `repeating`: a key that stays down keeps sending the chord, the way holding
@@ -2066,9 +2213,20 @@ local function bind_super_ctrl(raw, gen)
     local ok, kb = pcall(hl.bind, keys, function()
       return super_ctrl_key(b.key, b.shift)
     end, { description = supermap.PREFIX .. (b.shift and " SHIFT" or "") .. " " .. b.key, repeating = true })
+    planned = planned + 1
     if ok and kb then
+      bound = bound + 1
       super_ctrl_binds[#super_ctrl_binds + 1] = kb
     end
+  end
+  -- What the plan produced, next to the files the panel and the tests read. The
+  -- bind table itself is the nest's most contended socket -- the compositor, the
+  -- harness's own IPC proxy and this read all go through it -- so "did the plan
+  -- make binds" has to be answerable without asking it again.
+  local out = io.open(X_MODE_STATE .. "/super-ctrl.json", "w")
+  if out ~= nil then
+    out:write(string.format('{"planned":%d,"bound":%d,"keys":%d}\n', planned, bound, #super_ctrl_binds))
+    out:close()
   end
 end
 
@@ -2091,14 +2249,21 @@ local function super_ctrl_read(path, tries, gen)
 end
 
 apply_super_ctrl = function()
-  drop_super_ctrl()
+  -- The binds already installed stay until the new plan replaces them
+  -- (bind_super_ctrl drops them right before it binds), and the file on disk is
+  -- left alone until a fresh one has been written: a read that never lands -- an
+  -- exec that fails, a machine that is busy -- then leaves the last good plan and
+  -- the last good table in place instead of none of either. Clearing both first
+  -- is what made "no binds" possible with a perfectly good table on disk.
   super_ctrl_gen = super_ctrl_gen + 1
-  -- Always re-read: the occupied list feeds the panel even when no app has
-  -- Super-as-Ctrl on, and steal wraps can exist without that flag.
   local path = X_MODE_STATE .. "/binds.txt"
-  os.remove(path)
-  hl.exec_cmd("sh -c 'hyprctl binds > \"" .. path .. "\" 2>/dev/null'")
-  super_ctrl_read(path, 10, super_ctrl_gen)
+  hl.exec_cmd("sh -c 'hyprctl binds > \"" .. path .. ".tmp\" 2>/dev/null && mv \"" .. path .. ".tmp\" \"" .. path .. "\"'")
+  -- 200ms a try. `hyprctl binds` writes a table of several hundred lines, and the
+  -- budget has to cover a loaded machine: ten tries (two seconds) ran out under a
+  -- full suite, the read gave up, and no Super-as-Ctrl bind was ever made -- which
+  -- looks exactly like a plan that refused to run. Twenty seconds, because a nest
+  -- under load has been measured taking more than ten.
+  super_ctrl_read(path, 100, super_ctrl_gen)
 end
 
 apply_super_ctrl()
@@ -2355,6 +2520,11 @@ join_same_app = function(w)
   if skip_group(w) then
     return
   end
+  -- Tabs are the pack's, and the pack is only on its own workspaces: a window on
+  -- a workspace Omarchy tiles, scrolls or floats itself stays a window.
+  if not in_xmode(w) then
+    return
+  end
   local peer = find_peer(w)
   if peer == nil then
     return
@@ -2479,6 +2649,11 @@ hl.on("window.fullscreen", function(w)
 end)
 
 hl.on("window.open", function(w)
+  -- The pack's float rule matches on the class, so a window on a workspace that is
+  -- not the pack's opens floating and tagged; hand it back before anything else
+  -- looks at it (grouping already refuses it, but the titlebar and the placement
+  -- would not).
+  pcall(claim_window, w)
   -- Group immediately to avoid a visible "ungrouped" flash, then retry shortly
   -- in case the window wasn't fully ready (class/size) on the first tick.
   -- Join must never leave a hidden window stuck: reveal even if join errors.
@@ -2738,3 +2913,203 @@ end
 -- says where each window was snapped from and what frame the zones were built
 -- from). The panel and the binds go through the calls above, not this.
 x_mode.layout = layout
+
+-- --- workspace modes ---------------------------------------------------------
+-- xmode is one of the modes Omarchy keeps per workspace, and the only one the
+-- pack owns. Its float rules are generated, because a rule matches a workspace
+-- range and the set of xmode workspaces changes while the session runs.
+
+-- A rule's tags are listed with a trailing "*", so a strict compare passes them
+-- over; the window's own list is what counts.
+local function window_tagged(w, tag)
+  for _, t in ipairs((w and w.tags) or {}) do
+    if t == tag or t == tag .. "*" then
+      return true
+    end
+  end
+  return false
+end
+
+local function set_window_tag(w, tag, on)
+  pcall(function()
+    hl.dispatch(hl.dsp.window.tag({ tag = (on and "+" or "-") .. tag, window = w }))
+  end)
+end
+
+local function windows_on(id)
+  local out = {}
+  for _, w in ipairs(as_list(hl.get_windows())) do
+    local win = refresh_window(w) or w
+    if win ~= nil and ws_id(win) == id then
+      out[#out + 1] = win
+    end
+  end
+  return out
+end
+
+-- The pack takes the workspace: its windows carry the tag, and the tiled ones are
+-- floated. `place` is for a mode change -- those windows were laid out by the mode
+-- that had them, so they also go where the pack puts an unsnapped window. On a
+-- load the boxes are already the pack's (layout.load_restore) and nothing moves.
+local function enter_xmode(id, place)
+  for _, win in ipairs(windows_on(id)) do
+    if win.mapped and not win.hidden then
+      if not win.floating then
+        hl.dispatch(hl.dsp.window.float({ action = "enable", window = win }))
+        win = refresh_window(win) or win
+      end
+      -- The rule that floats a new window tags it as well, so a window that came in
+      -- that way must not get the tag twice (the second one is a plain tag next to
+      -- the rule's starred one, and both are then read back).
+      if not window_tagged(win, XMODE_TAG) then
+        set_window_tag(win, XMODE_TAG, true)
+      end
+      if place then
+        layout.snap("restore", win)
+      end
+    end
+  end
+end
+
+-- And gives it back: a tab is the pack's, not Omarchy's, so the group goes, then
+-- the tag, and the window is tiled by whatever mode took the workspace over.
+local function leave_xmode(id)
+  for _, win in ipairs(windows_on(id)) do
+    if window_tagged(win, XMODE_TAG) then
+      if win.group ~= nil then
+        pcall(function()
+          hl.dispatch(hl.dsp.window.move({ out_of_group = true, window = win }))
+        end)
+        win = refresh_window(win) or win
+      end
+      set_window_tag(win, XMODE_TAG, false)
+      if win.floating then
+        hl.dispatch(hl.dsp.window.float({ action = "disable", window = win }))
+      end
+    end
+  end
+end
+
+-- A window that just opened. The float rule matches on the class, so a window on a
+-- workspace that is not the pack's arrives floating and tagged: this hands it back
+-- to Omarchy, which tiles it, and takes the tag with it so no titlebar is drawn for
+-- a window the pack does not own. Runs from window.open, before grouping.
+claim_window = function(w)
+  local win = refresh_window(w) or w
+  if win == nil then
+    return
+  end
+  local id = tonumber(ws_id(win))
+  if id ~= nil and modes.is_xmode(X_MODE_MODES, id) then
+    -- The pack's: tagged here, so the titlebar knows whose window it is, and
+    -- floated in case the rule did not get to it (a window that came in before
+    -- this handler ran).
+    if not window_tagged(win, XMODE_TAG) then
+      set_window_tag(win, XMODE_TAG, true)
+    end
+    if not win.floating then
+      hl.dispatch(hl.dsp.window.float({ action = "enable", window = win }))
+    end
+    return
+  end
+  if id == nil then
+    return
+  end
+  -- Someone else's workspace: hand it back. The float rule matches on the class,
+  -- so it arrived floating, and there is no tag to take off -- the rule does not
+  -- carry one.
+  if win.floating then
+    hl.dispatch(hl.dsp.window.float({ action = "disable", window = win }))
+  end
+end
+
+local function apply_all_modes(place)
+  local seen = {}
+  for _, w in ipairs(as_list(hl.get_windows())) do
+    local win = refresh_window(w) or w
+    local id = tonumber(ws_id(win))
+    if id ~= nil and not seen[id] then
+      seen[id] = true
+      if modes.is_xmode(X_MODE_MODES, id) then
+        enter_xmode(id, place)
+      else
+        leave_xmode(id)
+      end
+    end
+  end
+end
+
+-- `input.follow_mouse` is Omarchy's as much as the pack's: its workspace modes set
+-- 0 on their floating workspaces and put back the value they captured when they
+-- started watching -- which is not the pack's 2, because this file runs later. So
+-- the pack says it again on its own workspaces, both when the active workspace
+-- changes and after every o.workspace_mode call (Omarchy's update_input runs inside
+-- that call and puts its value back).
+local function assert_follow_mouse()
+  local workspace = hl.get_active_workspace()
+  local id = workspace and workspace.id
+  -- No workspace yet is the load path (Hyprland has not focused one when the
+  -- config is parsed), and there the answer is the default mode: this is the
+  -- desktop's own value, and every workspace without a mode of its own follows it.
+  local ours = (id == nil and X_MODE_MODES.default == modes.XMODE) or (id ~= nil and modes.is_xmode(X_MODE_MODES, id))
+  if not ours then
+    return
+  end
+  hl.config({ input = { follow_mouse = 2 } })
+end
+
+hl.on("workspace.active", assert_follow_mouse)
+hl.on("monitor.focused", assert_follow_mouse)
+hl.on("window.active", assert_follow_mouse)
+assert_follow_mouse()
+
+-- Where the pack hears about a mode change. Omarchy's own function runs first (its
+-- table, its rules, its tags); then the pack records the mode and hands the
+-- workspace over or gives it back.
+local omarchy_workspace_mode = o.workspace_mode
+
+if type(omarchy_workspace_mode) == "function" then
+  o.workspace_mode = function(spec)
+    omarchy_workspace_mode(spec)
+
+    if type(spec) ~= "table" then
+      return
+    end
+
+    if spec.default ~= nil then
+      modes.set_default(X_MODE_MODES, spec.default)
+      -- Every workspace without a mode of its own just changed. The windows keep
+      -- their boxes: this is not a placement, only who owns them.
+      apply_all_modes(false)
+      assert_follow_mouse()
+      return
+    end
+
+    local id = tonumber(spec.workspace)
+    if id == nil or spec.mode == nil then
+      return
+    end
+
+    modes.set(X_MODE_MODES, id, spec.mode)
+    if modes.is_xmode(X_MODE_MODES, id) then
+      enter_xmode(id, true)
+    else
+      leave_xmode(id)
+    end
+    assert_follow_mouse()
+  end
+end
+
+-- The modes were replayed before this file was required, so the windows that were
+-- already open are in Omarchy's layout: on the pack's workspaces they are tagged
+-- and floated here. New windows get both from the rule.
+apply_all_modes(false)
+
+-- For the tests, the panel and `hyprctl eval`: which mode a workspace is in, and
+-- whether it is the pack's.
+x_mode.mode = function(workspace)
+  return ws_mode(tonumber(workspace) or workspace)
+end
+x_mode.is_xmode = function(workspace)
+  return modes.is_xmode(X_MODE_MODES, tonumber(workspace) or workspace)
+end

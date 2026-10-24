@@ -12,12 +12,17 @@ read -r _ _ before_w _ _ <<<"$(win_geom foot)"
 # that they come back, not that they are any particular number.
 base_out="$(gaps_out)"
 
-# The pack owns the gaps now, so Omarchy's own toggle is retired: its key is not
-# bound at all, and the panel's row is the switch. The nest plants that bind, so
-# this is about the pack taking it away. The second assertion is the sanity check
-# that the bind table is readable, without which the first proves nothing.
-assert_eq "$(bind_count_desc 'Toggle window gaps' 65)" 0 "Omarchy's gaps toggle is not bound"
+# The pack owns the gaps on its own workspaces -- the panel's row is the switch --
+# but every other mode is Omarchy's, and there the key is her gaps toggle. So the
+# bind exists exactly once (no duplicate left behind), and on an xmode workspace a
+# press changes nothing.
+# Two spellings, the way the pack binds it: Omarchy may write the key by name or by
+# keycode, and both have to end up doing the same thing per mode.
+assert_eq "$(bind_count_desc 'Toggle window gaps' 65)" 2 "the gaps key is bound, both spellings"
 assert_eq "$(bind_count 3 65)" 1 "and the pack's own binds are there (Cmd+Shift+3)"
+key super+shift+backspace
+sleep 0.4
+assert_eq "$(gaps_out)" "$base_out" "on an xmode workspace the gaps key leaves the gaps alone"
 
 printf '%s\n' '{"options":{"nativeScroll":false,"ctrlTabSwitch":false,"noGaps":true},"apps":{}}' > "$SETTINGS"
 nest_ctl reload >/dev/null

@@ -640,6 +640,9 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_group_min_width", "Windows narrower than this (px) are not auto-grouped", 400);
     g_pGlobalState->config.xModeGroupMinHeight =
         makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_group_min_height", "Windows shorter than this (px) are not auto-grouped", 300);
+    g_pGlobalState->config.xModeWorkspaceTag = makeShared<Config::Values::CStringValue>(
+        "plugin:hyprbars:x_mode_workspace_tag",
+        "Only windows carrying this tag get a titlebar (empty: every window)", "xmode-workspace");
 
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barColor);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.textColor);
@@ -664,6 +667,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.compactTabs);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeDockInset);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeBarTopMemoryMs);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeWorkspaceTag);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapMargin);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapCorner);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapShortEdge);

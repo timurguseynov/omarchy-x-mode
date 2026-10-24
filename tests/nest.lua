@@ -19,6 +19,15 @@ o = o or {}
 dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/bootstrap.lua")
 dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/helpers.lua")
 
+-- The nest's output is a window on the host, and it came up with whatever scale
+-- the host handed the toplevel -- two, on this machine -- which made every
+-- coordinate and every size in these scenarios half of what they say: a 900x1000
+-- nest was 450x500 logical, so a window that should fill it could not, a default
+-- 700x500 client was clamped to fit, and the bar's own reserved area came out at
+-- 62 instead of its 24. Pinned to 1, the nest is the size it claims to be and the
+-- geometry scenarios measure the desktop's own arithmetic.
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
+
 hl.config({
   -- The same general values Omarchy's looknfeel.lua sets, so the snap geometry
   -- here matches the real desktop (x-mode.lua does not set gaps itself).
@@ -79,5 +88,33 @@ do
     listing:close()
   end
 end
+
+-- Workspace modes. Omarchy keeps one per workspace in
+-- $XDG_STATE_HOME/omarchy/workspace-layouts and replays those files while the
+-- config loads, before the pack is required; the pack adds its own, xmode, and
+-- owns it. The nest is in xmode for every workspace that does not say otherwise,
+-- which is what every scenario here assumes -- a window that opens is the pack's
+-- floating window. A scenario switches one workspace to dwindle (or scrolling,
+-- or floating) to see the pack step aside there.
+require("default.hypr.workspace-modes")
+do
+  local state_home = os.getenv("XDG_STATE_HOME") or ((os.getenv("HOME") or "") .. "/.local/state")
+  local dir = state_home .. "/omarchy/workspace-layouts"
+  os.execute("mkdir -p '" .. dir .. "'")
+  -- Both the default and workspace 1 by name: the default covers every workspace
+  -- that has no mode of its own, and 1 is written out explicitly so a scenario that
+  -- reloads cannot depend on the default still being the one this file set.
+  local file = io.open(dir .. "/default.lua", "w")
+  if file ~= nil then
+    file:write('o.workspace_mode({ default = "xmode" })\n')
+    file:close()
+  end
+  local one = io.open(dir .. "/1.lua", "w")
+  if one ~= nil then
+    one:write('o.workspace_mode({ workspace = "1", mode = "xmode" })\n')
+    one:close()
+  end
+end
+o.workspace_mode({ default = "xmode" })
 
 dofile(os.getenv("X_MODE_LUA") or ((os.getenv("HOME") or "") .. "/.config/hypr/x-mode/x-mode.lua"))

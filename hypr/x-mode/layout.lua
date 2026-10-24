@@ -585,7 +585,7 @@ function M.resnap()
       return
     end
     for _, w in ipairs(windows()) do
-      if w.floating and not w.pinned and not w.hidden then
+      if w.floating and not w.pinned and not w.hidden and ctx.in_xmode(w) then
         local ok, kind = pcall(p.zone, w)
         if ok and type(kind) == "string" and kind ~= "" then
           pcall(function()
@@ -663,7 +663,9 @@ local function arrange_candidates()
   local out = {}
   for _, w in ipairs(windows()) do
     w = ctx.refresh(w) or w
-    if w.mapped and not w.hidden and not fullscreen(w) and w.monitor ~= nil then
+    -- Only the pack's own workspaces: Omarchy deals with the tiled ones, and
+    -- moving a window there would fight its layout.
+    if w.mapped and not w.hidden and not fullscreen(w) and w.monitor ~= nil and ctx.in_xmode(w) then
       out[#out + 1] = w
     end
   end
@@ -693,7 +695,8 @@ end
 -- windows instead of moving them on screen before the fade.
 function M.float_tiled()
   for _, w in ipairs(windows()) do
-    if w.mapped and not w.floating and not fullscreen(w) then
+    -- A tiled window on another mode's workspace is that mode's, not the pack's.
+    if w.mapped and not w.floating and not fullscreen(w) and ctx.in_xmode(w) then
       hl.dispatch(hl.dsp.window.float({ action = "enable", window = w }))
     end
   end
