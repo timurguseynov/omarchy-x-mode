@@ -15,12 +15,18 @@
  * standard XKB keycode only when the client sends the evdev code. The modifier
  * mask comes from an xkb state built on that keymap, so Mod4 really is 64 here.
  *
- * usage: keyboard [-d MS] [-h MS] COMBO...
+ * usage: keyboard [-d MS] [-h MS] [-l LAYOUT] [-g GROUP] COMBO...
  *   COMBO is a '+'-separated chord, e.g. super+alt+left, alt+tab, o.
  *   -d MS is the gap between the individual key events (15 by default).
  *   -h MS holds the last key of each chord for that long before releasing it,
  *   so a test can look at what a key that is *kept down* does -- what the pack
  *   repeats while it is held, and what the app does with a key it still holds.
+ *   -l LAYOUT is the layout the keymap is built from (us by default), e.g.
+ *   us,ru. -g GROUP is the group that keymap is left in (0 by default), so a
+ *   chord can be pressed with a non-Latin group active -- the state in which a
+ *   `send_key_state` that names its key ("A") cannot resolve it.
+ *   The key itself is still found on the first group's first level, so a chord
+ *   names the physical key the way a person presses it.
  */
 
 #define _GNU_SOURCE
@@ -52,6 +58,8 @@ static struct xkb_state   *xkb_st;
 
 static int                 delay_ms = 15;
 static int                 hold_ms  = 0;
+static const char         *layout   = "us";
+static int                 group    = 0;
 
 static void
 registry_global(void *data, struct wl_registry *reg, uint32_t name, const char *interface, uint32_t version) {
@@ -199,7 +207,7 @@ chord(const char *combo) {
 int
 main(int argc, char **argv) {
     if (argc < 2) {
-        fprintf(stderr, "usage: keyboard [-d MS] [-h MS] COMBO...\n");
+        fprintf(stderr, "usage: keyboard [-d MS] [-h MS] [-l LAYOUT] [-g GROUP] COMBO...\n");
         return 2;
     }
 
@@ -209,19 +217,25 @@ main(int argc, char **argv) {
             delay_ms = atoi(argv[i + 1]);
         else if (strcmp(argv[i], "-h") == 0)
             hold_ms = atoi(argv[i + 1]);
+        else if (strcmp(argv[i], "-l") == 0)
+            layout = argv[i + 1];
+        else if (strcmp(argv[i], "-g") == 0)
+            group = atoi(argv[i + 1]);
         else
             break;
         i += 2;
     }
 
     xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    struct xkb_rule_names names = {.rules = NULL, .model = "pc105", .layout = "us", .variant = NULL, .options = NULL};
+    struct xkb_rule_names names = {.rules = NULL, .model = "pc105", .layout = layout, .variant = NULL, .options = NULL};
     xkb_map                     = xkb_keymap_new_from_names(xkb_ctx, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
     if (!xkb_ctx || !xkb_map) {
-        fprintf(stderr, "keyboard: could not build a us keymap\n");
+        fprintf(stderr, "keyboard: could not build a keymap for '%s'\n", layout);
         return 1;
     }
     xkb_st = xkb_state_new(xkb_map);
+    if (group > 0)
+        xkb_state_update_mask(xkb_st, 0, 0, 0, group, 0, 0);
 
     display = wl_display_connect(NULL);
     if (!display) {

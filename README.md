@@ -117,7 +117,7 @@ Then the same rows in both lists:
 * **`⌘[` `⌘]` move code** — outdent and indent, the way an editor binds `Ctrl+[` / `Ctrl+]`. Off, the same keys go back and forward
 * Keys the desktop already uses (`⌘Q` quit, `⌘W` close, `⌘F` fullscreen, `⌘Tab` the switcher, …). Turn one on and the app gets it as Ctrl instead (`⌘W` closes a tab inside the app)
 
-`⌘C` / `⌘V` / `⌘X` always copy, paste and cut. They are not in this list.
+`⌘A` / `⌘C` / `⌘V` / `⌘X` always select all, copy, paste and cut. They are not in this list.
 
 ---
 

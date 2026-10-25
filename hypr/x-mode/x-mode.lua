@@ -1181,24 +1181,27 @@ o.bind("SUPER + Q", "Close app", function()
 end)
 
 -- --- Universal clipboard ------------------------------------------------------
--- Cmd+C/V/X send the app its own copy/paste/cut. Omarchy has her own version of
--- this, and hers hands the chord over *by name* ("C", "Insert"): Hyprland resolves
--- a name in the *active* layout, where a Russian group has no Latin C on the C key,
--- so the dispatch raises "runtime error in lua, send_key_state: key not found" and
--- the copy never reaches the app -- until the name happens to have been resolved
--- once and cached, which is why it only bit sometimes. The pack owns the key from
--- load and sends a keycode, so the chord is the physical key whatever the layout
--- says.
+-- Cmd+A/C/V/X send the app its own select all/copy/paste/cut. Omarchy has her own
+-- version of this, and hers hands the chord over *by name* ("A", "C", "Insert"):
+-- Hyprland resolves a name in the *active* layout group, where a Russian group has
+-- no Latin A on the A key, so the dispatch raises "runtime error in lua,
+-- send_key_state: key not found" and the chord never reaches the app -- until the
+-- name happens to have been resolved once and cached, which is why it only bit
+-- sometimes. The pack owns the key from load and sends a keycode, so the chord is
+-- the physical key whatever the layout says.
 --
 -- No window target on purpose: the chord goes to whatever surface has focus, so a
 -- layer-shell panel (the clipboard manager's search field) receives it too, which
 -- is what her version does with the same trick.
 --
 -- The terminal split is hers as well: readline has no clipboard, so a terminal gets
--- the Insert chords, where Ctrl+C would be the interrupt. Cmd+C/V/X are not offered
--- in the panel's steal list: the chord they send *is* what a steal would send, so
--- there is nothing to choose between.
+-- the Insert chords, where Ctrl+C would be the interrupt. Cmd+A has no split of
+-- its own (Ctrl+A is what she sent everywhere, and readline's beginning of line is
+-- what a terminal gets from it). Cmd+A/C/V/X are not offered in the panel's steal
+-- list: the chord they send *is* what a steal would send, so there is nothing to
+-- choose between.
 local CLIPBOARD = {
+  { keys = "SUPER + A", label = "Select all", mods = "CTRL", code = "A" },
   { keys = "SUPER + C", label = "Universal copy", mods = "CTRL", code = "C", terminal_mods = "CTRL", terminal_code = "INSERT" },
   { keys = "SUPER + V", label = "Universal paste", mods = "CTRL", code = "V", terminal_mods = "SHIFT", terminal_code = "INSERT" },
   { keys = "SUPER + X", label = "Universal cut", mods = "CTRL", code = "X" },

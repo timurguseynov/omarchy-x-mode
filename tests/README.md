@@ -204,6 +204,7 @@ one pixels test needs `grim` and ImageMagick's `compare` (`magick`).
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `integration/same_app_across_workspaces_no_group_test.sh` | a same-app window on another space is not a tab |
 | `integration/scratchpad_keys_unbound_test.sh` | Cmd+S and Cmd+Alt+S stay unbound |
+| `integration/select_all_test.sh` | Cmd+A reaches the app as Ctrl+A with a Russian group active, where Omarchy's name-based send fails |
 | `integration/small_window_still_tabs_test.sh` | a 120x90 window is still a tab, not a popup |
 | `integration/snap_cycle_chrome_off_keys_test.sh` | the cycle by key does not creep on a window without chrome |
 | `integration/snap_cycle_chrome_off_test.sh` | re-snapping a window without chrome does not creep down |
@@ -481,6 +482,7 @@ key super+alt+left        # the snap cycle
 key alt+tab               # next tab of the group
 key o                     # a plain key
 key -d 5 a b c            # several keys, 5ms apart
+key -l us,ru -g 1 super+a # pressed with the second group active
 ```
 
 Why a tool of our own, when `wtype` is installed: `wtype` types into a client but
@@ -500,6 +502,11 @@ tool founds the keycode by looking for the key that produces the wanted symbol,
 so a test only names symbols.
 
 `lib.sh` builds it into `.nest/keyboard/` (`build_keyboard`) and exposes `key`.
+`-l` builds the uploaded keymap from another layout (`us,ru`) and `-g` leaves it in
+that group (`1`), so a chord can be pressed the way it is pressed on a keyboard
+with a Russian group active: the bind still matches (Hyprland matches through its
+own keymap, first group), while a `send_key_state` that names its key cannot
+resolve it.
 Requires the `xkbcommon` headers as well as `wayland-scanner`.
 
 The bind *table* is still worth checking where the behaviour is what matters
