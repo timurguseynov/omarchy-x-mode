@@ -160,6 +160,22 @@ Super is Command (`⌘` in the panel).
 | `Super` + `F` | Fullscreen (or Find, if Shortcuts hands `⌘F` to the app) |
 | `Super` + `Ctrl` + `F` | Fullscreen |
 
+In a terminal window `⌘C` and `⌘V` are sent as `⌃Insert` and `⇧Insert`, not as
+`⌃C`/`⌃V`: `⌃C` is the interrupt there. That is the chord readline, nvim and tmux
+expect. A terminal that owns the chord itself (`Ghostty` binds
+`ctrl+insert=copy_to_clipboard` by default) has to copy *and* pass it on, or tmux
+never sees `⌘C`; Ghostty 1.3 and later chain the two actions:
+
+```
+keybind = control+insert=copy_to_clipboard
+keybind = chain=csi:2;5~
+```
+
+Tmux gets `C-Insert` from that sequence, so its copy mode needs the chord too:
+`bind -T copy-mode-vi C-Insert send -X copy-pipe-no-clear wl-copy`. A plain shell
+gets the same sequence and readline does not know it, leaving `5~` at the prompt,
+so a readline shell swallows it in `~/.inputrc`: `"\e[2;5~": ""`.
+
 ### Screenshots, recording, lock
 
 | Shortcut | Action |
