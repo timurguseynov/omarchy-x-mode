@@ -4,6 +4,11 @@
 # chord: Shortcuts has its own row, and until that row is on the pack binds
 # nothing. On, the focused app is handed Ctrl+Shift+T. Kitty's keyboard protocol
 # spells that as CSI 116;6u (T, Shift+Ctrl).
+#
+# The capture is foot, not kitty: kitty binds Ctrl+Shift+T to its own new-tab and
+# swallows the chord before the program sees it (the scenario below read an empty
+# file for that reason, with or without the pack). foot answers the same protocol
+# push, so the bytes are the same and the app is the one deciding.
 . "$(dirname "$0")/../../lib.sh"
 
 CAP="$NEST_STATE/reopen-tab.out"
@@ -34,7 +39,7 @@ refresh_apps
 sleep 0.4
 assert_eq "$(ours)" 0 "off: Cmd+Shift+T is not taken"
 
-printf '%s\n' '{"options":{},"apps":{"kitty":{"reopenTab":true,"ctrlAsSuper":true}}}' > "$SETTINGS"
+printf '%s\n' '{"options":{},"apps":{"reopentab":{"reopenTab":true,"ctrlAsSuper":true}}}' > "$SETTINGS"
 refresh_apps
 wait_until 5 '[ "$(ours)" = 1 ]' || fail "the Shortcuts row did not bind Cmd+Shift+T"
 # Super as Ctrl must not keep a second bind on the same key: Hyprland would run
@@ -44,8 +49,8 @@ wait_until 5 '[ "$(generated_shift_any)" -gt 0 ]' || fail "Super as Ctrl generat
 assert_eq "$(generated_shift_t)" 0 "Super as Ctrl left Cmd+Shift+T to the Shortcuts row"
 
 rm -f "$CAP"
-open_command kitty kitty sh -c "printf '\\033[>1u'; stty raw -echo; cat > '$CAP'"
-nest_ctl dispatch "hl.dsp.focus({ window = 'class:kitty' })" >/dev/null
+open_command reopentab foot -a reopentab sh -c "printf '\\033[>1u'; stty raw -echo; cat > '$CAP'"
+nest_ctl dispatch "hl.dsp.focus({ window = 'class:reopentab' })" >/dev/null
 sleep 0.4
 key super+shift+t
 sleep 0.5
