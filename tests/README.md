@@ -142,6 +142,7 @@ one pixels test needs `grim` and ImageMagick's `compare` (`magick`).
 | `integration/ctrl_click_test.sh` | Super+click (left/right/middle) is bound as Ctrl+click |
 | `integration/steal_occupied_test.sh` | an occupied Super key stolen for one app is Ctrl+key there and the original action everywhere else (Super+Q, Super+Tab, Super+F) |
 | `integration/ctrl_c_shift_test.sh` | Ctrl+C goes in shifted for the flagged app and stays plain for the rest |
+| `integration/reopen_tab_test.sh` | Cmd+Shift+T is Ctrl+Shift+T once Shortcuts asks, and Super as Ctrl does not also bind it |
 | `integration/client_fullscreen_not_pushed_test.sh` | a window the app made fullscreen is not re-clamped below the bar |
 | `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
 | `integration/ctrl_tab_switch_binds_test.sh` | Ctrl+1..9 binds are opt-in |

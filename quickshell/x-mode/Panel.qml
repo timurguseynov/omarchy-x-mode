@@ -544,7 +544,8 @@ Panel {
       { flag: "ctrlTabSwitch", label: "⌃1..0 switch tabs", description: "Works without F1..F10" },
       { flag: "ctrlClick", label: "⌘-click as ⌃-click", description: "Links, multi-select" },
       { flag: "ctrlCShift", label: "⌃C as ⌃⇧C", description: "Interrupt in a terminal" },
-      { flag: "moveCode", label: "⌘[ ] move code", description: "Indent instead of Back" }
+      { flag: "moveCode", label: "⌘[ ] move code", description: "Indent instead of Back" },
+      { flag: "reopenTab", label: "⌘⇧T reopen tab", description: "Last closed tab" }
     ]
 
     // Green, red, or nothing: the theme's own colours for the two pinned states, out

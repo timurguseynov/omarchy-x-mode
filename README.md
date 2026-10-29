@@ -115,6 +115,7 @@ Then the same rows in both lists:
 * **`⌘`-click as `⌃`-click**
 * **`⌃C` as `⌃⇧C`** — interrupt in a terminal; `⌘C` still copies
 * **`⌘[` `⌘]` move code** — outdent and indent, the way an editor binds `Ctrl+[` / `Ctrl+]`. Off, the same keys go back and forward
+* **`⌘⇧T` reopen tab** — the app's `Ctrl+Shift+T` (the last closed tab). Off, Omarchy's Activity keeps the key
 * Keys the desktop already uses (`⌘Q` quit, `⌘W` close, `⌘F` fullscreen, `⌘Tab` the switcher, …). Turn one on and the app gets it as Ctrl instead (`⌘W` closes a tab inside the app)
 
 `⌘A` / `⌘C` / `⌘V` / `⌘X` always select all, copy, paste and cut. They are not in this list.
@@ -137,6 +138,7 @@ Super is Command (`⌘` in the panel).
 | `Super` + `1`…`0` | Jump to tab *N* (when Workspaces on F1…F10 and `⌘1`…`0` for tabs are on) |
 | `Super` + `W` | Close window or tab |
 | `Super` + `Q` | Quit the app |
+| `Super` + `Shift` + `T` | Reopen the closed tab (off until enabled in Shortcuts) |
 
 ### Snapping
 

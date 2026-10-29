@@ -1136,6 +1136,10 @@ local function note_pack_key(keys)
     pack_keys[id] = true
   end
 end
+-- Cmd+Shift+T is the Shortcuts row "reopen tab", not one more occupied key.
+-- Omarchy's Activity stays on the key until that row is on; listing it here keeps
+-- the steal screen from offering the same chord a second time as "Activity".
+note_pack_key("SUPER + SHIFT + T")
 -- Cmd+W closes the active window (Omarchy's killactive). Just close it: the
 -- patched hyprbars keeps the group focused on the previous tab and raises it
 -- from its single window.close listener, which Cmd+W, the tabbar close button
@@ -1891,6 +1895,7 @@ x_mode = x_mode or {}
 -- because this is the call the panel makes after writing an app's flag, and the
 -- Ctrl+1..0 binds are planned only there.
 local apply_ctrl_tab_switch
+local apply_reopen_tab
 
 -- What the panel's "for one app" rows run after they write the settings file
 -- (the rows that change a desktop option reload instead). Everything a per-app
@@ -1902,8 +1907,13 @@ local apply_ctrl_tab_switch
 --   apply_ctrl_tab_switch  the Ctrl+1..0 binds. Missing here is why pinning
 --                     "⌃1..0 switch tabs" for one app wrote the file and did
 --                     nothing until some other click happened to reload.
+--   apply_reopen_tab  Cmd+Shift+T. Same hole: a per-app pin has to bind it
+--                     without a reload.
 function x_mode.refresh_apps_off()
   apply_apps()
+  -- Before the Super-as-Ctrl read, so that snapshot already shows Cmd+Shift+T
+  -- taken when the row is on.
+  apply_reopen_tab()
   apply_super_ctrl()
   apply_ctrl_tab_switch()
   ungroup_chrome_off()
@@ -2213,6 +2223,10 @@ local steal_wraps = {}
 -- chord -- which its handler does, and which is why those keys are offered through
 -- lua_ok below and not through this map.
 local omarchy_exec = nil
+-- Omarchy's command for Super+Shift+T (Activity / btop). The key is pack-owned
+-- for the panel, so it never lands in omarchy_exec; the reopen handler still
+-- needs it for an app that does not take the key.
+local reopen_activity = nil
 
 local function ensure_omarchy_replay()
   if omarchy_exec ~= nil then
@@ -2229,6 +2243,12 @@ local function ensure_omarchy_replay()
     local text = slurp(path)
     if text ~= nil then
       for id, cmd in pairs(supermap.parse_omarchy_binds(text)) do
+        -- Kept even though the key is pack-owned: the Shortcuts row, when off for
+        -- this app, still has to launch Activity, and pack_keys hides that command
+        -- from the steal list on purpose.
+        if id == "SHIFT+T" and reopen_activity == nil then
+          reopen_activity = cmd
+        end
         if omarchy_exec[id] == nil and not pack_keys[id] then
           omarchy_exec[id] = cmd
         end
@@ -2379,18 +2399,23 @@ local function bind_super_ctrl(raw, gen)
   end
   local planned, bound = 0, 0
   for _, b in ipairs(supermap.plan(raw)) do
-    local keys = b.shift and ("SUPER + SHIFT + " .. b.key) or ("SUPER + " .. b.key)
-    -- `repeating`: a key that stays down keeps sending the chord, the way holding
-    -- Cmd+D on a Mac keeps adding the next occurrence. The repeat has to be the
-    -- bind's: `send_chord` hands over a whole chord and nothing held, so the app
-    -- has no key of its own to repeat (and could only type the bare letter with).
-    local ok, kb = pcall(hl.bind, keys, function()
-      return super_ctrl_key(b.key, b.shift)
-    end, { description = supermap.PREFIX .. (b.shift and " SHIFT" or "") .. " " .. b.key, repeating = true })
-    planned = planned + 1
-    if ok and kb then
-      bound = bound + 1
-      super_ctrl_binds[#super_ctrl_binds + 1] = kb
+    -- The Shortcuts row owns Cmd+Shift+T once any app asks for it. A plan built
+    -- from a snapshot taken before that bind landed still thinks the key is free,
+    -- and a second bind would send the chord twice.
+    if not (b.shift and b.key == "T" and key_flag_any("reopen_tab")) then
+      local keys = b.shift and ("SUPER + SHIFT + " .. b.key) or ("SUPER + " .. b.key)
+      -- `repeating`: a key that stays down keeps sending the chord, the way holding
+      -- Cmd+D on a Mac keeps adding the next occurrence. The repeat has to be the
+      -- bind's: `send_chord` hands over a whole chord and nothing held, so the app
+      -- has no key of its own to repeat (and could only type the bare letter with).
+      local ok, kb = pcall(hl.bind, keys, function()
+        return super_ctrl_key(b.key, b.shift)
+      end, { description = supermap.PREFIX .. (b.shift and " SHIFT" or "") .. " " .. b.key, repeating = true })
+      planned = planned + 1
+      if ok and kb then
+        bound = bound + 1
+        super_ctrl_binds[#super_ctrl_binds + 1] = kb
+      end
     end
   end
   -- What the plan produced, next to the files the panel and the tests read. The
@@ -2522,6 +2547,59 @@ local function apply_workspace_keys()
   end
 end
 
+-- Cmd+Shift+T reopens the last closed tab (the app's Ctrl+Shift+T). Omarchy
+-- puts Activity on that key, so it is not a free Super-as-Ctrl chord: the
+-- Shortcuts row takes it, and only while some app has the flag. Off, the key is
+-- put back to Activity. An app without the flag still gets Activity, the way a
+-- stolen key keeps its original action everywhere else.
+local reopen_tab_binds = {}
+local reopen_took = false
+
+local function drop_reopen_tab()
+  for _, kb in ipairs(reopen_tab_binds) do
+    pcall(function()
+      kb:unbind()
+    end)
+  end
+  reopen_tab_binds = {}
+end
+
+apply_reopen_tab = function()
+  drop_reopen_tab()
+  if not key_flag_any("reopen_tab") then
+    if reopen_took then
+      reopen_took = false
+      ensure_omarchy_replay()
+      if reopen_activity ~= nil and reopen_activity ~= "" then
+        pcall(o.bind, "SUPER + SHIFT + T", "Activity", reopen_activity)
+      end
+    end
+    return
+  end
+  if not reopen_took then
+    hl.unbind("SUPER + SHIFT + T")
+    local code = supermap.key_code("T")
+    if code ~= nil then
+      hl.unbind("SUPER + SHIFT + code:" .. tostring(code))
+    end
+    reopen_took = true
+  end
+  local ok, kb = pcall(hl.bind, "SUPER + SHIFT + T", function()
+    local w = hl.get_active_window()
+    if w ~= nil and key_flag("reopen_tab", window_class(w)) then
+      send_ctrl("T", true, w)
+      return
+    end
+    ensure_omarchy_replay()
+    if reopen_activity ~= nil and reopen_activity ~= "" then
+      hl.exec_cmd(reopen_activity)
+    end
+  end, { description = "Reopen closed tab" })
+  if ok and kb then
+    reopen_tab_binds[#reopen_tab_binds + 1] = kb
+  end
+end
+
 function x_mode.refresh_options()
   load_options()
   apply_native_scroll()
@@ -2530,6 +2608,7 @@ function x_mode.refresh_options()
   apply_no_gaps()
   apply_workspace_keys()
   apply_lock_key()
+  apply_reopen_tab()
   -- The digits this took are occupied now, and the ones it gave back are free:
   -- the Super-as-Ctrl plan has to be read again or it would keep binding a key
   -- the pack has taken, and one press would run both.
@@ -2543,6 +2622,7 @@ apply_ctrl_tab_switch()
 apply_no_gaps()
 apply_workspace_keys()
 apply_lock_key()
+apply_reopen_tab()
 
 local function skip_group(w)
   if w == nil or w.pinned or w.hidden then

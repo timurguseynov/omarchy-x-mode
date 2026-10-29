@@ -42,8 +42,11 @@ local kopt = settings.parse_options('{"options":{"keys":{"ctrlAsSuper":true,"ste
 check("opt.keys.ctrlAsSuper", kopt.key_flags.ctrl_as_super, true)
 check("opt.keys.digitTabs.absent", kopt.key_flags.digit_tabs, nil)
 check("opt.keys.moveCode.absent", kopt.key_flags.move_code, nil)
+check("opt.keys.reopenTab.absent", kopt.key_flags.reopen_tab, nil)
 local move = settings.parse_options('{"options":{"keys":{"moveCode":true}},"apps":{}}')
 check("opt.keys.moveCode", move.key_flags.move_code, true)
+local reopen = settings.parse_options('{"options":{"keys":{"reopenTab":true}},"apps":{}}')
+check("opt.keys.reopenTab", reopen.key_flags.reopen_tab, true)
 check("opt.keys.steal.q", kopt.global_steal["Q"], true)
 check("opt.keys.steal.shift-tab", kopt.global_steal["SHIFT+TAB"], true)
 check("opt.keys.steal.junk", kopt.global_steal["mouse:272"], nil)
@@ -93,16 +96,19 @@ check("apps.chromium.ctrlCShift", wcfg["chromium"].ctrl_c_shift, true)
 check("apps.chromium.digitTabs", wcfg["chromium"].digit_tabs, true)
 check("apps.chromium.ctrlTabSwitch.off", wcfg["chromium"].ctrl_tab_switch, false)
 check("apps.chromium.moveCode.absent", wcfg["chromium"].move_code, nil)
+check("apps.chromium.reopenTab.absent", wcfg["chromium"].reopen_tab, nil)
 check("apps.chromium.steal.empty", wcfg["chromium"].ctrl_as_super_keys["Q"], nil)
 check("apps.zed.ctrlClick", wcfg["zed"].ctrl_click, nil)
 check("apps.zed.ctrlAsSuper", wcfg["zed"].ctrl_as_super, nil)
 check("apps.zed.ctrlCShift", wcfg["zed"].ctrl_c_shift, nil)
 check("apps.zed.digitTabs", wcfg["zed"].digit_tabs, nil)
 check("apps.zed.ctrlTabSwitch", wcfg["zed"].ctrl_tab_switch, nil)
-local mraw = '{"options":{},"apps":{"Zed":{"moveCode":true},"Chromium":{"moveCode":false}}}'
+local mraw = '{"options":{},"apps":{"Zed":{"moveCode":true,"reopenTab":true},"Chromium":{"moveCode":false,"reopenTab":false}}}'
 local mcfg = settings.parse_apps(settings.apps_section(mraw))
 check("apps.zed.moveCode", mcfg["zed"].move_code, true)
 check("apps.chromium.moveCode.off", mcfg["chromium"].move_code, false)
+check("apps.zed.reopenTab", mcfg["zed"].reopen_tab, true)
+check("apps.chromium.reopenTab.off", mcfg["chromium"].reopen_tab, false)
 
 -- The same for the flag Cmd+W used to have: an older file's ctrlW is folded onto
 -- the W steal (on) or the W Always off (off), and no ctrl_w field is left.

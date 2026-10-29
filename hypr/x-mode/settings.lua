@@ -78,6 +78,7 @@ function M.parse_apps(raw)
       digit_tabs = tri(body, "digitTabs"),
       ctrl_tab_switch = tri(body, "ctrlTabSwitch"),
       move_code = tri(body, "moveCode"),
+      reopen_tab = tri(body, "reopenTab"),
       ctrl_as_super_keys = keys,
       ctrl_as_super_keys_off = keys_off,
     }
@@ -94,6 +95,7 @@ function M.parse_apps(raw)
         digit_tabs = nil,
         ctrl_tab_switch = nil,
         move_code = nil,
+        reopen_tab = nil,
         ctrl_as_super_keys = {},
         ctrl_as_super_keys_off = {},
       }
@@ -112,6 +114,7 @@ M.KEY_FLAGS = {
   { "ctrl_click", "ctrlClick" },
   { "ctrl_c_shift", "ctrlCShift" },
   { "move_code", "moveCode" },
+  { "reopen_tab", "reopenTab" },
 }
 
 -- The flag for a class: its own setting first -- true is Always on, false is
@@ -171,6 +174,7 @@ local KEY_FLAGS = {
   { "ctrlClick", "ctrl_click" },
   { "ctrlCShift", "ctrl_c_shift" },
   { "moveCode", "move_code" },
+  { "reopenTab", "reopen_tab" },
 }
 
 function M.parse_options(raw)
