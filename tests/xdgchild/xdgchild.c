@@ -175,6 +175,19 @@ map_window(struct window *w, int width, int height, uint32_t color) {
     wl_surface_commit(w->surface);
 }
 
+/* The scenario knobs: a delay before the child maps, so a scenario can snap the
+ * parent first (a browser opening window.open from a snapped window), and sizes,
+ * because a popup opens with the size its opener asked for. Defaults are the
+ * dialog shape the raise scenarios use. */
+static int
+env_int(const char *name, int fallback) {
+    const char *v = getenv(name);
+    if (v == NULL || *v == '\0')
+        return fallback;
+    int n = atoi(v);
+    return n > 0 ? n : fallback;
+}
+
 int
 main(int argc, char **argv) {
     if (argc != 3) {
@@ -208,8 +221,13 @@ main(int argc, char **argv) {
     wl_surface_commit(parent->surface);
     wl_surface_commit(child->surface);
 
-    map_window(parent, 520, 420, 0x00204060);
-    map_window(child, 320, 220, 0x00602020);
+    map_window(parent, env_int("XDGCHILD_PARENT_W", 520), env_int("XDGCHILD_PARENT_H", 420), 0x00204060);
+    /* Events stay in the socket while we sleep: the parent is already mapped, and
+     * the child's configure is read by map_window's own dispatch loop below. */
+    const int delay = env_int("XDGCHILD_DELAY_MS", 0);
+    if (delay > 0)
+        usleep((useconds_t)delay * 1000);
+    map_window(child, env_int("XDGCHILD_CHILD_W", 320), env_int("XDGCHILD_CHILD_H", 220), 0x00602020);
     wl_display_roundtrip(display);
 
     while (wl_display_dispatch(display) != -1) {
