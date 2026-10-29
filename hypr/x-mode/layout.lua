@@ -144,6 +144,23 @@ function M.chrome_h(window)
   return h
 end
 
+-- The outer edge a zone is fitted with on this window's workspace: its gap plus
+-- border, not the desktop's. "No gaps" is a workspace rule (gaps_out 0, border 1)
+-- while general:gaps_out and general:border_size stay at the desktop's 10 and 2,
+-- so anything that reads those to fit a zone measures a frame 22px too small on
+-- those workspaces. Nil when the plugin is not there; the caller falls back.
+function M.edge(window)
+  local p = plugin()
+  if p == nil or p.edge == nil then
+    return nil
+  end
+  local ok, e = pcall(p.edge, window)
+  if not ok or type(e) ~= "number" then
+    return nil
+  end
+  return e
+end
+
 -- ------------------------------------------------------- apply what we ask --
 
 -- The three ways a window is put on a zone: the snap itself, the restore of the

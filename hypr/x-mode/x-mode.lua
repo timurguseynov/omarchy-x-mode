@@ -2629,7 +2629,14 @@ local function absorb_chrome_growth(w, old_x, old_y, old_w, old_h, old_chrome)
   local ww, wh = vec(w.size)
   local new_chrome = layout.chrome_h(w)
   local grow = math.max(new_chrome - (old_chrome or 0), 0)
-  local edge = GAP_OUT() + BORDER()
+  -- The window's own edge, from the plugin: on a No gaps workspace the gap and
+  -- border are the workspace rule's 0 and 1, while GAP_OUT()/BORDER() still
+  -- report the desktop's 10 and 2. Measuring the fit with those cut 22px off a
+  -- snapped box and pushed it 11px down when a tab joined.
+  local edge = layout.edge(w)
+  if edge == nil then
+    edge = GAP_OUT() + BORDER()
+  end
   local ny = old_y + grow
   local min_top = uy + edge + new_chrome
   if ny < min_top then

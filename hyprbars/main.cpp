@@ -459,6 +459,19 @@ static int luaChromeHeight(lua_State* L) {
     return 1;
 }
 
+// The outer edge of a window's frame, gap plus border, as its workspace defines
+// it (Snap::edge). Lua measures a group's shift and its fit with this, because
+// the desktop's general:gaps_out is not what a No gaps workspace uses.
+static int luaEdge(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.edge");
+    if (!w)
+        w = Desktop::focusState()->window();
+    lua_pushinteger(L, w ? Snap::edge(w) : 0);
+    return 1;
+}
+
 // Step a window through the cycle sizes on one side (Snap::cycle), the press of
 // Super+Alt+arrow: false when the window is on none of them, and the caller then
 // snaps it to that side's zone.
@@ -807,6 +820,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "usable", ::luaUsable);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "bar_top", ::luaBarTop);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "chrome_height", ::luaChromeHeight);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "edge", ::luaEdge);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "cycle", ::luaCycle);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "fit", ::luaFit);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "fit_all", ::luaFitAll);

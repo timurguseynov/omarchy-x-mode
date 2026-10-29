@@ -101,6 +101,10 @@ int Snap::border(PHLWINDOW w) {
     return sc<int>(*PBORDER);
 }
 
+int Snap::edge(PHLWINDOW w) {
+    return gapOut(w) + border(w);
+}
+
 void Snap::assumeFrame(int gap, int border, int inset, int top) {
     s_gapOverride    = gap;
     s_borderOverride = border;
