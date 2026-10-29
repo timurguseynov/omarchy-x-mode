@@ -149,6 +149,15 @@ no timer, no poll, no token. The user's token (`готово` when the run is gr
 the watcher is not loaded, such as a session started before the extension was
 added.
 
+That report starts a turn, and the turn is not the user talking. It is one
+machine message about one finished run: read the log and the status file, say
+what they say, and stop. Do not pick the previous conversation back up, do not
+re-ask a question that is still waiting for an answer, and do not read a green
+run as the user agreeing to anything -- `FAIL: 0` means the check passed and
+nothing else. The turn is over when the run is accounted for: a red run is the
+agent's to isolate (its scenario, alone, as above); a green one that only
+confirms what was already said gets one line, not a new subject.
+
 The stamp is `PI_SESSION_ID`, which Pi's own bash tool exports. Grok's
 `run_terminal_command` (package `pi-xai-oauth`,
 `extensions/xai/tools/grok-native.ts`) deletes it, together with the transcript
