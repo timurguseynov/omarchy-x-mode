@@ -64,6 +64,16 @@ Pack code, in this repo:
   (`NEST_JOBS=5 NEST_WORKSPACE=5 tests/nest/run.sh <name>`), and only then change pack code. A fix with no
   test that failed first is a guess: the suite is the only thing that can tell a
   later edit from a regression.
+- A fix that does not fix is reverted, not kept. When the scenario that was added
+  to fail first is still red after the change -- or a probe that was made to test a
+  guess shows the guess was wrong -- the change goes back out (`git checkout --
+  <file>`, `git revert`, or `git reset` before it was committed) and the next idea
+  starts from a clean tree. A guess that stayed in the code is worse than no guess:
+  it reads like a fix to the next reader, it has its own tests to keep green, and
+  it hides the real one. The same for a probe: logging, an extra wait in a test, a
+  "maybe this helps" line in the helper -- if it did not answer the question it was
+  written for, it is removed in the same turn. Keep only what turned its own red
+  green, or what the report it came from explicitly asked for.
 - A scenario that fails in a full run is the agent's to isolate, and it is chased
   on its own -- `tests/async.sh run <label> bash tests/nest/run.sh <name>` -- not
   by running the suite again. The whole run is not there to prove that the
