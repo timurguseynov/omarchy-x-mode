@@ -1345,7 +1345,10 @@ dock_menu_row_point() { # ICON_INDEX ROW_INDEX "26 7 26 ..."
   local screen_w i
   # A 50ms poll keeps the nest's socket busy, and the menu's own commit then
   # waits behind it. A wider gap lets the layer finish mapping before the click.
-  for i in $(seq 1 20); do
+  # Fifteen seconds, not five: the menu is a Quickshell surface on a machine that
+  # may be running five nests at once, and five was what made the dock-menu
+  # scenarios fail in a full run and pass on their own.
+  for i in $(seq 1 60); do
     screen_w="$(dock_layer_box x-mode-dock-menu 2>/dev/null | awk '{print $3}')"
     [ -n "$screen_w" ] && [ "$screen_w" -ge 100 ] && break
     screen_w=""
