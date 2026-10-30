@@ -1743,12 +1743,48 @@ local function read_settings()
 end
 
 -- The apps object on its own, out of the settings file.
+-- A settings file is written by truncating it first (the panel does exactly that),
+-- so a read can catch a prefix of one. The parser looks for keys rather than
+-- requiring a document, so a prefix parses -- as "every flag off, no app cards".
+-- With the plan dropping the installed binds before it reads the flags, that torn
+-- read took the whole Super-as-Ctrl map away mid-write: Cmd+Z stopped reaching
+-- every app. A prefix is not an answer; `{` at the start and no closing `}` means
+-- the writer has not finished, and the caller keeps what it already has.
+local function complete_settings(raw)
+  local s = tostring(raw or "")
+  if s:find("^%s*{") == nil then
+    return s ~= ""
+  end
+  return s:find("}%s*$") ~= nil
+end
+
+local function current_settings()
+  local raw = read_settings()
+  if raw ~= nil and not complete_settings(raw) then
+    return nil
+  end
+  if raw == nil then
+    return ""
+  end
+  return raw
+end
+
 local function apps_raw()
-  return settings.apps_section(read_settings())
+  local raw = current_settings()
+  if raw == nil then
+    return nil
+  end
+  return settings.apps_section(raw)
 end
 
 local function load_apps()
-  return settings.parse_apps(apps_raw())
+  local raw = apps_raw()
+  if raw == nil then
+    -- Same rule: a torn read leaves the app cards as they are (`{}` on the very
+    -- first load, where there is nothing to keep yet).
+    return apps_cfg or {}
+  end
+  return settings.parse_apps(raw)
 end
 
 local function chrome_on(cls)
@@ -1937,7 +1973,13 @@ local workspaces_fkeys = false
 local workspace_key_binds = {}
 
 local function load_options()
-  local o = settings.parse_options(read_settings())
+  local raw = current_settings()
+  if raw == nil then
+    -- A torn read keeps every option as it was: falling back to the defaults here
+    -- is what switched Super as Ctrl off in the middle of a panel write.
+    return
+  end
+  local o = settings.parse_options(raw)
   native_scroll = o.native_scroll
   no_gaps = o.no_gaps
   compact_tabs = o.compact_tabs
@@ -2384,21 +2426,54 @@ local function write_occupied(raw)
   file:close()
 end
 
+-- What the plan produced, next to the files the panel and the tests read. The
+-- bind table itself is the nest's most contended socket -- the compositor, the
+-- harness's own IPC proxy and this read all go through it -- so "did the plan
+-- make binds" has to be answerable without asking it again. Written on every pass,
+-- including the ones that bind nothing: a file that only a successful plan
+-- rewrites keeps the last good numbers through a map that has been dropped, which
+-- is how a dead Super as Ctrl looked healthy.
+local function write_super_ctrl(planned, bound, keys)
+  local out = io.open(X_MODE_STATE .. "/super-ctrl.json", "w")
+  if out ~= nil then
+    out:write(string.format('{"planned":%d,"bound":%d,"keys":%d}\n', planned, bound, keys))
+    out:close()
+  end
+end
+
 local function bind_super_ctrl(raw, gen)
   if gen ~= super_ctrl_gen then
+    return
+  end
+  -- A bind table that did not land is not an answer: the writers that feed this
+  -- (hyprctl, the panel's settings write) truncate before they write, so a read can
+  -- catch half of one. Reading that as "nothing is occupied" blanked the panel's
+  -- list, and reading the flags out of a torn settings file read as "Super as Ctrl
+  -- is off" -- which, with the drop below, took the whole map away until the next
+  -- reload: Cmd+Z stopped reaching every app.
+  local valid = (raw or ""):find("modmask:%s*%d") ~= nil
+  if valid then
+    ensure_omarchy_replay()
+    write_occupied(raw)
+    apply_steal_wraps(raw)
+  end
+  if not key_flag_any("ctrl_as_super") then
+    -- The user turned it off: the installed map has to go.
+    drop_super_ctrl()
+    write_super_ctrl(0, 0, 0)
+    return
+  end
+  local plan = valid and supermap.plan(raw) or {}
+  if #plan == 0 then
+    -- On, but nothing planned: keep the map that is installed and let the next
+    -- read try again, rather than dropping 32 binds to install none.
     return
   end
   -- A new plan replaces the last one instead of adding to it: the request that
   -- triggered it may have arrived while an earlier plan was already installed.
   drop_super_ctrl()
-  ensure_omarchy_replay()
-  write_occupied(raw)
-  apply_steal_wraps(raw)
-  if not key_flag_any("ctrl_as_super") then
-    return
-  end
   local planned, bound = 0, 0
-  for _, b in ipairs(supermap.plan(raw)) do
+  for _, b in ipairs(plan) do
     -- The Shortcuts row owns Cmd+Shift+T once any app asks for it. A plan built
     -- from a snapshot taken before that bind landed still thinks the key is free,
     -- and a second bind would send the chord twice.
@@ -2418,15 +2493,7 @@ local function bind_super_ctrl(raw, gen)
       end
     end
   end
-  -- What the plan produced, next to the files the panel and the tests read. The
-  -- bind table itself is the nest's most contended socket -- the compositor, the
-  -- harness's own IPC proxy and this read all go through it -- so "did the plan
-  -- make binds" has to be answerable without asking it again.
-  local out = io.open(X_MODE_STATE .. "/super-ctrl.json", "w")
-  if out ~= nil then
-    out:write(string.format('{"planned":%d,"bound":%d,"keys":%d}\n', planned, bound, #super_ctrl_binds))
-    out:close()
-  end
+  write_super_ctrl(planned, bound, #super_ctrl_binds)
 end
 
 -- Poll for the file: the exec that writes it has not landed when the timer is
