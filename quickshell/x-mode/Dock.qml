@@ -724,8 +724,11 @@ Item {
     printErrors: false
     onFileChanged: reload()
     onLoaded: {
+      // The pack publishes "<id> <mode>", and the mode is what this needs: read the
+      // last field, so an id that came out as something odd (a Lua table printed as
+      // "table: 0x55a2...") cannot hide the dock for the whole session.
       var parts = String(text()).trim().split(/\s+/)
-      root.workspaceMode = parts.length > 1 ? parts[1] : ""
+      root.workspaceMode = parts.length > 0 ? parts[parts.length - 1] : ""
     }
     // No file: an install that has not loaded the config yet, or a pack without the
     // publication. Show the dock rather than take it away.

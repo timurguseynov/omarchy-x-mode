@@ -3417,7 +3417,11 @@ local publish_active_mode
 
 publish_active_mode = function()
   local workspace = hl.get_active_workspace()
-  local id = workspace and workspace.id
+  -- The id is not always a number: the Lua workspace object can hand one out as a
+  -- table, and `%s` then writes "table: 0x55a2..." into the line the dock reads.
+  -- Dock.qml took the second field for the mode, so the dock hid itself on every
+  -- xmode workspace and looked crashed. Read the id either way, and write a number.
+  local id = workspace and (tonumber(workspace.id) or tonumber(workspace.name))
   local mode = "unknown"
   if id ~= nil then
     mode = modes.get(X_MODE_MODES, id) or "unknown"

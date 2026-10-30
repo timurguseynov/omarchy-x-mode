@@ -28,4 +28,11 @@ assert_eq "$(cat "$MODE_FILE" 2>/dev/null | awk '{print $2}')" dwindle \
 nest_ctl eval 'o.workspace_mode({ workspace = "1", mode = "xmode" })' >/dev/null
 wait_until 10 'dock_visible' || fail "the dock did not come back on xmode"
 
+# The mode is the last field of the line, and only it decides: an id that came out
+# as something odd -- the workspace object handing out a table, printed as
+# "table: 0x55a2..." -- hid the dock for a whole session until a workspace switch
+# rewrote the file, which is what a dock that had "crashed" looked like.
+printf 'table: 0x55a204dd5040 xmode\n' > "$MODE_FILE"
+wait_until 5 'dock_visible' || fail "an odd id in the published line hid the dock"
+
 dock_stop
