@@ -2510,7 +2510,12 @@ local function super_ctrl_read(path, tries, gen)
     end
     if tries > 0 then
       super_ctrl_read(path, tries - 1, gen)
+      return
     end
+    -- Twenty seconds without a table: report what is actually bound instead of
+    -- leaving the last good numbers in a file the panel and the tests read as
+    -- "the plan is fine".
+    write_super_ctrl(0, 0, #super_ctrl_binds)
   end, { timeout = 200, type = "oneshot" })
 end
 
@@ -2533,6 +2538,32 @@ apply_super_ctrl = function()
 end
 
 apply_super_ctrl()
+
+-- The map lives in Hyprland's bind table, and a reload throws that away while the
+-- replan is asynchronous. If the read that plans it never lands -- a busy machine,
+-- a second reload -- nothing ever tries again: the map stays empty for the session
+-- and Cmd+Z stops reaching every app, with no error anywhere. A window opening is
+-- the event this hangs on (and the one a session cannot go long without), and a
+-- five-second gap keeps it from hammering hyprctl while a read is in flight.
+--
+-- Not workspace.active: that one fires while the config is still loading, and
+-- replanning there starved the shell's bring-up -- the bar of a nest never reserved
+-- its top, so every slot died before a scenario could run.
+-- Globals on purpose: the main chunk of this file is at Lua's limit of 200 locals,
+-- and two more is all it took to make the whole config fail to parse (the bar never
+-- came up and every nest died at bring-up). `luac -p` is in tests/lint.sh now.
+super_ctrl_retry_at = 0
+function super_ctrl_self_heal()
+  if #super_ctrl_binds > 0 or not key_flag_any("ctrl_as_super") then
+    return
+  end
+  local now = os.time()
+  if now < super_ctrl_retry_at then
+    return
+  end
+  super_ctrl_retry_at = now + 5
+  apply_super_ctrl()
+end
 
 -- Workspace switching on F1..F10 instead of Super+1..0. Off is Omarchy's layout:
 -- the pack does nothing. On, the digit binds (Omarchy writes them as
@@ -2985,6 +3016,7 @@ hl.on("window.open", function(w)
   -- looks at it (grouping already refuses it, but the titlebar and the placement
   -- would not).
   pcall(claim_window, w)
+  super_ctrl_self_heal()
   -- Group immediately to avoid a visible "ungrouped" flash, then retry shortly
   -- in case the window wasn't fully ready (class/size) on the first tick.
   -- Join must never leave a hidden window stuck: reveal even if join errors.
