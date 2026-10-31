@@ -322,7 +322,11 @@ workspaces_bar_install() {
   local dst="$PLUGINS_DIR/$WORKSPACES_PLUGIN" script="$HYPR/x-mode/xmode"
   [ -f "$WORKSPACES_SRC" ] || { warn "Omarchy's workspace widget is not where the pack expects it"; return 0; }
   mkdir -p "$dst"
-  python3 - "$WORKSPACES_SRC" "$dst/Workspaces.qml" "$script" <<'PY'
+  # The patch is a `if ! ...` around the heredoc, not a `[ $? -ne 0 ]` after it:
+  # under `set -euo pipefail` a failing python exits the whole installer before
+  # that guard can run, which is how a shape mismatch (Omarchy 4.0.6's widget)
+  # used to kill an install before it wired hyprland.lua.
+  if ! python3 - "$WORKSPACES_SRC" "$dst/Workspaces.qml" "$script" <<'PY'
 import json, sys
 src, dst, script = sys.argv[1:4]
 text = open(src).read()
@@ -345,7 +349,7 @@ if glyph not in text or command not in text or name not in text:
 text = text.replace(glyph, glyph_x, 1).replace(command, command_x, 1).replace(name, name_x, 1)
 open(dst, "w").write(text)
 PY
-  if [ $? -ne 0 ]; then
+  then
     rm -rf "$dst"
     warn "Omarchy's workspace widget changed shape; the bar click still cycles her three layouts"
     return 0
@@ -402,7 +406,9 @@ log_file() {
 # what an aborting command says. A step that dies takes the terminal with it (the
 # session it runs in), and an error message nobody captured is how "uninstall just
 # stops" looked: the log ended mid-step with no reason in it.
-if [ -n "${BASH_VERSION:-}" ]; then
+# Only when run, not when sourced for one step: a test that sources this file
+# has no install log to write and must not have its own output redirected.
+if [ -n "${BASH_VERSION:-}" ] && [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   exec > >(tee -a "$INSTALL_LOG") 2>&1
 fi
 
@@ -836,20 +842,25 @@ do_status() {
 }
 
 cmd="install"
-for a in "$@"; do
-  case "$a" in
-    install | uninstall | status) cmd="$a" ;;
-    -h | --help) usage; exit 0 ;;
-    *)
-      echo "unknown argument: $a" >&2
-      usage
-      exit 2
-      ;;
-  esac
-done
+# Running the file installs; sourcing it only defines the steps, so a test can
+# call one of them (tests/install_test.sh does that for the bar-workspace
+# patch). Without this, sourcing started a full install.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  for a in "$@"; do
+    case "$a" in
+      install | uninstall | status) cmd="$a" ;;
+      -h | --help) usage; exit 0 ;;
+      *)
+        echo "unknown argument: $a" >&2
+        usage
+        exit 2
+        ;;
+    esac
+  done
 
-case "$cmd" in
-  install) do_install ;;
-  uninstall) do_uninstall ;;
-  status) do_status ;;
-esac
+  case "$cmd" in
+    install) do_install ;;
+    uninstall) do_uninstall ;;
+    status) do_status ;;
+  esac
+fi

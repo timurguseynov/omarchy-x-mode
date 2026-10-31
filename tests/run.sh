@@ -18,6 +18,13 @@ if [ -f "$HERE/harness_test.sh" ]; then
   bash "$HERE/harness_test.sh" || fail=1
 fi
 
+# install.sh's own steps. It is the one file that edits what the user owns, and
+# the shapes it edits are Omarchy's.
+if [ -f "$HERE/install_test.sh" ]; then
+  echo "== install"
+  bash "$HERE/install_test.sh" || fail=1
+fi
+
 for d in unit qml nest; do
   [ -f "$HERE/$d/run.sh" ] || continue
   echo "== $d"
