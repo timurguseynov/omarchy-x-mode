@@ -177,4 +177,64 @@ function M.range_matches(state)
   return out
 end
 
+-- Whether this Omarchy keeps workspace modes at all. 4.5 has
+-- default/hypr/workspace-modes.lua, which defines o.workspace_mode and replays
+-- the saved files; 4.0.x has neither, and a saved `o.workspace_mode(...)` file
+-- there is a config error on every load (her workspace-layouts.lua replays
+-- `hl.workspace_rule(...)` instead). Ask for the module, not the function: her
+-- keybindings scan loads x-mode.lua with a stub `o` whose every field is a
+-- callable, so a type() check answers "function" on a system that has none.
+function M.can_persist(omarchy_path)
+  local base = omarchy_path or "/usr/share/omarchy"
+  local file = io.open(base .. "/default/hypr/workspace-modes.lua", "r")
+  if file == nil then
+    return false
+  end
+  file:close()
+  return true
+end
+
+-- The mode file the pack writes for itself, in the same shape as Omarchy's own:
+-- one call per line, the default first, the workspaces sorted. Hers is the
+-- record where she has modes; this one is the record where she has none, so a
+-- reload does not drop every xmode workspace back to her layout.
+function M.dump(state)
+  local lines = {}
+  if state.default ~= nil then
+    table.insert(lines, string.format('o.workspace_mode({ default = "%s" })', state.default))
+  end
+
+  local ids = {}
+  for id, mode in pairs(state.workspaces) do
+    local n = tonumber(id)
+    -- A workspace sitting on the default keeps no line of its own, the way her
+    -- toggle removes its file: a later change of the default then reaches it too.
+    if n ~= nil and n >= 1 and mode ~= state.default then
+      table.insert(ids, n)
+    end
+  end
+  table.sort(ids)
+
+  for _, n in ipairs(ids) do
+    table.insert(
+      lines,
+      string.format('o.workspace_mode({ workspace = "%d", mode = "%s" })', n, state.workspaces[n])
+    )
+  end
+
+  if #lines == 0 then
+    return ""
+  end
+  return table.concat(lines, "\n") .. "\n"
+end
+
+-- A whole file of calls: every line that parses is applied, the rest ignored, so
+-- her files and the pack's record load the same way.
+function M.load_text(state, text)
+  for line in tostring(text or ""):gmatch("[^\n]+") do
+    M.load(state, M.parse_saved(line))
+  end
+  return state
+end
+
 return M

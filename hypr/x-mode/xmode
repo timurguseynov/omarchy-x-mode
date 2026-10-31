@@ -8,6 +8,11 @@
 # end of the cycle. Everything that reads those files -- the current-layout
 # script, the bar's layout glyph, the next login -- sees xmode for free.
 #
+# Omarchy 4.0.x has no o.workspace_mode and replays `hl.workspace_rule(...)`
+# instead, so there the pack applies the mode itself through the config
+# (`x_mode.set_mode`) and keeps its own record of the modes. No her file is
+# written there: one calling a missing function would fail every config load.
+#
 #   xmode next            next layout on this workspace (the Super+L key)
 #   xmode back            previous layout (Super+Alt+L)
 #   xmode set ID MODE     set one workspace
@@ -22,6 +27,10 @@ set -uo pipefail
 
 XMODE=xmode
 MODES_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/workspace-layouts"
+# The pack's own record of the modes, written where Omarchy keeps none (4.0.x)
+# and read here so a cycle knows what a workspace is in. `hyprctl eval` is not a
+# way to ask: it answers "ok" for every call, whatever it evaluated.
+PACK_MODES="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-x-mode/workspace-modes.lua"
 NOTIFY_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/workspace-layout-notification"
 
 # One notification replaces the last, the way Omarchy's own toggle does it.
@@ -34,12 +43,17 @@ notify() {
 }
 
 saved_mode() { # WORKSPACE
-  sed -n 's/.*mode = "\([a-z]*\)".*/\1/p' "$MODES_DIR/$1.lua" 2>/dev/null
+  local mode
+  mode=$(sed -n 's/.*mode = "\([a-z]*\)".*/\1/p' "$MODES_DIR/$1.lua" 2>/dev/null)
+  [[ -n $mode ]] ||
+    mode=$(sed -n "s/.*workspace = \"$1\".*mode = \"\([a-z]*\)\".*/\1/p" "$PACK_MODES" 2>/dev/null | head -1)
+  printf '%s' "$mode"
 }
 
 default_mode() {
   local mode
   mode=$(sed -n 's/.*default = "\([a-z]*\)".*/\1/p' "$MODES_DIR/default.lua" 2>/dev/null)
+  [[ -n $mode ]] || mode=$(sed -n 's/.*default = "\([a-z]*\)".*/\1/p' "$PACK_MODES" 2>/dev/null | head -1)
   if [[ -z $mode ]]; then
     mode=$(hyprctl getoption general:layout -j 2>/dev/null | sed -n 's/.*"str": *"\([a-z]*\)".*/\1/p')
   fi
@@ -59,18 +73,20 @@ apply() { # WORKSPACE MODE
   local ws="$1" mode="$2"
   local call="o.workspace_mode({ workspace = \"$ws\", mode = \"$mode\" })"
 
-  if ! hyprctl eval "$call" >/dev/null 2>&1; then
+  if hyprctl eval "$call" >/dev/null 2>&1; then
+    # A workspace on the default mode keeps no file of its own, the way Omarchy's
+    # toggle removes it: a later change of the default then reaches this workspace
+    # too.
+    if [[ $mode == "$(default_mode)" ]]; then
+      rm -f "$MODES_DIR/$ws.lua"
+    else
+      mkdir -p "$MODES_DIR" && printf '%s\n' "$call" >"$MODES_DIR/$ws.lua"
+    fi
+  elif hyprctl eval "return x_mode.set_mode($ws, \"$mode\")" >/dev/null 2>&1; then
+    : # 4.0.x: the pack applied the mode and keeps its own record of it.
+  else
     notify "Workspace $ws: needs a reload"
     return 1
-  fi
-
-  # A workspace on the default mode keeps no file of its own, the way Omarchy's
-  # toggle removes it: a later change of the default then reaches this workspace
-  # too.
-  if [[ $mode == "$(default_mode)" ]]; then
-    rm -f "$MODES_DIR/$ws.lua"
-  else
-    mkdir -p "$MODES_DIR" && printf '%s\n' "$call" >"$MODES_DIR/$ws.lua"
   fi
 
   notify "Workspace $ws: $mode"
@@ -82,11 +98,14 @@ apply() { # WORKSPACE MODE
 set_default() { # MODE
   local mode="$1" call
   call="o.workspace_mode({ default = \"$mode\" })"
-  if ! hyprctl eval "$call" >/dev/null 2>&1; then
+  if hyprctl eval "$call" >/dev/null 2>&1; then
+    mkdir -p "$MODES_DIR" && printf '%s\n' "$call" >"$MODES_DIR/default.lua"
+  elif hyprctl eval "return x_mode.set_default_mode(\"$mode\")" >/dev/null 2>&1; then
+    : # 4.0.x: the pack holds the default itself.
+  else
     notify "Default layout: needs a reload"
     return 1
   fi
-  mkdir -p "$MODES_DIR" && printf '%s\n' "$call" >"$MODES_DIR/default.lua"
   notify "Default layout: $mode"
   # The bar reads the mode again only when asked. A default change does not
   # move the focus, so nothing else would tell it.

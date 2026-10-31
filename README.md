@@ -23,6 +23,7 @@ https://github.com/user-attachments/assets/d1749801-e1cb-4fc9-a65a-03313b7797a8
 The Mac habits that keep you fast — on Omarchy.
 
 * **Floating windows, as a layout.** Omarchy 4.5 gives every workspace a mode — tiling, scrolling, floating — and X Mode adds its own, `xmode`, to the same list. On an `xmode` workspace everything opens floating, with the titlebar, the tabs and the snaps below; on every other mode the pack stays out of the way and Omarchy's layout owns the window. `Super+L` walks the ring (`tiling → scrolling → floating → xmode`), `Super+Alt+L` walks it back, and *Appearance → Workspace Layout* in the Omarchy menu sets the default.
+* **On an older Omarchy (4.0.x).** Omarchy's workspace modes arrived in 4.5; before that the pack keeps the modes in its own state file, so the ring, the snaps and the titlebars work the same. The bar's workspace numbers stay Omarchy's there, so their click keeps her own layouts.
 * **Titlebars like a Mac.** A window moves by the titlebar, closes with the button.
 * **Tabs in every app.** Like native tabs on a Mac, but for every app you choose: two windows of the same app on a workspace become tabs of one window.
 * **Compact tabs.** One Chrome-like titlebar row instead of titlebar plus tabbar. Tabs stay a limited width; leftover space after `+` drags the window. On for every app, or for one.

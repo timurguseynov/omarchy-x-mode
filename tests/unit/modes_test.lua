@@ -89,6 +89,51 @@ check("set.bad-workspace", #modes.ranges(only), 2)
 modes.set(only, 9, "")
 check("set.empty-mode", modes.get(only, 9), nil)
 
+-- Omarchy can replay a mode file only where it has the module that defines
+-- o.workspace_mode (4.5). 4.0.x replays `hl.workspace_rule(...)` and has no
+-- o.workspace_mode at all, so a saved call there fails every config load -- the
+-- pack has to ask for the module and keep its own record when it is missing.
+check("persist.no-omarchy", modes.can_persist("/nonexistent-omarchy"), false)
+
+local fake = (os.getenv("HOME") or "/tmp") .. "/fake-omarchy"
+os.execute("mkdir -p '" .. fake .. "/default/hypr'")
+local marker = io.open(fake .. "/default/hypr/workspace-modes.lua", "w")
+marker:write("-- modes\n")
+marker:close()
+check("persist.4.5", modes.can_persist(fake), true)
+os.execute("rm -rf '" .. fake .. "'")
+
+-- The pack's own record: the same calls as Omarchy's files, the default first,
+-- workspaces sorted, and a workspace sitting on the default left out so a later
+-- change of the default reaches it too.
+local record = modes.new()
+modes.set_default(record, "xmode")
+modes.set(record, 4, "dwindle")
+modes.set(record, 2, "xmode")
+check(
+  "dump.text",
+  modes.dump(record),
+  'o.workspace_mode({ default = "xmode" })\no.workspace_mode({ workspace = "4", mode = "dwindle" })\n'
+)
+check("dump.empty", modes.dump(modes.new()), "")
+
+-- Reading it back is what a reload on 4.0.x needs: the xmode workspaces survive.
+local reread = modes.new()
+modes.load_text(reread, modes.dump(record))
+check("load_text.default", modes.get(reread, 1), "xmode")
+check("load_text.own", modes.get(reread, 4), "dwindle")
+
+-- A 4.0.x file (her own layout rule) parses to nothing and is skipped, so both
+-- kinds can sit in the same record without one swallowing the other.
+local mixed = modes.new()
+modes.load_text(
+  mixed,
+  'hl.workspace_rule({ workspace = "1", layout = "scrolling" })\n'
+    .. 'o.workspace_mode({ workspace = "5", mode = "xmode" })\n'
+)
+check("load_text.ignores-her-rule", modes.get(mixed, 1), nil)
+check("load_text.reads-ours", modes.get(mixed, 5), "xmode")
+
 if failures > 0 then
   io.stderr:write(string.format("%d failure(s)\n", failures))
   os.exit(1)
