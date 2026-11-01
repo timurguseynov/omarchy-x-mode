@@ -24,14 +24,15 @@ for a in $order; do
 done
 assert_ne "$other" "" "there is another window of the app"
 
-read -r px py <<<"$(dock_icon_point 0)"
+read -r px py <<<"$(dock_icon_point "$(dock_icon_index foot)")"
 pointer_click "$px" "$py" right
 settle
 
-read -r rx ry <<<"$(dock_menu_row_point 0 3 "26 7 26 26 7 26 26")"
+read -r rx ry <<<"$(dock_menu_row_point 0 3 "26 7 26 26 7 26 26 26")"
 pointer_click "$rx" "$ry"
-settle
-
+# Same rule as the icon click: the row's focus is a dispatch through the dock,
+# and a settle is a fixed guess at how long that takes.
+wait_until 5 '[ "$(active_address)" = "$other" ]' || fail "the window row did not focus that window (got $(active_address))"
 assert_eq "$(active_address)" "$other" "the window row focuses that window"
 
 dock_stop

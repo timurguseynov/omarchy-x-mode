@@ -1,5 +1,6 @@
 #include "dragSession.hpp"
 #include "globals.hpp"
+#include "titlebarGate.hpp"
 
 UP<CDragSession> g_pDragSession;
 
@@ -42,7 +43,7 @@ void CDragSession::stealCompositorMove() {
     if (!target)
         return;
     const auto w = target->window();
-    if (!w || !w->m_isFloating)
+    if (!w || !w->m_isFloating || !packTitlebarWindow(w))
         return;
     // Chromium (and others) start a compositor move from their own tab strip.
     // Abort that drag and run ours so edge-snap still works.
@@ -146,7 +147,7 @@ void CDragSession::moveWindow(const Vector2D& coords) {
         // box, so leave border_size below the reserved top or it overlaps the bar.
         const auto TOP    = MON->m_reservedArea.top();
         const auto CHROME = sc<double>(Snap::chromeH(PWINDOW));
-        const auto LIMIT  = TOP + sc<double>(Snap::border());
+        const auto LIMIT  = TOP + sc<double>(Snap::border(PWINDOW));
         if (newPos.y - CHROME < LIMIT)
             newPos.y = LIMIT + CHROME;
     }
@@ -156,7 +157,8 @@ void CDragSession::moveWindow(const Vector2D& coords) {
 
 void CDragSession::updatePreview() {
     const auto w = m_window.lock();
-    if (!w) {
+    if (!w || !packTitlebarWindow(w)) {
+        m_zone = Snap::eKind::None;
         setPreview("hide");
         return;
     }
@@ -167,7 +169,7 @@ void CDragSession::updatePreview() {
         return;
     }
     const auto mon = State::monitorState()->query().vec(cursor).run();
-    const auto box = Snap::zoneBox(m_zone, mon);
+    const auto box = Snap::zoneBox(m_zone, mon, w);
     if (!box) {
         setPreview("hide");
         return;
@@ -182,12 +184,8 @@ void CDragSession::setPreview(const std::string& line) {
     m_lastPreview = line;
 
     const char* runtime = std::getenv("XDG_RUNTIME_DIR");
-    const auto  path    = std::format("{}/omarchy-snap-preview.cmd", runtime && *runtime ? runtime : "/tmp");
-    FILE*       file    = std::fopen(path.c_str(), "w");
-    if (!file)
-        return;
-    std::fprintf(file, "%s\n", line.c_str());
-    std::fclose(file);
+    const auto path = std::format("{}/omarchy-snap-preview.cmd", runtime && *runtime ? runtime : "/tmp");
+    writeStateFile(path, line + "\n");
 
     if (g_pEventManager)
         g_pEventManager->postEvent(SHyprIPCEvent{.event = "xmodesnap", .data = line});

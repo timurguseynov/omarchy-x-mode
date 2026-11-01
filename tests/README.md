@@ -138,9 +138,11 @@ one pixels test needs `grim` and ImageMagick's `compare` (`magick`).
 | `integration/chrome_off_drag_reaches_bar_test.sh` | without chrome the box reaches the bar |
 | `integration/chrome_off_no_group_test.sh` | a chrome-off window is never grouped |
 | `integration/ctrl_as_super_test.sh` | Super as Ctrl: the free Super+keys are bound, occupied ones and the flag being off are not |
+| `integration/ctrl_as_super_shift_punct_test.sh` | punctuation takes a Shift variant too, and the bind fires: Cmd+Shift+\ reaches the app as Ctrl+Shift+\ |
 | `integration/ctrl_click_test.sh` | Super+click (left/right/middle) is bound as Ctrl+click |
 | `integration/steal_occupied_test.sh` | an occupied Super key stolen for one app is Ctrl+key there and the original action everywhere else (Super+Q, Super+Tab, Super+F) |
 | `integration/ctrl_c_shift_test.sh` | Ctrl+C goes in shifted for the flagged app and stays plain for the rest |
+| `integration/reopen_tab_test.sh` | Cmd+Shift+T is Ctrl+Shift+T once Shortcuts asks, and Super as Ctrl does not also bind it |
 | `integration/client_fullscreen_not_pushed_test.sh` | a window the app made fullscreen is not re-clamped below the bar |
 | `integration/ctrl_tab_switch_behavior_test.sh` | Ctrl+1..9 switch tabs once the option is on |
 | `integration/ctrl_tab_switch_binds_test.sh` | Ctrl+1..9 binds are opt-in |
@@ -159,6 +161,7 @@ one pixels test needs `grim` and ImageMagick's `compare` (`magick`).
 | `integration/dock_menu_pin_writes_file_test.sh` | the menu's Pin row writes the class, and Unpin clears it |
 | `integration/dock_menu_quit_closes_app_test.sh` | the menu's last row quits the app |
 | `integration/dock_offset_follows_gaps_test.sh` | the dock's edge inset follows the gaps |
+| `integration/dock_order_new_app_bottom_test.sh` | a new running app joins the bottom of the column, and a relaunch is new again |
 | `integration/dock_pinned_drag_reorders_test.sh` | dragging an icon past its neighbour rewrites the pinned order |
 | `integration/dock_pinned_first_test.sh` | a pinned app's icon comes before the running ones |
 | `integration/dock_pinned_shown_when_not_running_test.sh` | a pinned app that is not running still gets an icon |
@@ -192,7 +195,8 @@ one pixels test needs `grim` and ImageMagick's `compare` (`magick`).
 | `integration/new_tab_appends_test.sh` | a new same-app window is the last tab, not the slot after the current one |
 | `integration/new_window_below_topbar_test.sh` | a new window, lone or joining a group, lands below the bar |
 | `integration/no_gaps_free_window_stays_test.sh` | No gaps re-lays out a snapped window and leaves a free one alone |
-| `integration/no_gaps_keeps_border_test.sh` | No gaps collapses the gaps, keeps the 1px border, and restores both |
+| `integration/no_gaps_keeps_border_test.sh` | No gaps keeps a 1px border on the xmode workspace and leaves the desktop gaps |
+| `integration/no_gaps_xmode_only_test.sh` | No gaps pulls an xmode window to the edge and leaves dwindle its gaps |
 | `integration/no_gaps_symmetric_insets_test.sh` | every inset changes with the gaps and every one comes back |
 | `integration/open_window_keeps_existing_test.sh` | a window opening must not move the windows already placed |
 | `integration/oversized_snap_anchors_test.sh` | a snap smaller than the client minimum keeps the snapped edge and overhangs |
@@ -201,6 +205,7 @@ one pixels test needs `grim` and ImageMagick's `compare` (`magick`).
 | `integration/resnap_after_reload_test.sh` | a snapped window keeps its zone across a reload |
 | `integration/same_app_across_workspaces_no_group_test.sh` | a same-app window on another space is not a tab |
 | `integration/scratchpad_keys_unbound_test.sh` | Cmd+S and Cmd+Alt+S stay unbound |
+| `integration/select_all_test.sh` | Cmd+A reaches the app as Ctrl+A with a Russian group active, where Omarchy's name-based send fails |
 | `integration/small_window_still_tabs_test.sh` | a 120x90 window is still a tab, not a popup |
 | `integration/snap_cycle_chrome_off_keys_test.sh` | the cycle by key does not creep on a window without chrome |
 | `integration/snap_cycle_chrome_off_test.sh` | re-snapping a window without chrome does not creep down |
@@ -478,6 +483,7 @@ key super+alt+left        # the snap cycle
 key alt+tab               # next tab of the group
 key o                     # a plain key
 key -d 5 a b c            # several keys, 5ms apart
+key -l us,ru -g 1 super+a # pressed with the second group active
 ```
 
 Why a tool of our own, when `wtype` is installed: `wtype` types into a client but
@@ -497,6 +503,11 @@ tool founds the keycode by looking for the key that produces the wanted symbol,
 so a test only names symbols.
 
 `lib.sh` builds it into `.nest/keyboard/` (`build_keyboard`) and exposes `key`.
+`-l` builds the uploaded keymap from another layout (`us,ru`) and `-g` leaves it in
+that group (`1`), so a chord can be pressed the way it is pressed on a keyboard
+with a Russian group active: the bind still matches (Hyprland matches through its
+own keymap, first group), while a `send_key_state` that names its key cannot
+resolve it.
 Requires the `xkbcommon` headers as well as `wayland-scanner`.
 
 The bind *table* is still worth checking where the behaviour is what matters
@@ -542,8 +553,10 @@ dock_stop
 `iconSize + 2*pad` wide (26 + 14), the column is centred in it, and icons stack
 with `iconSpacing` (6) between them, so the first centre is `pad + iconSize/2`
 below the card's top. `dock_icon_layout_test.sh` pins that arithmetic, because
-every other dock click depends on it. Icons are ordered pinned first, then by
-class, so with only foot and kitty the icons are 0 and 1.
+every other dock click depends on it. Icons are ordered pinned first, then in
+launch order (newest at the bottom), so with only foot and kitty the icons are 0
+and 1 as long as they were opened in that order -- `dock_order_new_app_bottom`
+opens them inside out on purpose to pin the order rule itself.
 
 `dock_layer_box NAMESPACE` finds a layer's box; the menu is a layer called
 `x-mode-dock-menu`, which is how a right-click can be observed at all.
@@ -609,7 +622,7 @@ Same idea for the shell plugin: the pure JS it shares lives in
 
 | file | covers |
 |---|---|
-| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, the three states, the off list, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, pin moves a running app), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg` (only what was pinned is written), `setPanelFlag`, `setKeyFlag`, `setOccupiedKey`, `keyFlagState`/`keyFlagCycle`/`keyFlagDescription`/`keyStealState` (follows the desktop, Always on, Always off), `globalScopeCfg`, `setGlobalFlag`, `setGlobalSteal`, `hasGlobalSteal`, `globalKeysSummary`, `appKeysSummary`, `parseThemeAccents`, `stealToggleLabel`, `sameOccupiedList`, `buildPanelRunning` |
+| `tst_logic.qml` | `parseEnabled` (on/off/1/0/true/false/empty/junk), `shellQuote`, `parseApps` (object, legacy array, the three states, the off list, invalid), `cleanName`, `lastSegment`, `iconLetter`, `webappHostFromExec`, `parseSwitcherCmd`, `parseSnapCmd`, `rectsIntersect`, `samePins`, `buildDockApps` (group/order/skips/bestAddr, launch order, pin moves a running app), `reconcileDockOrder` (append new, drop gone), `dockAppsSig` (title moves the sig), `iconScanCommand` (apps/devices/categories/pixmaps), `togglePinInList`, `movePinInList`, `pinSlotIndex`, `buildMenuActions` (order/single/pin), `filterPanelApps`, `findPanelApp`, `panelCfgFor`, `mergePanelCfg` (only what was pinned is written), `setPanelFlag`, `setKeyFlag`, `setOccupiedKey`, `keyFlagState`/`keyFlagCycle`/`keyFlagDescription`/`keyStealState` (follows the desktop, Always on, Always off), `globalScopeCfg`, `setGlobalFlag`, `setGlobalSteal`, `hasGlobalSteal`, `globalKeysSummary`, `appKeysSummary`, `parseThemeAccents`, `stealToggleLabel`, `sameOccupiedList`, `buildPanelRunning` |
 
 What is *not* unit-testable this way: the components themselves. `import
 Quickshell` fails under `qmltestrunner` (`plugin "quickshell-coreplugin" not

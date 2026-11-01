@@ -8,6 +8,11 @@
 # keeps covered nests presenting; both are removed when the run ends.
 
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Every wait cap below is multiplied by this. A machine someone else is using -- a
+# VM, a build, another run -- then makes a scenario take longer instead of failing
+# on a pause a quiet box would have met. async.sh sets it from the machine's own
+# numbers; a scenario run by hand gets 1 unless it is asked for more.
+NEST_SLOW="${NEST_SLOW:-1}"
 REPO_DIR="$(cd "$TESTS_DIR/.." && pwd)"
 XDGCHILD_DIR="$TESTS_DIR/xdgchild"
 # Paths that depend on which nest this process talks to. A parallel run gives
@@ -58,7 +63,21 @@ RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RESET=$'\033[0m'
 
 # --- assertions --------------------------------------------------------------
 
-fail() { echo "${RED}FAIL${RESET}: $*" >&2; exit 1; }
+# What the dock saw and what the column was showing, printed with the failure.
+# A dock scenario that fails says "got X"; these say who wrote X. Small, and only
+# on the failure, so a green run pays nothing for them.
+fail() {
+  echo "${RED}FAIL${RESET}: $*" >&2
+  local clicks="$DOCK_RUNTIME/omarchy-x-mode.dock-clicks" order="$DOCK_RUNTIME/omarchy-x-mode.dock-order"
+  if [ -n "${DOCK_RUNTIME:-}" ] && [ -s "$clicks" ]; then
+    echo "  dock clicks (last 8):" >&2
+    tail -8 "$clicks" | sed 's/^/    /' >&2
+  fi
+  if [ -n "${DOCK_RUNTIME:-}" ] && [ -s "$order" ]; then
+    echo "  dock column: $(tr '\n' ' ' < "$order")" >&2
+  fi
+  exit 1
+}
 
 assert_eq()      { [ "$1" = "$2" ] || fail "${3:-expected '$2', got '$1'}"; }
 assert_ne()      { [ "$1" != "$2" ] || fail "${3:-expected anything but '$2'}"; }
@@ -174,8 +193,25 @@ build_xdgchild() {
 # every time a window inside it does. The second name covers a build that
 # still calls the toplevel Hyprland. Each update sends the whole rule: a
 # partial one replaces the rest.
+# hyprctl for the host, not for a nest. An agent session keeps
+# HYPRLAND_INSTANCE_SIGNATURE from the login it was started in. After the user
+# logs out and back in, that socket is gone and a plain hyprctl fails closed,
+# which used to abort the run before it printed a line. A signature that still
+# has a socket is left alone: once a nest is up, discovering "the" instance
+# would be a guess between the two.
+host_hyprctl() {
+  local runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" sig="${HYPRLAND_INSTANCE_SIGNATURE:-}"
+  if [ -n "$sig" ] && [ -S "$runtime/hypr/$sig/.socket.sock" ]; then
+    hyprctl "$@"
+    return
+  fi
+  # eval will not search. The oldest instance whose process is still alive is
+  # the host: a nest keeps its socket in its own runtime directory.
+  env -u HYPRLAND_INSTANCE_SIGNATURE hyprctl --instance 0 "$@"
+}
+
 nest_host_rule() { # true|false — render_unfocused
-  local render="${1:-false}" cls name pin=true ws_rule="unset"
+  local render="${1:-false}" cls name pin=true ws_rule="unset" err
   if [ -n "${NEST_WORKSPACE:-}" ]; then
     case "$NEST_WORKSPACE" in
       *[!0-9]*|0)
@@ -191,7 +227,7 @@ nest_host_rule() { # true|false — render_unfocused
       aquamarine) name="x-mode-nest" ;;
       *) name="x-mode-nest-hl" ;;
     esac
-    hyprctl eval "hl.window_rule({
+    err="$(host_hyprctl eval "hl.window_rule({
       name = \"${name}\",
       match = { class = \"${cls}\" },
       float = true,
@@ -202,7 +238,7 @@ nest_host_rule() { # true|false — render_unfocused
       no_initial_focus = true,
       focus_on_activate = false,
       render_unfocused = ${render},
-    })" >/dev/null || return 1
+    })" 2>&1)" || { echo "host window rule failed: $err" >&2; return 1; }
   done
 }
 
@@ -255,7 +291,7 @@ QML
   setsid qs -p "$cfg" > "$NEST_ROOT/host-tick.log" 2>&1 < /dev/null &
   echo $! > "$NEST_ROOT/host-tick.pid"
   for i in $(seq 1 30); do
-    hyprctl layers -j 2>/dev/null | python3 -c '
+    host_hyprctl layers -j 2>/dev/null | python3 -c '
 import json, sys
 data = json.load(sys.stdin) or {}
 for out in data.values():
@@ -287,8 +323,8 @@ nest_host_rule_on() {
 
 nest_host_rule_off() {
   nest_host_tick_stop
-  hyprctl eval 'hl.window_rule({ name = "x-mode-nest", enabled = false })' >/dev/null 2>&1 || true
-  hyprctl eval 'hl.window_rule({ name = "x-mode-nest-hl", enabled = false })' >/dev/null 2>&1 || true
+  host_hyprctl eval 'hl.window_rule({ name = "x-mode-nest", enabled = false })' >/dev/null 2>&1 || true
+  host_hyprctl eval 'hl.window_rule({ name = "x-mode-nest-hl", enabled = false })' >/dev/null 2>&1 || true
 }
 
 nest_start() {
@@ -315,8 +351,28 @@ nest_start() {
 
   # setsid makes this pid the process-group leader, so nest_stop can kill the
   # nest without the pattern match that would also kill every other slot.
+  #
+  # The XDG dirs are pinned to the nest's own home as well: HOME alone is not
+  # enough, because a variable inherited from the live session wins over it, and
+  # then a command run inside the nest reads (and writes) the user's config. That
+  # is how a screenshot started in a nest landed in the real ~/Pictures and why
+  # Omasnap, which reads its own config and picks a save directory, could look in
+  # a place the scenario never sees. OMASNAP_SCREENSHOT_DIR makes that directory
+  # the scenario's own, so "the key wrote a file" is a question about the pack and
+  # not about which release's default folder the tool picked.
+  # HYPRLAND_INSTANCE_SIGNATURE is unset on purpose: an inherited one points every
+  # `hyprctl` a scenario runs *inside* the nest -- a bind's exec, the pack's own
+  # xmode script -- at the live session, so a test switched the user's workspace
+  # modes instead of the nest's. The nested compositor exports its own signature
+  # for its children, which is the one those commands must see.
   setsid env \
+    -u HYPRLAND_INSTANCE_SIGNATURE \
     HOME="$NEST_STATE/home" \
+    XDG_CONFIG_HOME="$NEST_STATE/home/.config" \
+    XDG_DATA_HOME="$NEST_STATE/home/.local/share" \
+    XDG_STATE_HOME="$NEST_STATE/home/.local/state" \
+    XDG_CACHE_HOME="$NEST_STATE/home/.cache" \
+    OMASNAP_SCREENSHOT_DIR="$NEST_STATE/home/Pictures" \
     WAYLAND_DISPLAY="$host_socket" \
     XDG_RUNTIME_DIR="$NEST_RUNTIME" \
     X_MODE_LUA="$NEST_LUA" \
@@ -404,17 +460,29 @@ nest_bar_spawn() {
   # qs started on that blip binds no real screen, and "wide enough" is true of
   # the rejected mode as well -- so what is waited for is one non-zero size that
   # holds. Eighth tenths of a second is a configure cycle on a loaded host.
-  local ready=0 streak=0 size="" held=""
+  local ready=0 streak=0 zero=0 size="" held=""
   for i in $(seq 1 100); do
     size="$(nest_output_size 2>/dev/null || true)"
     if [ -n "$size" ] && [ "$size" != "0x0" ] && [ "$size" = "$held" ]; then
       streak=$((streak + 1))
+      zero=0
       if [ "$streak" -ge 8 ]; then
         ready=1
         break
       fi
     else
       streak=0
+      # A nest whose output stays 0x0 is not going to grow one. Sitting out the
+      # whole ten seconds, and then the bar's other attempts, is how a NOT RUN
+      # waited a minute before the result could be sent.
+      if [ -z "$size" ] || [ "$size" = "0x0" ]; then
+        zero=$((zero + 1))
+        if [ "$zero" -ge 30 ]; then
+          return 2
+        fi
+      else
+        zero=0
+      fi
     fi
     held="$size"
     sleep 0.1
@@ -430,24 +498,32 @@ nest_bar_spawn() {
 }
 
 nest_bar_start() {
-  local attempt _
-  # The first shell sometimes connects before the nest has an output, or
-  # the host drops that wayland client while several nests are mapping.
-  # A later try has the output, and a shell that already bound a placeholder
-  # is thrown away rather than waited on.
+  local attempt rc
+  # This is bring-up, not a test: the shell has to bind the nest's output, and on a
+  # loaded machine the first one sometimes connects before the output is there ("bar
+  # reserved '' with the output 'none'") or is dropped while several nests map. A
+  # bar that misses is retried a few times inside the same nest -- spawn, wait four
+  # seconds, throw the shell away and try again. What is *not* retried is the nest
+  # itself or a scenario: a slot whose bar cannot be brought up gives up and says so,
+  # and its scenarios stay in the queue for the others. An output that never leaves
+  # 0x0 is not one of those misses: another bar on the same nest waits the same
+  # stretch and ends the same way, so the slot gives up on the first one.
   for attempt in 1 2 3 4; do
-    nest_bar_spawn || {
+    nest_bar_spawn
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      for _ in $(seq 1 40); do
+        nest_bar_ready && return 0
+        sleep 0.1
+      done
+      nest_bar_stop
+    elif [ "$rc" -eq 2 ]; then
+      break
+    else
       sleep 0.3
-      continue
-    }
-    for _ in $(seq 1 40); do
-      nest_bar_ready && return 0
-      sleep 0.1
-    done
-    nest_bar_stop
+    fi
   done
-  # return, do not exit. fail() ends the worker, so the caller's
-  # "start the nest again" never runs and one missed bar drops the slot.
+  # return, do not exit: fail() ends the worker and the caller's cleanup with it.
   # The output is printed with it: an empty reserved top says the nest has no
   # output at all, '0' that it has one and the bar reserved nothing on it, and
   # a width that is not the settled one says the bar bound the mode the host
@@ -486,7 +562,7 @@ nest_stop() {
 nest_place_window() {
   local pid="$1" addr="" i
   for i in $(seq 1 25); do
-    addr="$(hyprctl clients -j 2>/dev/null | python3 -c "
+    addr="$(host_hyprctl clients -j 2>/dev/null | python3 -c "
 import json, sys
 for c in json.load(sys.stdin):
     if c.get('pid') == $pid:
@@ -507,16 +583,16 @@ for c in json.load(sys.stdin):
   # The host rule already floats and sizes. These dispatches are the fallback
   # when that rule did not match, and they must not raise the window:
   # alter_zorder top is what pulled it over the desktop on every run.
-  hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"$w\" })" >/dev/null 2>&1 || true
+  host_hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"$w\" })" >/dev/null 2>&1 || true
   # The first configure the host sends can be 0x0 while it is busy mapping
   # several nests. The wayland backend then commits a fallback size, the host
   # rejects that mode, and the nest never gets an output. Keep resizing until
   # the window is actually the box the rule asked for.
   local sz=""
   for i in $(seq 1 15); do
-    hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 1000, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
-    hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
-    sz="$(hyprctl clients -j 2>/dev/null | python3 -c "
+    host_hyprctl dispatch "hl.dsp.window.resize({ x = 900, y = 1000, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
+    host_hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"$w\" })" >/dev/null 2>&1 || true
+    sz="$(host_hyprctl clients -j 2>/dev/null | python3 -c "
 import json, sys
 for c in json.load(sys.stdin):
     if c.get('pid') == $pid:
@@ -587,7 +663,11 @@ nest_ipc_stop() {
 
 nest_query() { # words...  -> body on stdout
   nest_ipc_start || fail "nest ipc did not come up"
-  "$NESTQ" "$NEST_IPC_SOCK" "$@"
+  # Bounded: the proxy can be left wedged (a run killed mid-query, a scenario that
+  # took its server with it), and an unbounded query then hangs the scenario with no
+  # output at all -- the "it just hangs" a run looks like. Ten seconds is far more
+  # than any query needs; past that the nest is not answering.
+  timeout 10 "$NESTQ" "$NEST_IPC_SOCK" "$@" || fail "nest ipc did not answer: $*"
 }
 
 nest_hyprctl() { nest_query "$@"; }
@@ -615,10 +695,25 @@ for b in sys.stdin.read().split('instance ')[1:]:
 
 # Close every window in the nest, so each test starts from nothing.
 nest_clean() {
-  local addrs a
+  local addrs a i
   addrs="$(nest_query addrs)"
   for a in $addrs; do
+    # Out of its group before the client goes: Hyprland 0.56.2 segfaults when a
+    # window that is a tab is destroyed -- CWindow::unmapWindow -> CGroup::remove ->
+    # updateWindowVisibility -> setInputBlocked (cores at 05:53, 05:58, 06:03 in this
+    # session, on a run that then lost every slot with it). Ungrouping first is the
+    # same end state, reached one dispatch earlier.
+    nest_ctl dispatch "hl.dsp.window.move({ out_of_group = true, window = 'address:$a' })" >/dev/null 2>&1 || true
     nest_ctl dispatch "hl.dsp.window.close({ window = 'address:$a' })" >/dev/null 2>&1 || true
+  done
+  # A close is a client round-trip, and the next scenario's open_window() counts
+  # what is listed: a window still on its way out made it think the window it
+  # needed was already there, so the scenario then asserted against the previous
+  # one's window (a tiled leftover where a floating one was expected, or a group
+  # of one where two were). Wait for the list to empty instead of assuming.
+  for i in $(seq 1 50); do
+    [ -z "$(nest_query addrs 2>/dev/null)" ] && break
+    sleep 0.1
   done
   # Settings are written by the panel, and by the tests that drive it. Reset them
   # so a test that fails midway cannot change how the next one lays out windows.
@@ -634,6 +729,10 @@ nest_clean() {
   # reason: a leftover single-instance entry changes the dock's menu for the
   # class it names, which shifts the rows the menu tests click on.
   rm -f "$NEST_STATE/home/.config/omarchy/x-mode-dock.json"
+  # The dock's remembered running order lives there too: a leftover column would
+  # decide the order the next dock test sees, and its order assertions would then
+  # be about the previous scenario's apps.
+  rm -f "$NEST_STATE/home/.config/omarchy/x-mode-dock-order.json"
   rm -rf "$NEST_STATE/home/.local/share/applications"
   # Omarchy's permanent toggles are files it sources on every load, so one a
   # scenario plants (the gaps toggle, to watch the pack retire it) would decide the
@@ -670,6 +769,25 @@ nest_clean() {
   # file, so the pack has to be pointed at the empty one it was just given.
   nest_hyprctl eval 'if x_mode and x_mode.refresh_options then x_mode.refresh_options() end' >/dev/null 2>&1 || true
   nest_hyprctl eval 'if x_mode and x_mode.refresh_apps_off then x_mode.refresh_apps_off() end' >/dev/null 2>&1 || true
+  # The published mode is how the dock decides to show itself: a leftover would hide
+  # it for the next scenario (the dock stays when the file is missing).
+  rm -f "$NEST_RUNTIME/omarchy-x-mode.workspace"
+  # Workspace modes are nest state like the settings above, but putting them back
+  # costs eleven o.workspace_mode calls, and a compositor busy with those missed the
+  # dock's clicks in the next scenario (measured: disabling this fixed
+  # dock_menu_pin_rebuilds). So it only runs when a scenario actually left a mode
+  # behind -- a workspace file of its own, or a default that is not the fixture's.
+  local modes_dir="$NEST_STATE/home/.local/state/omarchy/workspace-layouts"
+  if [ -n "$(find "$modes_dir" -maxdepth 1 -name '*.lua' ! -name 'default.lua' 2>/dev/null | head -1)" ]; then
+    rm -f "$modes_dir"/*.lua
+    mkdir -p "$modes_dir"
+    printf '%s\n' 'o.workspace_mode({ default = "xmode" })' > "$modes_dir/default.lua"
+    nest_hyprctl eval 'o.workspace_mode({ default = "xmode" })' >/dev/null 2>&1 || true
+    local ws
+    for ws in 1 2 3 4 5 6 7 8 9 10; do
+      nest_hyprctl eval "o.workspace_mode({ workspace = \"$ws\", mode = \"xmode\" })" >/dev/null 2>&1 || true
+    done
+  fi
 }
 
 # The panel's path for an app-list change: write settings.json, then this.
@@ -691,7 +809,7 @@ refresh_apps() {
 wait_until() { # SECONDS CONDITION...
   local secs="$1" i
   shift
-  for i in $(seq 1 $((secs * 20))); do
+  for i in $(seq 1 $((secs * 20 * NEST_SLOW))); do
     eval "$*" && return 0
     sleep 0.05
   done
@@ -727,7 +845,7 @@ open_window() { # CLASS [COUNT]
   # Wait until the window is mapped and has a box, not merely listed. A fixed
   # pause after the count would sleep the same half second on every call, and a
   # step that reads the geometry right after would otherwise race the map.
-  for i in $(seq 1 80); do
+  for i in $(seq 1 $((80 * NEST_SLOW))); do
     got="$(nest_query count "$cls")"
     # Whether the window joins a group is the scenario's to check. Waiting for it
     # here made a scenario that asserts "these do not group" wait for a join
@@ -761,7 +879,7 @@ open_command() { # CLASS COMMAND...
 open_xdgchild() { # PARENT_CLASS CHILD_CLASS
   local i
   env WAYLAND_DISPLAY="$(nest_display)" setsid "$XDGCHILD_BIN" "$1" "$2" >/dev/null 2>&1 < /dev/null &
-  for i in $(seq 1 80); do
+  for i in $(seq 1 $((80 * NEST_SLOW))); do
     if [ "$(count_class "$1")" -ge 1 ] && [ "$(count_class "$2")" -ge 1 ]; then
       return 0
     fi
@@ -1046,13 +1164,14 @@ ShellRoot {
 }
 QML
   env HOME="$NEST_STATE/home" \
+    X_MODE_DOCK_DEBUG=1 \
     XDG_RUNTIME_DIR="$DOCK_RUNTIME" \
     WAYLAND_DISPLAY="$DOCK_RUNTIME/$(nest_socket)" \
     HYPRLAND_INSTANCE_SIGNATURE="$SIG" QT_QPA_PLATFORM=wayland \
     setsid qs -p "$DOCK_CFG" > "$DOCK_LOG" 2>&1 < /dev/null &
   echo $! > "$NEST_STATE/dock.pid"
   local i
-  for i in $(seq 1 60); do
+  for i in $(seq 1 $((60 * NEST_SLOW))); do
     dock_box >/dev/null 2>&1 && return 0
     sleep 0.25
   done
@@ -1177,6 +1296,23 @@ else:
 '
 }
 
+# Where a class sits in the column the dock is showing. Scenarios click "the
+# other app's icon", and the column's order is the dock's -- pinned first, then
+# the remembered running order, and a class it has not seen yet sorted by name.
+# That is not the order the scenario opened its windows in, so aiming by index
+# clicks whatever the dock happened to put there.
+dock_icon_index() { # CLASS
+  local i=0 c
+  for c in $(dock_order); do
+    if [ "$c" = "$1" ]; then
+      echo "$i"
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
+
 dock_settle() {
   local want prev="" cur i stable=0 h
   # The wanted height is recomputed as windows come and go during the wait.
@@ -1187,7 +1323,7 @@ dock_settle() {
   # queued, so the card stays on the previous column. A short yield, then a
   # slower poll, leaves the socket free for the dock.
   sleep 0.2
-  for i in $(seq 1 32); do
+  for i in $(seq 1 $((32 * NEST_SLOW))); do
     [ $((i % 4)) -eq 1 ] && want="$(dock_expect_h)"
     cur="$(dock_box 2>/dev/null || true)"
     h="${cur##* }"
@@ -1243,24 +1379,33 @@ dock_menu_row_point() { # ICON_INDEX ROW_INDEX "26 7 26 ..."
   # The menu is a layer of its own and is not up in the same breath as the
   # click. Its width is the screen the card is placed against; the point is
   # meaningless until that width exists.
-  local screen_w i
+  local screen_w screen_h i
   # A 50ms poll keeps the nest's socket busy, and the menu's own commit then
   # waits behind it. A wider gap lets the layer finish mapping before the click.
-  for i in $(seq 1 20); do
-    screen_w="$(dock_layer_box x-mode-dock-menu 2>/dev/null | awk '{print $3}')"
-    [ -n "$screen_w" ] && [ "$screen_w" -ge 100 ] && break
+  # Fifteen seconds, not five: the menu is a Quickshell surface on a machine that
+  # may be running five nests at once, and five was what made the dock-menu
+  # scenarios fail in a full run and pass on their own.
+  for i in $(seq 1 $((60 * NEST_SLOW))); do
+    read -r _ _ screen_w screen_h <<<"$(dock_layer_box x-mode-dock-menu 2>/dev/null || true)"
+    [ -n "${screen_w:-}" ] && [ "$screen_w" -ge 100 ] && break
     screen_w=""
     sleep 0.25
   done
-  [ -n "$screen_w" ] || fail "the dock menu did not open"
+  [ -n "${screen_w:-}" ] || fail "the dock menu did not open"
+  # The card's own height decides where it lands: DockMenu clamps it to the
+  # screen, so a menu that grew a row (Force Quit) is pushed up near the bottom
+  # edge and every row moves with it. Modelling only "the card sits at the icon"
+  # aimed above the row that was meant, and the scenario then clicked a
+  # neighbour -- which read as "the row did nothing".
   python3 -c "
 rows = [int(x) for x in '$3'.split()]
 idx = $2
-screen_w, dock_x, dock_y = $screen_w, $dx, $dy
+screen_w, screen_h, dock_x, dock_y = $screen_w, $screen_h, $dx, $dy
 gaps_out = 5           # Style.gapsOut: half of general:gaps_out
-card_w, card_h, pad = 240, 12, 7
+card_w, menu_pad = 240, 12
+card_h = sum(rows) + 2 * (len(rows) - 1) + menu_pad
 card_x = screen_w - gaps_out - 40 - card_w - gaps_out * 2
-card_y = dock_y + $1 * 32            # aligned with the icon, minus the pad
+card_y = max(8, min(screen_h - card_h - 8, dock_y + $1 * 32))
 offset = 6
 for i in range(idx):
     offset += rows[i] + 2
@@ -1342,8 +1487,16 @@ image_diff() { # FILE_A FILE_B
 # --- keyboard ----------------------------------------------------------------
 # Press a chord in the nest, e.g. key super+alt+left, key alt+tab, key o. Only
 # chords are needed: a single name is a chord of one.
+#
+# A press that cannot be delivered is a failure, not a no-op. The virtual keyboard
+# tool reports its own errors (no seat, no zwp_virtual_keyboard, keymap refused)
+# and the caller used to throw them away, so a scenario went on to assert against
+# a window no key had reached -- which reads exactly like the pack ignoring the
+# key. One failed press in a loaded suite is what that looked like.
 key() {
-  WAYLAND_DISPLAY="$(nest_display)" "$KEYBOARD_BIN" "$@"
+  local out
+  out="$(WAYLAND_DISPLAY="$(nest_display)" "$KEYBOARD_BIN" "$@" 2>&1)"
+  [ $? = 0 ] || fail "could not press '$*': $out"
 }
 
 # A gesture that has to pause in the middle (open a window, read geometry) needs

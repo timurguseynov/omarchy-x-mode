@@ -144,6 +144,23 @@ function M.chrome_h(window)
   return h
 end
 
+-- The outer edge a zone is fitted with on this window's workspace: its gap plus
+-- border, not the desktop's. "No gaps" is a workspace rule (gaps_out 0, border 1)
+-- while general:gaps_out and general:border_size stay at the desktop's 10 and 2,
+-- so anything that reads those to fit a zone measures a frame 22px too small on
+-- those workspaces. Nil when the plugin is not there; the caller falls back.
+function M.edge(window)
+  local p = plugin()
+  if p == nil or p.edge == nil then
+    return nil
+  end
+  local ok, e = pcall(p.edge, window)
+  if not ok or type(e) ~= "number" then
+    return nil
+  end
+  return e
+end
+
 -- ------------------------------------------------------- apply what we ask --
 
 -- The three ways a window is put on a zone: the snap itself, the restore of the
@@ -175,24 +192,46 @@ local function restore_path()
   return ctx.state_dir .. "/restore.txt"
 end
 
+-- Write a file whole or not at all. `io.open(path, "w")` truncates first, so a
+-- writer that dies between the open and the write leaves an empty file, and every
+-- reader -- the panel, the next pass of the config, a test -- takes that emptiness
+-- as the state. The panel's list of keys to replace vanished exactly that way
+-- while an install ran on a loaded machine. The temp file is a sibling, so the
+-- rename stays on one filesystem and is atomic.
+function M.write_atomic(path, text)
+  local tmp = path .. ".tmp"
+  local file = io.open(tmp, "w")
+  if file == nil then
+    return false
+  end
+  if not file:write(text) then
+    file:close()
+    os.remove(tmp)
+    return false
+  end
+  file:close()
+  if not os.rename(tmp, path) then
+    os.remove(tmp)
+    return false
+  end
+  return true
+end
+
 local function write_saved()
   local path = restore_path()
   if path == nil then
     return
   end
-  local file = io.open(path, "w")
-  if file == nil then
-    return
-  end
+  local lines = {}
   for addr, box in pairs(saved) do
     -- math.floor: the addresses and sizes come from Hyprland as floats, and %d
     -- on a number that is not integer-valued raises in Lua 5.3+.
-    file:write(string.format(
+    lines[#lines + 1] = string.format(
       "%s %d %d %d %d\n",
       tostring(addr), math.floor(box.x), math.floor(box.y), math.floor(box.w), math.floor(box.h)
-    ))
+    )
   end
-  file:close()
+  M.write_atomic(path, table.concat(lines))
 end
 
 -- Read back what earlier parses saved. An entry whose window is gone is dropped
@@ -586,7 +625,7 @@ function M.resnap()
       return
     end
     for _, w in ipairs(windows()) do
-      if w.floating and not w.pinned and not w.hidden then
+      if w.floating and not w.pinned and not w.hidden and ctx.in_xmode(w) then
         local ok, kind = pcall(p.zone, w)
         if ok and type(kind) == "string" and kind ~= "" then
           pcall(function()
@@ -664,7 +703,9 @@ local function arrange_candidates()
   local out = {}
   for _, w in ipairs(windows()) do
     w = ctx.refresh(w) or w
-    if w.mapped and not w.hidden and not fullscreen(w) and w.monitor ~= nil then
+    -- Only the pack's own workspaces: Omarchy deals with the tiled ones, and
+    -- moving a window there would fight its layout.
+    if w.mapped and not w.hidden and not fullscreen(w) and w.monitor ~= nil and ctx.in_xmode(w) then
       out[#out + 1] = w
     end
   end
@@ -694,7 +735,8 @@ end
 -- windows instead of moving them on screen before the fade.
 function M.float_tiled()
   for _, w in ipairs(windows()) do
-    if w.mapped and not w.floating and not fullscreen(w) then
+    -- A tiled window on another mode's workspace is that mode's, not the pack's.
+    if w.mapped and not w.floating and not fullscreen(w) and ctx.in_xmode(w) then
       hl.dispatch(hl.dsp.window.float({ action = "enable", window = w }))
     end
   end
@@ -703,11 +745,17 @@ end
 -- Deal the open windows across the workspace: a lone group centred, two or more
 -- alternating left and right. The decision is the pure plan_arrange; this only
 -- collects what it needs and applies what it returns.
-function M.arrange()
+function M.arrange(only_space)
   local entries = {}
   for _, w in ipairs(windows()) do
     w = ctx.refresh(w) or w
-    if w.mapped and not w.hidden and not fullscreen(w) and w.monitor ~= nil then
+    -- Another mode's window is not the pack's to deal. The install arrange claims
+    -- those workspaces as xmode first; one that is still dwindle or scrolling
+    -- stays where its layout put it. only_space is a mode change: that one
+    -- workspace is dealt, and a window already sitting on another xmode
+    -- workspace is left where the user has it.
+    local on_space = only_space == nil or tostring(ctx.space_of(w)) == tostring(only_space)
+    if on_space and w.mapped and not w.hidden and not fullscreen(w) and w.monitor ~= nil and ctx.in_xmode(w) then
       entries[#entries + 1] = { key = w, class = ctx.class_of(w), space = ctx.space_of(w) }
     end
   end

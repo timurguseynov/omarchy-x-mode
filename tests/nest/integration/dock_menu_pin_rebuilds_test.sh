@@ -12,12 +12,12 @@ dock_settle
 
 assert_eq "$(dock_box | awk '{print $4}')" 72 "two running apps, no pins"
 
-# Icon 1 is kitty (foot sorts first). Pin it.
-read -r px py <<<"$(dock_icon_point 1)"
+# Pin kitty's icon, found by class: the column's order is the dock's.
+read -r px py <<<"$(dock_icon_point "$(dock_icon_index kitty)")"
 pointer_click "$px" "$py" right
 settle
 
-read -r rx ry <<<"$(dock_menu_row_point 1 4 "26 7 26 7 26 26")"
+read -r rx ry <<<"$(dock_menu_row_point 1 4 "26 7 26 7 26 26 26")"
 pointer_click "$rx" "$ry"
 
 # Pin has to rebuild on that click. The 3s client reconcile would also move
@@ -30,15 +30,20 @@ for _ in $(seq 1 8); do
   sleep 0.2
 done
 
-assert_eq "$(python3 -c "import json;print(','.join(json.load(open('$(dock_pinned_file)'))))")" kitty \
-  "the pin row writes kitty"
+# The write is the dock's, and it lands after the click: waited for, not assumed.
+pinned_is_kitty() {
+  python3 -c "import json;print(','.join(json.load(open('$(dock_pinned_file)'))))" 2>/dev/null | grep -qx kitty
+}
+wait_until 5 pinned_is_kitty || fail "the pin row writes kitty (file: $(cat "$(dock_pinned_file)" 2>/dev/null))"
 
 # The rebuild is the point: pinned kitty + running foot is a two-section card
 # (26 + 6 + 1 + 6 + 26 of icons, plus 14 of padding).
 assert_eq "$h" 79 "pinning a running app grows the separator"
 
-assert_eq "$(dock_layer_box x-mode-dock-menu 2>/dev/null || echo none)" none \
-  "the menu closes after Pin"
+# Closing is a deferred destroy on the dock's side (its menu closes on the next
+# turn), so under a loaded nest it is a moment, not a click.
+menu_gone() { [ -z "$(dock_layer_box x-mode-dock-menu 2>/dev/null)" ]; }
+wait_until 5 menu_gone || fail "the menu closes after Pin (still $(dock_layer_box x-mode-dock-menu 2>/dev/null))"
 
 nest_ctl dispatch "hl.dsp.focus({ window = 'class:foot' })" >/dev/null
 sleep 0.3

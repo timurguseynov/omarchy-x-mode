@@ -22,8 +22,19 @@ printf '%s\n' '{"options":{"noGaps":true},"apps":{}}' > "$SETTINGS"
 nest_ctl reload >/dev/null
 sleep 0.6
 
-assert_eq "$(gaps_out)" 0 "no gaps zeroes gaps_out"
-assert_eq "$(border_size)" 1 "no gaps keeps a 1px border so windows stay separable"
+assert_eq "$(gaps_out)" "$base_gaps" "no gaps leaves the desktop gaps for the other modes"
+assert_eq "$(border_size)" 2 "no gaps leaves the desktop border for the other modes"
+# The hairline is the xmode workspace's own rule, not general:border_size.
+rule="$(nest_ctl workspacerules -j)"
+printf '%s\n' "$rule" | python3 -c "
+import json, sys
+rules = json.load(sys.stdin)
+hit = [r for r in rules if str(r.get('workspaceString')) == '1' and r.get('enabled')]
+assert hit, 'no enabled rule for workspace 1'
+r = hit[-1]
+assert r.get('gapsOut') == [0, 0, 0, 0], r.get('gapsOut')
+assert r.get('borderSize') == 1, r.get('borderSize')
+" || fail "no gaps did not give the xmode workspace a 1px border and zero gaps"
 read -r nx _ _ _ _ <<<"$(win_geom foot)"
 assert_le "$nx" "$bx" "the snapped window moves toward the edge"
 # Not the gaps-on 36 from snap_test.sh: with no gaps the inset is just the 1px

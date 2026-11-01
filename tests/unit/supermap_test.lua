@@ -75,6 +75,16 @@ bind
 	arg: x
 
 bind
+	modmask: 65
+	submap: 
+	key: slash
+	keycode: 0
+	catchall: false
+	description: 
+	dispatcher: exec
+	arg: x
+
+bind
 	modmask: 72
 	submap: 
 	key: LEFT
@@ -161,9 +171,20 @@ check("plan.empty.digit", empty_plan["1/plain"], nil)
 check("plan.empty.digit.ten", empty_plan["0/plain"], nil)
 check("plan.empty.digit.shift", empty_plan["1/shift"], nil)
 
--- Punctuation gets no Shift variant: the shifted keysym is a different key, so
--- the bind would never match.
-check("plan.punct.no-shift", empty_plan["comma/shift"], nil)
+-- Punctuation takes a Shift variant the way a letter does. Hyprland resolves a
+-- bind's key through a keyboard state with no modifiers, so the level-0 keysym is
+-- what `SUPER + SHIFT + backslash` matches even though the press produces `bar`
+-- (KeybindManager::onKeyEvent, m_xkbTranslationState). The apps need it: Cmd+
+-- Shift+\ is Ctrl+Shift+\ (Zed's "reveal in the file tree"), Cmd+Shift+/ is Ctrl+?.
+check("plan.punct.shift", empty_plan["comma/shift"], true)
+check("plan.punct.backslash.shift", empty_plan["backslash/shift"], true)
+-- A Shift chord another bind owns is left alone, the same as the plain key.
+check("plan.punct.shift.occupied", set["slash/shift"], nil)
+check("plan.punct.plain.free", set["slash/plain"], true)
+-- Named keys keep their Shift chords to whoever binds them: the pack's own
+-- SUPER + SHIFT + TAB, + LEFT, ... live on those.
+check("plan.tab.no-shift", empty_plan["TAB/shift"], nil)
+check("plan.return.no-shift", empty_plan["RETURN/shift"], nil)
 
 -- Junk input plans nothing rather than raising.
 check("plan.junk", #supermap.plan("not a bind table"), 0)
@@ -416,3 +437,11 @@ if failures > 0 then
   os.exit(1)
 end
 print("supermap ok")
+
+-- keycode -> name, for the pack's keycode-spelled binds (Omarchy's resize steps):
+-- a Super-as-Ctrl app has to be handed the key's *name* to type Ctrl+minus.
+check("code_name.minus", supermap.code_name(20), "minus")
+check("code_name.equal", supermap.code_name(21), "equal")
+check("code_name.backspace", supermap.code_name(22), "BACKSPACE")
+check("code_name.string", supermap.code_name("20"), "minus")
+check("code_name.unknown", supermap.code_name(999), nil)

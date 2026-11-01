@@ -5,8 +5,8 @@
 . "$(dirname "$0")/../../lib.sh"
 
 dock_start
-open_window kitty
 open_window foot
+open_window kitty
 dock_settle
 
 nest_ctl dispatch "hl.dsp.window.move({ workspace = \"2\", window = 'class:foot' })" >/dev/null
@@ -15,12 +15,13 @@ nest_ctl dispatch "hl.dsp.focus({ workspace = \"1\" })" >/dev/null
 sleep 0.3
 assert_eq "$(viewed_workspace)" 1 "the test starts on workspace 1"
 
-# foot sorts before kitty, so its icon is the first one.
-read -r px py <<<"$(dock_icon_point 0)"
+# The running column is in launch order (newest at the bottom), so the first
+# icon is the app opened first: foot.
+read -r px py <<<"$(dock_icon_point "$(dock_icon_index foot)")"
 pointer_click "$px" "$py" right
 settle
 
-read -r rx ry <<<"$(dock_menu_row_point 0 2 "26 7 26 7 26 26")"
+read -r rx ry <<<"$(dock_menu_row_point 0 2 "26 7 26 7 26 26 26")"
 pointer_click "$rx" "$ry"
 on_foot_ws() { [ "$(viewed_workspace)" = 2 ] && [ "$(active_class)" = foot ]; }
 wait_until 3 on_foot_ws || true

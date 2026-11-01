@@ -60,6 +60,13 @@ function M.key_code(name)
   return CODE_BY_KEY[tostring(name or ""):lower()]
 end
 
+-- keycode -> key name, the other direction. The pack binds some tiling keys by
+-- keycode (Omarchy writes its resize steps as `code:20`/`code:21`), and a Super-as-
+-- Ctrl app has to be handed the *name* of the key to type Ctrl+minus for it.
+function M.code_name(code)
+  return CODE[tonumber(code)]
+end
+
 -- The description every generated bind carries, so a replan does not read back
 -- its own binds as occupied.
 M.PREFIX = "x-mode-super-ctrl"
@@ -434,10 +441,22 @@ function M.occupied_json(entries)
   return "[" .. table.concat(parts, ",") .. "]"
 end
 
--- The free keys as { { key = "T", shift = false }, ... }, letters first. A
--- letter also gets its Shift variant (Ctrl+Shift+T, Ctrl+Shift+N, ...); for
--- punctuation the shifted keysym is a different key, so a Shift bind would
--- never match and none is planned.
+-- Whether a key takes a Shift variant in the plan. A letter is one (Ctrl+Shift+T)
+-- and so is a punctuation key (Ctrl+Shift+\), whose name is the level-0 keysym the
+-- bind matches -- see the note on M.plan. A named key is not: the pack binds its
+-- Shift chords itself.
+local function takes_shift(key)
+  return key:match("^%a$") ~= nil or key:match("^%l+$") ~= nil
+end
+
+-- The free keys as { { key = "T", shift = false }, ... }, letters first. A letter
+-- or a punctuation key also gets its Shift variant (Ctrl+Shift+T, Ctrl+Shift+\).
+-- Hyprland resolves a bind's key through a keyboard state with no modifiers
+-- (`m_xkbTranslationState`, KeybindManager::onKeyEvent), so the level-0 keysym is
+-- what `SUPER + SHIFT + backslash` matches even though Shift+\ produces `bar`.
+-- The named keys (RETURN, TAB, LEFT, ...) are left out: the pack binds their
+-- Shift chords itself (`textkeys`, the backward window switch), and a generated
+-- bind on one would run alongside it.
 --
 -- The digits are never planned, even when nothing holds them. They are the
 -- workspace keys, and with the workspaces on the F keys the pack binds them
@@ -458,7 +477,7 @@ function M.plan(raw)
       if not plain[key:lower()] then
         out[#out + 1] = { key = key, shift = false }
       end
-      if key:match("^%a$") and not shifted[key:lower()] then
+      if takes_shift(key) and not shifted[key:lower()] then
         out[#out + 1] = { key = key, shift = true }
       end
     end

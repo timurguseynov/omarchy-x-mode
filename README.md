@@ -8,8 +8,8 @@
 
 > Never minimize or hide windows. Spaces are only for something extra. Snaps and tabs arrange the windows, so they can sit on top of each other, and you never think about spaces, hiding or where you put a window. The dock is always on for fast access.
 
+https://github.com/user-attachments/assets/d1749801-e1cb-4fc9-a65a-03313b7797a8
 
-https://github.com/user-attachments/assets/1d0ee48a-e2cf-4620-af27-7e85b7145060
 
 
 **Floating windows · Mac titlebars · App tabs · Window snapping · Dock · App switcher · Mac shortcuts**
@@ -22,14 +22,15 @@ https://github.com/user-attachments/assets/1d0ee48a-e2cf-4620-af27-7e85b7145060
 
 The Mac habits that keep you fast — on Omarchy.
 
-* **Floating windows.** Everything opens floating.
+* **Floating windows, as a layout.** Omarchy 4.5 gives every workspace a mode — tiling, scrolling, floating — and X Mode adds its own, `xmode`, to the same list. On an `xmode` workspace everything opens floating, with the titlebar, the tabs and the snaps below; on every other mode the pack stays out of the way and Omarchy's layout owns the window. `Super+L` walks the ring (`tiling → scrolling → floating → xmode`), `Super+Alt+L` walks it back, and *Appearance → Workspace Layout* in the Omarchy menu sets the default.
+* **On an older Omarchy (4.0.x).** Omarchy's workspace modes arrived in 4.5; before that the pack keeps the modes in its own state file, so the ring, the snaps and the titlebars work the same. The bar's workspace numbers stay Omarchy's there, so their click keeps her own layouts.
 * **Titlebars like a Mac.** A window moves by the titlebar, closes with the button.
 * **Tabs in every app.** Like native tabs on a Mac, but for every app you choose: two windows of the same app on a workspace become tabs of one window.
 * **Compact tabs.** One Chrome-like titlebar row instead of titlebar plus tabbar. Tabs stay a limited width; leftover space after `+` drags the window. On for every app, or for one.
 * **Snaps.** Rectangle-like snapping from the titlebar: drag to a side for a half, a corner for a quarter, the top edge to maximize. `Super+Alt+←/→` cycles `½ → ⅔ → ⅓`.
-* **The Dock.** The familiar column of pinned and running apps, on the right edge. Click to focus or launch, right-click for a new window, the window list, pin or quit, drag pins to reorder.
+* **The Dock.** The familiar column of pinned and running apps, on the right edge. Click to focus or launch, right-click for a new window, the window list, pin, quit — or Force Quit, for an app that stopped answering — and drag pins to reorder. A new app joins the bottom of the running icons, the way it does on a Mac.
 * **Command-Tab.** Hold Super and tap Tab — the app switcher you use all day, most recently used first. Click an icon or release Super to switch.
-* **The rest of the Mac keys.** Copy, paste and cut Omarchy already does. X Mode adds `Super+←`/`→` by line, `Super+↑`/`↓` by document, `Alt+←`/`→` by word, deleting a word, or to the start and end of the line, `Super+[`/`]` back and forward, `Super+Shift+3…5` screenshots and `Super+Ctrl+Q` lock. Shortcuts are configurable app by app, so the Mac experience stays seamless even where one app disagrees.
+* **The rest of the Mac keys.** Copy, paste and cut Omarchy already does. X Mode adds `Super+←`/`→` by line, `Super+↑`/`↓` by document, `Alt+←`/`→` by word, deleting a word, or to the start and end of the line, `Super+[`/`]` back and forward (or moving code, from Shortcuts), `Super+Shift+3…5` screenshots and `Super+Ctrl+Q` lock. Shortcuts are configurable app by app, so the Mac experience stays seamless even where one app disagrees.
 * **The settings panel.** Open it from the top-bar button: X Mode on or off, per-app titlebars and grouping, and the shortcuts. Settings survive uninstall.
 
 ---
@@ -56,6 +57,23 @@ If the shell was not running, finish with `omarchy-restart-shell`.
 
 ---
 
+## Workspace modes
+
+Omarchy keeps a mode per workspace in `~/.local/state/omarchy/workspace-layouts` and
+replays those files at every login, so a workspace stays where you put it.
+
+* `xmode` is the pack's own mode: floating windows, titlebars, tabs, snaps, and the
+  Mac keys.
+* Tiling, scrolling and Omarchy's floating are hers: the pack draws no titlebar
+  there, does not group there, does not snap there, and hands the tiling keys back
+  to her — `Super+←/→` focuses, `Super+T` floats, the resize steps resize, and so on.
+* `Super+L` cycles a workspace through all four, `Super+Alt+L` cycles back. The same
+  cycle is in the bar's layout menu, and *Appearance → Workspace Layout* sets the
+  mode new workspaces get.
+* `~/.config/hypr/x-mode/xmode` is the script behind both: `xmode next`, `xmode back`,
+  `xmode current [workspace]`, `xmode set <workspace> <mode>`, `xmode here`,
+  `xmode default [mode]`.
+
 ## Uninstallation
 
 ```bash
@@ -72,11 +90,17 @@ The main card:
 
 * **X Mode** on or off
 * **Native scroll** — natural (reversed) touchpad scrolling
-* **No gaps** — windows sit flush
+* **No gaps** — windows sit flush, on an xmode workspace only
 * **Compact tabs** — tabs in the titlebar, for every app
-* **Show dock** — the app column on the right edge; off hides it and gives its screen space back to the snap zones
+* **Set workspace to X-Mode** — this workspace only; the same half of the job the Omarchy menu's X Mode row finishes
 * **Shortcuts** — the default for every app
+* **Experimental** — options that are not part of the desktop yet
 * **Apps** — open one to change its titlebar and shortcuts
+
+The Experimental page:
+
+* **Show dock** — the pack’s app column on the right edge. Off hides it and gives its screen space back to the snap zones. Not Omarchy’s bar.
+* Anything here is unfinished: it can change or go away in a later version.
 
 An app’s card:
 
@@ -94,14 +118,16 @@ The every-app list starts with:
 
 Then the same rows in both lists:
 
-* **Super as Ctrl** — Super+letter becomes Ctrl+letter, so `⌘T`, `⌘R`, `⌘L` work like Command on a Mac
+* **Super as Ctrl** — Super+letter and Super+punctuation become Ctrl+letter and Ctrl+punctuation, so `⌘T`, `⌘R`, `⌘L` and `⌘⇧\` work like Command on a Mac
 * **`⌘1`…`0` switch tabs** — needs Workspaces on F1…F10
 * **`⌃1`…`0` switch tabs** — works without it; off, they switch the app’s own tabs (browser, editor)
 * **`⌘`-click as `⌃`-click**
 * **`⌃C` as `⌃⇧C`** — interrupt in a terminal; `⌘C` still copies
+* **`⌘[` `⌘]` move code** — outdent and indent, the way an editor binds `Ctrl+[` / `Ctrl+]`. Off, the same keys go back and forward
+* **`⌘⇧T` reopen tab** — the app's `Ctrl+Shift+T` (the last closed tab). Off, Omarchy's Activity keeps the key
 * Keys the desktop already uses (`⌘Q` quit, `⌘W` close, `⌘F` fullscreen, `⌘Tab` the switcher, …). Turn one on and the app gets it as Ctrl instead (`⌘W` closes a tab inside the app)
 
-`⌘C` / `⌘V` / `⌘X` always copy, paste and cut. They are not in this list.
+`⌘A` / `⌘C` / `⌘V` / `⌘X` always select all, copy, paste and cut. They are not in this list.
 
 ---
 
@@ -121,6 +147,7 @@ Super is Command (`⌘` in the panel).
 | `Super` + `1`…`0` | Jump to tab *N* (when Workspaces on F1…F10 and `⌘1`…`0` for tabs are on) |
 | `Super` + `W` | Close window or tab |
 | `Super` + `Q` | Quit the app |
+| `Super` + `Shift` + `T` | Reopen the closed tab (off until enabled in Shortcuts) |
 
 ### Snapping
 
@@ -141,6 +168,22 @@ Super is Command (`⌘` in the panel).
 | `Super` + `C` / `V` / `X` | Copy / paste / cut |
 | `Super` + `F` | Fullscreen (or Find, if Shortcuts hands `⌘F` to the app) |
 | `Super` + `Ctrl` + `F` | Fullscreen |
+
+In a terminal window `⌘C` and `⌘V` are sent as `⌃Insert` and `⇧Insert`, not as
+`⌃C`/`⌃V`: `⌃C` is the interrupt there. That is the chord readline, nvim and tmux
+expect. A terminal that owns the chord itself (`Ghostty` binds
+`ctrl+insert=copy_to_clipboard` by default) has to copy *and* pass it on, or tmux
+never sees `⌘C`; Ghostty 1.3 and later chain the two actions:
+
+```
+keybind = control+insert=copy_to_clipboard
+keybind = chain=csi:2;5~
+```
+
+Tmux gets `C-Insert` from that sequence, so its copy mode needs the chord too:
+`bind -T copy-mode-vi C-Insert send -X copy-pipe-no-clear wl-copy`. A plain shell
+gets the same sequence and readline does not know it, leaving `5~` at the prompt,
+so a readline shell swallows it in `~/.inputrc`: `"\e[2;5~": ""`.
 
 ### Screenshots, recording, lock
 
@@ -189,3 +232,12 @@ Move and resize from the titlebar and the window edges.
 ## License
 
 MIT. See `LICENSE`. The vendored hyprbars is BSD 3-Clause; see [hyprbars/README.md](hyprbars/README.md).
+
+---
+
+## Donations
+
+- **EVM Chains (ETH, USDT, USDC, Base, Polygon, Arbitrum, BSC, Linea):** `0x581751947baDFf4c46C7A28a96Cf3F5708a7f930`
+- **USDT (TRC20 / TRON):** `TLpzPs9YiUo5aJkHfGsn2FJViGYeN1mu3L`
+- **Bitcoin (BTC):** `bc1qyknwc9z3uhrpnwzyz05lp2lrmqswxxwuthjg6z`
+- **Solana (SOL):** `7G3dMnz12rjFiwkTDjxf713q1xDmcXPjP3xCPnAwsfe4`

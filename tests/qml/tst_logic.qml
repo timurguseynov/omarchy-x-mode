@@ -20,6 +20,17 @@ TestCase {
         compare(Logic.parseEnabled(null), true, "missing file reads as on")
     }
 
+    // The panel's "Set workspace to X-Mode" row runs the pack's own layout
+    // script -- the same command Omarchy's menu row ends with -- so the two
+    // cannot write different modes.
+    function test_xmodeHereCommand() {
+        compare(Logic.xmodeHereCommand("/home/tim"), "'/home/tim/.config/hypr/x-mode/xmode' here")
+        compare(Logic.xmodeHereCommand("/home/a b"), "'/home/a b/.config/hypr/x-mode/xmode' here",
+                "a home with a space stays one argument")
+        compare(Logic.xmodeHereCommand(""), "\"$HOME\"/.config/hypr/x-mode/xmode here",
+                "no home falls back to the shell's $HOME, still one argument")
+    }
+
     function test_shellQuote() {
         compare(Logic.shellQuote("abc"), "'abc'")
         compare(Logic.shellQuote("a'b"), "'a'\\''b'")
@@ -102,7 +113,16 @@ TestCase {
         compare(s["zed"].ctrlClick, undefined)
         compare(s["zed"].digitTabs, undefined)
         compare(s["zed"].ctrlTabSwitch, undefined)
+        compare(s["zed"].moveCode, undefined)
+        compare(s["zed"].reopenTab, undefined)
         compare(s["zed"].ctrlAsSuperKeys.length, 0)
+        var moved = Logic.parseApps('{"Zed":{"moveCode":true,"reopenTab":true},"Chromium":{"moveCode":false,"reopenTab":false}}')
+        compare(moved["zed"].moveCode, true)
+        compare(moved["chromium"].moveCode, false, "an explicit false is Always off")
+        compare(moved["zed"].reopenTab, true)
+        compare(moved["chromium"].reopenTab, false, "an explicit false is Always off")
+        compare(Logic.setGlobalFlag({}, "moveCode", true).moveCode, true)
+        compare(Logic.setGlobalFlag({}, "reopenTab", true).reopenTab, true)
     }
 
     function test_parseApps_accepts_object() {
@@ -266,7 +286,7 @@ TestCase {
         var ids = []
         for (var i = 0; i < r.actions.length; i++)
             ids.push(r.actions[i].id)
-        compare(ids, ["new", "sep", "win:0x1", "win:0x2", "sep", "pin", "close"])
+        compare(ids, ["new", "sep", "win:0x1", "win:0x2", "sep", "pin", "forcequit", "close"])
         compare(r.actions[0].label, "New Foot")
     }
 
@@ -280,6 +300,34 @@ TestCase {
         for (var j = 0; j < r.actions.length; j++)
             ids.push(r.actions[j].id)
         verify(ids.indexOf("unpin") !== -1, "pinned app offers unpin")
+    }
+
+    // The two rows run different dispatchers, and that is the only difference a
+    // test can see: the window goes away either way.
+    function test_menu_close_and_kill_commands() {
+        compare(Logic.windowCloseCommand("0xabc"), "hl.dsp.window.close({ window = 'address:0xabc' })")
+        compare(Logic.windowKillCommand("0xabc"), "hl.dsp.window.kill({ window = 'address:0xabc' })")
+    }
+
+    // Force Quit is the SIGKILL row, and it sits above Quit: the last row is
+    // what a hurried click lands on, and that has to be the one that asks the
+    // app to close rather than killing it.
+    function test_buildMenuActions_force_quit_before_quit() {
+        var r = Logic.buildMenuActions(mkMenuApp(), [mkMenuApp()], "Foot", false)
+        var ids = []
+        for (var i = 0; i < r.actions.length; i++)
+            ids.push(r.actions[i].id)
+        compare(ids[ids.length - 1], "close", "Quit stays the last row")
+        compare(ids[ids.length - 2], "forcequit", "Force Quit is the row above it")
+
+        var idle = mkMenuApp()
+        idle.addrs = []
+        idle.wins = []
+        var none = Logic.buildMenuActions(idle, [idle], "Foot", false)
+        var quit = none.actions[none.actions.length - 1]
+        var force = none.actions[none.actions.length - 2]
+        compare(force.enabled, false, "nothing to kill for an app with no windows")
+        compare(quit.enabled, false, "and nothing to quit")
     }
 
     function mkPanelRunning() {
@@ -592,6 +640,63 @@ TestCase {
         compare(Logic.samePins(null, ["a"]), false)
     }
 
+    // Hyprland writes an address as bare hex in a event and as 0x-hex in its
+    // JSON; a close that does not match its window is a window that never
+    // leaves the dock.
+    function test_addressKey() {
+        compare(Logic.addressKey("55F0"), "0x55f0", "the event's bare hex")
+        compare(Logic.addressKey("0x55F0"), "0x55f0", "the JSON's spelling")
+        compare(Logic.addressKey(""), "")
+        compare(Logic.addressKey(null), "")
+        compare(Logic.addressKey(undefined), "")
+    }
+
+    // The row a window leaves behind when its close never reached the dock: the
+    // snapshot does not list it, so it goes. This is the whole point of the
+    // merge -- removal used to be the close event's job alone.
+    function test_mergeClientSnapshot_drops_what_the_snapshot_lost() {
+        var cur = [
+            { address: "0x1", "class": "steam", mapped: true, hidden: false },
+            { address: "0x2", "class": "foot", mapped: true, hidden: false }
+        ]
+        var snap = [{ address: "0x2", "class": "foot", mapped: true, hidden: false, workspace: { id: 3 }, focusHistoryID: 4 }]
+        var out = Logic.mergeClientSnapshot(cur, snap, ({}))
+        compare(out.length, 1, "the closed app's row is gone")
+        compare(out[0].class, "foot", "the window that is still there stays")
+        compare(out[0].workspace.id, 3, "the snapshot still refreshes the workspace")
+        compare(out[0].focusHistoryID, 4, "and the focus history")
+    }
+
+    function test_mergeClientSnapshot_snapshot_refreshes_mapped_and_hidden() {
+        var cur = [{ address: "0x1", "class": "foot", mapped: true, hidden: false }]
+        var snap = [{ address: "0x1", mapped: false, hidden: true, workspace: { id: 2 }, focusHistoryID: 7 }]
+        var out = Logic.mergeClientSnapshot(cur, snap, ({}))
+        compare(out.length, 1)
+        compare(out[0].mapped, false, "mapped comes from the snapshot")
+        compare(out[0].hidden, true, "so does hidden")
+        compare(out[0].class, "foot", "a class the event gave is kept")
+    }
+
+    // A window touched by an event while the query was in flight is older in the
+    // snapshot than the event. The snapshot must not undo it.
+    function test_mergeClientSnapshot_touched_rows_keep_their_event_state() {
+        var snap = [{ address: "0x1", "class": "steam", mapped: true, workspace: { id: 1 } }]
+        compare(Logic.mergeClientSnapshot([], snap, { "0x1": true }).length, 0,
+                "a window closed during the query is not resurrected")
+
+        var opened = [{ address: "0x9", "class": "kitty", mapped: true, hidden: false, workspace: { id: 5 } }]
+        var merged = Logic.mergeClientSnapshot(opened, snap, { "0x9": true })
+        compare(merged.length, 2, "the window opened during the query is kept, and so is the snapshot's")
+        compare(merged[0].class, "kitty")
+        compare(merged[1].class, "steam")
+
+        var held = [{ address: "0x2", "class": "foot", mapped: true, hidden: false, workspace: { id: 1 } }]
+        var stale = [{ address: "0x2", "class": "foot", mapped: true, hidden: false, workspace: { id: 4 } }]
+        var kept = Logic.mergeClientSnapshot(held, stale, { "0x2": true })
+        compare(kept.length, 1)
+        compare(kept[0].workspace.id, 1, "a touched row keeps what its event said")
+    }
+
     function mkClients() {
         return [
             { address: "0x1", "class": "foot", mapped: true, title: "t1", workspace: { id: 1 }, focusHistoryID: 1 },
@@ -643,6 +748,50 @@ TestCase {
         compare(after[0].running, true)
         compare(after[1].cls, "foot")
         compare(after[1].pinned, false)
+    }
+
+    function test_buildDockApps_run_order() {
+        // kitty before foot is the reverse of the class sort, so the column says
+        // which of the two orders the model used.
+        var clients = [
+            { address: "0x1", "class": "kitty", mapped: true, title: "k", workspace: { id: 1 }, focusHistoryID: 0 },
+            { address: "0x2", "class": "foot", mapped: true, title: "f", workspace: { id: 1 }, focusHistoryID: 1 }
+        ]
+        compare(Logic.buildDockApps(clients, [], []).map(function(a) { return a.cls }).join(","), "foot,kitty",
+                "with no remembered order the class sort is still the fallback")
+        compare(Logic.buildDockApps(clients, [], ["kitty", "foot"]).map(function(a) { return a.cls }).join(","),
+                "kitty,foot", "the remembered launch order wins over the sort")
+        // A class the order does not know goes after every one it does, sorted,
+        // so a burst of new windows has a stable order.
+        compare(Logic.buildDockApps(clients, [], ["zzz"]).map(function(a) { return a.cls }).join(","), "foot,kitty")
+    }
+
+    function test_buildDockApps_order_keeps_pins_first() {
+        var clients = [
+            { address: "0x1", "class": "foot", mapped: true, title: "f", workspace: { id: 1 }, focusHistoryID: 0 },
+            { address: "0x2", "class": "kitty", mapped: true, title: "k", workspace: { id: 1 }, focusHistoryID: 1 }
+        ]
+        var apps = Logic.buildDockApps(clients, ["kitty"], ["kitty", "foot"])
+        compare(apps[0].cls, "kitty", "the pin list decides the pinned slot, not the launch order")
+        compare(apps[0].pinned, true)
+        compare(apps[1].cls, "foot")
+        compare(apps[1].pinned, false)
+    }
+
+    function test_reconcileDockOrder_new_at_the_bottom() {
+        // New classes are appended sorted, whatever order the caller hands them
+        // over in: several appearing in one build must not depend on the burst.
+        compare(Logic.reconcileDockOrder([], ["kitty", "foot"]).join(","), "foot,kitty")
+        compare(Logic.reconcileDockOrder(["kitty"], ["kitty", "foot"]).join(","), "kitty,foot",
+                "a class that appeared is appended")
+        compare(Logic.reconcileDockOrder(null, ["kitty"]).join(","), "kitty", "a missing order is empty")
+        // A class that quit drops out, so launching it again is a new app and
+        // lands at the bottom instead of back in its old slot.
+        compare(Logic.reconcileDockOrder(["kitty", "foot"], ["foot"]).join(","), "foot")
+        compare(Logic.reconcileDockOrder(["foot"], ["kitty", "foot"]).join(","), "foot,kitty")
+        // Several new classes in one build are appended sorted, not in the
+        // order the model happened to hand them over.
+        compare(Logic.reconcileDockOrder(["foot"], ["foot", "zed", "kitty"]).join(","), "foot,kitty,zed")
     }
 
     function test_dockAppsSig_covers_titles() {

@@ -27,6 +27,12 @@ Item {
   // the callback never arrives, so the card stays one icon tall.
   property var clientBuf: []
   property var pinned: []
+  // The running column's launch order, oldest first, so a new app joins the
+  // bottom of the column (logic.js buildDockApps, kept by reconcileDockOrder).
+  // Persisted next to the pin list, so a shell restart keeps the column instead
+  // of re-sorting it alphabetically.
+  property var classOrder: []
+  property bool classOrderLoaded: false
   property var apps: []
   property string appsSig: ""
   // Apps we just launched (via the dock) that have not appeared yet, so repeated
@@ -44,6 +50,12 @@ Item {
   // to turn an icon's window-local Y into a screen Y for the menu.
   property real dockPanelTop: 0
   property bool xModeOn: true
+  // The mode of the workspace on screen, as the pack publishes it
+  // ($XDG_RUNTIME_DIR/omarchy-x-mode.workspace, written whenever the active
+  // workspace changes). The dock is a layer surface, so it belongs to the monitor
+  // and not to a workspace: "only on xmode desktops" means the dock hides itself,
+  // and this is the one piece of the pack's state it cannot get from Hyprland.
+  property string workspaceMode: ""
   // The panel's "Show dock" option. The dock's own half of it: the layer is
   // hidden while it is off, and the card stops counting for the snap inset
   // because no layer is there to be read. Default on, so a file written before
@@ -68,6 +80,7 @@ Item {
   readonly property bool emptyDock: pinnedApps.length === 0 && runningApps.length === 0
 
   readonly property string pinnedPath: Quickshell.env("HOME") + "/.config/omarchy/x-mode-dock.json"
+  readonly property string classOrderPath: Quickshell.env("HOME") + "/.config/omarchy/x-mode-dock-order.json"
   // What the card is actually showing, one class per line, next to the other
   // files the pack keeps in the runtime directory. The card's box says how many
   // icons there are but not which, and the order is what the click helpers
@@ -75,6 +88,14 @@ Item {
   // it. Written only when the published list changes, the same moment the
   // icons move.
   readonly property string orderPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode.dock-order"
+  // What the dock saw and what it did with it, one line per event, for the runs
+  // where a click does nothing. A click that never reaches a handler and one the
+  // handler throws away look identical from outside -- the app does not change --
+  // and this is the difference. Off unless X_MODE_DOCK_DEBUG=1, so a normal
+  // session writes nothing.
+  readonly property bool debugClicks: Quickshell.env("X_MODE_DOCK_DEBUG") === "1"
+  readonly property string clickLogPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode.dock-clicks"
+  property var clickLog: []
   readonly property string launchPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode-launch.cmd"
   property int lastLaunchSeq: -1
   property bool launchFileReady: false
@@ -86,7 +107,11 @@ Item {
   // readonly: the inset test overrides it, and x-mode.lua reads the result off
   // the layer rather than keeping its own copy of this sum.
   property int cardWidth: iconSize + pad * 2
-  readonly property int dockGap: Style.gapsOut || 0
+  property bool noGaps: false
+  // No gaps is an xmode setting. The dock only shows there, so its screen
+  // margin goes away with the option instead of following general:gaps_out,
+  // which the other modes still use.
+  readonly property int dockGap: noGaps ? 0 : (Style.gapsOut || 0)
   // Empty dock still paints a one-icon card so it does not collapse to a pill.
   readonly property int minIconsHeight: iconSize
   // Dock corner radius, following the window rounding (decoration:rounding via
@@ -115,7 +140,25 @@ Item {
   // logic.js so it is unit tested without a compositor. Only the side
   // effects stay here: clearing "launching" and publishing apps/sig.
   function rebuildApps() {
-    var out = Logic.buildDockApps(clients, pinned)
+    var out = Logic.buildDockApps(clients, pinned, classOrder)
+    // Remember today's running column. A class that quit drops out below and a
+    // class that just appeared is appended at the end, which is what keeps a
+    // new app at the bottom; the model placed it there already, so what is
+    // remembered is the order the card is showing.
+    var running = []
+    for (var r = 0; r < out.length; r++) {
+      if (!out[r].pinned && out[r].running)
+        running.push(out[r].cls)
+    }
+    var next = Logic.reconcileDockOrder(classOrder, running)
+    if (!Logic.samePins(next, classOrder)) {
+      classOrder = next
+      // Only once the state file has been read: the first rebuild runs before
+      // the FileView has loaded, and writing here would replace the remembered
+      // order with the alphabetical fallback on every start.
+      if (classOrderLoaded)
+        classOrderFile.setText(JSON.stringify(next) + "\n")
+    }
     for (var i = 0; i < out.length; i++) {
       // The app appeared: it is no longer "launching".
       if (out[i].running && root.launching[out[i].cls] !== undefined)
@@ -134,6 +177,15 @@ Item {
 
   function samePins(a, b) {
     return Logic.samePins(a, b)
+  }
+
+  function noteClick(line) {
+    if (!root.debugClicks)
+      return
+    var log = root.clickLog.slice(-40)
+    log.push(Number(Date.now() % 100000).toFixed(3) + " " + line)
+    root.clickLog = log
+    clickFile.setText(log.join("\n") + "\n")
   }
 
   function focusAddr(addr) {
@@ -176,9 +228,38 @@ Item {
   function appDisplayName(cls) { return icons.appDisplayName(cls) }
   function isSingleInstance(cls) { return icons.isSingleInstance(cls) }
 
+  // A click decides from `apps`, and `apps` is a publish behind: a client event
+  // that has arrived but whose timer has not fired yet leaves the click looking
+  // at the column as it was before that window appeared or changed focus. The
+  // click then picks the window it knew about -- the other tab of the group, the
+  // other workspace -- and the run that clicked right after focusing sees a tab
+  // switch nobody asked for. Publish first, then decide.
+  function flushClients() {
+    if (!clientPublish.running)
+      return
+    clientPublish.stop()
+    root.clients = root.clientBuf
+    root.rebuildApps()
+  }
+
+  // The delegate hands over the app object it was built with, which the flush
+  // above may have just replaced. Same class, current data.
+  function freshApp(app) {
+    if (!app)
+      return app
+    for (var i = 0; i < root.apps.length; i++) {
+      if (root.apps[i].cls === app.cls)
+        return root.apps[i]
+    }
+    return app
+  }
+
   function activate(app) {
     // A left-click on the dock (now reachable while the menu is open, since
     // the overlay no longer covers it) dismisses any open menu.
+    root.flushClients()
+    app = root.freshApp(app)
+    root.noteClick("activate " + app.cls + " running=" + app.running + " best=" + app.bestAddr + " active=" + root.activeClass)
     root.closeMenu()
     if (app.running) {
       focusGroup(app)
@@ -252,10 +333,23 @@ Item {
     if (!app || !app.addrs)
       return
     for (var i = 0; i < app.addrs.length; i++)
-      Hyprland.dispatch("hl.dsp.window.close({ window = 'address:" + app.addrs[i] + "' })")
+      Hyprland.dispatch(Logic.windowCloseCommand(app.addrs[i]))
+  }
+
+  // Force Quit: SIGKILL, for the window whose app stopped reading its close
+  // request. Hyprland's kill dispatcher is the one that does that, so this is
+  // the same round trip closeApp makes, with the other dispatcher.
+  function killApp(app) {
+    if (!app || !app.addrs)
+      return
+    for (var i = 0; i < app.addrs.length; i++)
+      Hyprland.dispatch(Logic.windowKillCommand(app.addrs[i]))
   }
 
   function openMenu(app, screenY) {
+    root.flushClients()
+    app = root.freshApp(app)
+    root.noteClick("openMenu " + (app ? app.cls : "null"))
     // The overlay is a new layer. Creating it inside the click handler waits
     // on a frame callback before the handler returns, and the nest then cannot
     // deliver that frame. Open it on the next turn, after the click is done.
@@ -314,6 +408,8 @@ Item {
       menuCloseDefer.pinCls = app ? app.cls : ""
     } else if (id === "close")
       closeApp(app)
+    else if (id === "forcequit")
+      killApp(app)
     // The menu layer goes away on the next turn. Destroying it in this click
     // waits on a frame callback before the close or focus dispatch is written,
     // and the nest then never delivers that frame.
@@ -355,12 +451,7 @@ Item {
   property var touchedDuringQuery: ({})
 
   function normAddr(addr) {
-    var s = String(addr || "").toLowerCase()
-    if (s === "")
-      return ""
-    if (s.indexOf("0x") !== 0)
-      s = "0x" + s
-    return s
+    return Logic.addressKey(addr)
   }
 
   function splitEvent(data, n) {
@@ -500,6 +591,9 @@ Item {
     return changed
   }
 
+  // The merge itself is logic.js mergeClientSnapshot (unit tested): events say
+  // what changed, the snapshot says what exists. Both halves are needed -- a
+  // window it no longer lists is gone, even if the close event never arrived.
   function absorbClientSnapshot(raw) {
     var snap = []
     try {
@@ -507,48 +601,12 @@ Item {
       if (Array.isArray(d))
         snap = d
     } catch (e) {
+      // A query killed part-way leaves half a document. Keep what the dock has
+      // rather than treating a truncated list as "every window closed".
       return
     }
-    var bySnap = {}
-    var s
-    for (s = 0; s < snap.length; s++)
-      bySnap[normAddr(snap[s].address)] = snap[s]
-    var touched = root.touchedDuringQuery || {}
-    var next = []
-    var seen = {}
-    var i
-    for (i = 0; i < root.clientBuf.length; i++) {
-      var row = root.clientBuf[i]
-      var id = normAddr(row.address)
-      seen[id] = true
-      var fromSnap = bySnap[id]
-      // A close during the query leaves the window touched and already gone.
-      if (touched[id] && !row)
-        continue
-      if (fromSnap && !touched[id]) {
-        row.mapped = fromSnap.mapped
-        row.hidden = fromSnap.hidden
-        // movewindow can be missed while the nest is busy. The snapshot is
-        // the heal: a click then switches to the workspace the window is
-        // actually on, instead of treating it as already focused here.
-        if (fromSnap.workspace && typeof fromSnap.workspace.id === "number")
-          row.workspace = { id: fromSnap.workspace.id }
-        if (typeof fromSnap.focusHistoryID === "number")
-          row.focusHistoryID = fromSnap.focusHistoryID
-        if (!row.class)
-          row.class = fromSnap.class
-      }
-      next.push(row)
-    }
-    for (s = 0; s < snap.length; s++) {
-      var sid = normAddr(snap[s].address)
-      // Closed while the query ran: the event removed it and the snapshot
-      // still has the older copy.
-      if (!seen[sid] && !touched[sid])
-        next.push(snap[s])
-    }
+    root.clientBuf = Logic.mergeClientSnapshot(root.clientBuf, snap, root.touchedDuringQuery)
     root.touchedDuringQuery = ({})
-    root.clientBuf = next
     root.scheduleClientPublish()
   }
 
@@ -583,8 +641,51 @@ Item {
     printErrors: false
   }
 
+  FileView {
+    id: clickFile
+    path: root.clickLogPath
+    printErrors: false
+  }
+
+  // The remembered launch order. The report above says what the card shows now,
+  // this is what it should show next time: a shell restart (a theme switch, a
+  // logout) reads it back instead of re-sorting the column alphabetically.
+  FileView {
+    id: classOrderFile
+    path: root.classOrderPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      root.classOrderLoaded = true
+      var next = []
+      try {
+        var d = JSON.parse(text())
+        if (Array.isArray(d))
+          next = d
+      } catch (e) {}
+      if (root.samePins(root.classOrder, next))
+        return
+      root.classOrder = next
+      root.rebuildApps()
+    }
+    // No file yet, or a read that raced our own write: remember the column as
+    // it stands. Without this the flag would stay false and the state file
+    // would never be written on a machine that has none.
+    onLoadFailed: {
+      root.classOrderLoaded = true
+      root.rebuildApps()
+    }
+  }
+
   // Tabbar +. Ignore the leftover on first load so a previous session's file
   // does not spawn a window when the dock starts; seq then dedupes the IPC.
+  //
+  // A missing file primes too. Without that the first + of a session -- the one
+  // whose write is the first thing this FileView ever loads -- was taken for
+  // that leftover and dropped, and the click's own IPC event was then deduped
+  // by the seq it had just adopted: the click did nothing at all. That is the
+  // tabbar_plus_opens_window_test flake.
   FileView {
     path: root.launchPath
     watchChanges: true
@@ -600,6 +701,7 @@ Item {
       }
       root.applyLaunchCmd(text())
     }
+    onLoadFailed: root.launchFileReady = true
   }
 
   FileView {
@@ -646,13 +748,28 @@ Item {
     onTriggered: pinnedFile.reload()
   }
 
-  // Slow reconcile for mapped/hidden. Events cover open, close, move,
+  // Slow reconcile for what the events do not carry: mapped, hidden, and which
+  // windows exist at all (a close event the dock never saw does not keep a
+  // window alive -- the query is the authority). Events cover open, close, move,
   // title and focus, so this does not have to run on every event.
   Timer {
     interval: 3000
     running: true
     repeat: true
     onTriggered: root.refreshClients()
+  }
+
+  // One hung query used to switch the periodic refresh off for good: the
+  // refresh returns while the process still counts as running, and nothing else
+  // ever asks again. A `hyprctl -j clients` that takes this long is dead, not
+  // slow; kill it and let the next tick ask again.
+  Timer {
+    interval: 5000
+    running: clientsProc.running
+    onTriggered: {
+      clientsProc.running = false
+      root.touchedDuringQuery = ({})
+    }
   }
 
   Connections {
@@ -680,14 +797,16 @@ Item {
       root.xModeOn = on
   }
 
-  // The panel's settings file, for the one option the dock reads itself. Same
-  // torn-read rule as everything else here: a read that is not an answer keeps
-  // what the dock is showing.
+  // The panel's settings file, for the two options the dock reads itself: the
+  // dock's own switch and No gaps, in one parse of one file. Same torn-read rule
+  // as everything else here: a read that is not an answer keeps what the dock is
+  // showing.
   function applySettingsLine(raw) {
     var d = Logic.readJsonAnswer(raw)
     if (d === null)
       return
     var o = (d && d.options) || {}
+    root.noGaps = o.noGaps === true
     var next = !(o.dock === false)
     if (next === root.dockOn)
       return
@@ -703,6 +822,25 @@ Item {
     printErrors: false
     onFileChanged: reload()
     onLoaded: root.applySettingsLine(text())
+    // No file is the default: the dock shows, the gaps are the desktop's own.
+    onLoadFailed: root.noGaps = false
+  }
+
+  FileView {
+    path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode.workspace"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      // The pack publishes "<id> <mode>", and the mode is what this needs: read the
+      // last field, so an id that came out as something odd (a Lua table printed as
+      // "table: 0x55a2...") cannot hide the dock for the whole session.
+      var parts = String(text()).trim().split(/\s+/)
+      root.workspaceMode = parts.length > 0 ? parts[parts.length - 1] : ""
+    }
+    // No file: an install that has not loaded the config yet, or a pack without the
+    // publication. Show the dock rather than take it away.
+    onLoadFailed: root.workspaceMode = ""
   }
 
   FileView {
@@ -775,6 +913,7 @@ Item {
           id: panel
           screen: modelData
           visible: root.xModeOn && root.dockOn
+            && (root.workspaceMode === "" || root.workspaceMode === "xmode")
           anchors {
             top: true
             right: true
@@ -871,6 +1010,7 @@ Item {
                   property bool dragArmed: false
 
                   onPressed: function(mouse) {
+                    root.noteClick("press " + (mouse.button === Qt.RightButton ? "right" : "left") + " " + item.modelData.cls)
                     if (mouse.button !== Qt.LeftButton || !item.pinnedItem)
                       return
                     pressLocalY = mouse.y
@@ -916,6 +1056,7 @@ Item {
                       return
                     }
                     dragArmed = false
+                    root.noteClick("release " + (mouse.button === Qt.RightButton ? "right" : "left") + " " + item.modelData.cls)
                     if (mouse.button === Qt.RightButton)
                       root.openMenu(item.modelData, item.menuScreenY())
                     else if (mouse.button === Qt.LeftButton)
@@ -926,6 +1067,7 @@ Item {
                     dragArmed = false
                   }
                   onClicked: function(mouse) {
+                    root.noteClick("clicked " + (mouse.button === Qt.RightButton ? "right" : "left") + " " + item.modelData.cls)
                     if (mouse.button === Qt.RightButton && !dragArmed)
                       root.openMenu(item.modelData, item.menuScreenY())
                   }

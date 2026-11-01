@@ -6,8 +6,27 @@
 -- $X_MODE_STATE state directory for the nest
 -- helpers.lua defines the `o.*` the pack uses; nothing else from Omarchy is
 -- needed for the desktop layer itself.
+--
+-- helpers.lua loads its own modules with require("default.hypr.paths"), and only
+-- bootstrap.lua puts $OMARCHY_PATH/?.lua on package.path, so the bootstrap has to
+-- run first: the live config starts with the same dofile (~/.config/hypr/
+-- hyprland.lua), and this is the one line that makes the nest load the way the
+-- desktop does. Without it the config dies inside helpers.lua, and every
+-- statement below -- the geometry, the planted binds, the pack itself -- is
+-- skipped, which shows up as nest scenarios failing (or passing on the plugin
+-- alone, with no pack loaded).
 o = o or {}
-dofile("/usr/share/omarchy/default/hypr/helpers.lua")
+dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/bootstrap.lua")
+dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/helpers.lua")
+
+-- The nest's output is a window on the host, and it came up with whatever scale
+-- the host handed the toplevel -- two, on this machine -- which made every
+-- coordinate and every size in these scenarios half of what they say: a 900x1000
+-- nest was 450x500 logical, so a window that should fill it could not, a default
+-- 700x500 client was clamped to fit, and the bar's own reserved area came out at
+-- 62 instead of its 24. Pinned to 1, the nest is the size it claims to be and the
+-- geometry scenarios measure the desktop's own arithmetic.
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 
 hl.config({
   -- The same general values Omarchy's looknfeel.lua sets, so the snap geometry
@@ -69,5 +88,50 @@ do
     listing:close()
   end
 end
+
+-- Omarchy's titlebars module queues its own hyprbars the moment a workspace
+-- floats. The pack's plugin is already that hyprbars; a second copy reloads the
+-- config and the two decorations fight. Drop the queue before workspace-modes
+-- runs, on a reload as well as the first parse. x-mode.lua wraps the same call
+-- again for a click that happens after this file.
+do
+  local ok, load_plugin = pcall(function() return hl.plugin.load end)
+  if ok and type(load_plugin) == "function" then
+    hl.plugin.load = function(path)
+      if type(path) == "string" and path:find("omarchy-hyprland-titlebars", 1, true) then
+        return
+      end
+      return load_plugin(path)
+    end
+  end
+end
+
+-- Workspace modes. Omarchy keeps one per workspace in
+-- $XDG_STATE_HOME/omarchy/workspace-layouts and replays those files while the
+-- config loads, before the pack is required; the pack adds its own, xmode, and
+-- owns it. The nest is in xmode for every workspace that does not say otherwise,
+-- which is what every scenario here assumes -- a window that opens is the pack's
+-- floating window. A scenario switches one workspace to dwindle (or scrolling,
+-- or floating) to see the pack step aside there.
+require("default.hypr.workspace-modes")
+do
+  local state_home = os.getenv("XDG_STATE_HOME") or ((os.getenv("HOME") or "") .. "/.local/state")
+  local dir = state_home .. "/omarchy/workspace-layouts"
+  os.execute("mkdir -p '" .. dir .. "'")
+  -- Both the default and workspace 1 by name: the default covers every workspace
+  -- that has no mode of its own, and 1 is written out explicitly so a scenario that
+  -- reloads cannot depend on the default still being the one this file set.
+  local file = io.open(dir .. "/default.lua", "w")
+  if file ~= nil then
+    file:write('o.workspace_mode({ default = "xmode" })\n')
+    file:close()
+  end
+  local one = io.open(dir .. "/1.lua", "w")
+  if one ~= nil then
+    one:write('o.workspace_mode({ workspace = "1", mode = "xmode" })\n')
+    one:close()
+  end
+end
+o.workspace_mode({ default = "xmode" })
 
 dofile(os.getenv("X_MODE_LUA") or ((os.getenv("HOME") or "") .. "/.config/hypr/x-mode/x-mode.lua"))

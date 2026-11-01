@@ -82,7 +82,13 @@ Panel {
   // The keys screen is a page on top of whatever is showing: back returns to it,
   // and its scope is decided by where it was opened from (no class = every app).
   property bool keysOpen: false
-  readonly property string view: root.keysOpen ? "keys" : (root.openCls === "" ? "main" : "app")
+  // The Experimental folder: options that are not ready to be part of the main
+  // card. It is a page like the keys screen -- back returns to whatever opened
+  // it -- so a row moving in or out of here does not reshuffle the card.
+  property bool experimentalOpen: false
+  readonly property string view: root.keysOpen ? "keys"
+    : (root.experimentalOpen ? "experimental"
+    : (root.openCls === "" ? "main" : "app"))
   property var running: []
   property string query: ""
   property string openCls: ""
@@ -240,6 +246,7 @@ Panel {
     if (opened) {
       openCls = ""
       keysOpen = false
+      experimentalOpen = false
       // A filter left from the last time the panel was open would hide apps
       // the next time it is, so every open starts from the whole list.
       query = ""
@@ -423,18 +430,24 @@ Panel {
     id: lrow
     property string label: ""
     property string description: ""
+    // A row that acts where it is, instead of opening a screen, draws no
+    // chevron. A row the desktop is off for is not clickable -- the same two
+    // states SwitchRow has.
+    property bool chevron: true
+    property bool rowEnabled: true
     signal clicked()
 
     implicitHeight: lrowContent.implicitHeight + Style.spacing.rowPaddingX
     foreground: root.contentForeground
-    hasCursor: lrowMouse.containsMouse
+    hasCursor: lrowMouse.containsMouse && lrow.rowEnabled
+    opacity: lrow.rowEnabled ? 1 : 0.5
 
     MouseArea {
       id: lrowMouse
       anchors.fill: parent
       hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onClicked: lrow.clicked()
+      cursorShape: lrow.rowEnabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+      onClicked: if (lrow.rowEnabled) lrow.clicked()
     }
 
     Item {
@@ -450,8 +463,8 @@ Panel {
         id: lrowText
         spacing: Style.space(1)
         anchors.left: parent.left
-        anchors.right: lrowChevron.left
-        anchors.rightMargin: Style.space(10)
+        anchors.right: lrow.chevron ? lrowChevron.left : parent.right
+        anchors.rightMargin: lrow.chevron ? Style.space(10) : 0
         anchors.verticalCenter: parent.verticalCenter
 
         Text {
@@ -475,6 +488,7 @@ Panel {
 
       Text {
         id: lrowChevron
+        visible: lrow.chevron
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
         text: "›"
@@ -556,7 +570,9 @@ Panel {
       { flag: "digitTabs", label: "⌘1..0 switch tabs", description: "Needs Workspaces on F1..F10" },
       { flag: "ctrlTabSwitch", label: "⌃1..0 switch tabs", description: "Works without F1..F10" },
       { flag: "ctrlClick", label: "⌘-click as ⌃-click", description: "Links, multi-select" },
-      { flag: "ctrlCShift", label: "⌃C as ⌃⇧C", description: "Interrupt in a terminal" }
+      { flag: "ctrlCShift", label: "⌃C as ⌃⇧C", description: "Interrupt in a terminal" },
+      { flag: "moveCode", label: "⌘[ ] move code", description: "Indent instead of Back" },
+      { flag: "reopenTab", label: "⌘⇧T reopen tab", description: "Last closed tab" }
     ]
 
     // Green, red, or nothing: the theme's own colours for the two pinned states, out
@@ -802,59 +818,80 @@ Panel {
 
       PanelSeparator { id: sepTop; foreground: root.contentForeground }
 
-      SwitchRow {
-        id: scrollRow
+      // The card's rows are one group, spaced like the shortcuts screen's rows
+      // and the app list's (Style.space(4)) instead of at the card's own section
+      // gap: they are one list to read down, and the 14 that separates sections
+      // made every switch look like its own section.
+      Column {
+        id: mainRows
         width: parent.width
         visible: root.view === "main"
-        label: "Native scroll"
-        description: "Reversed touchpad scrolling"
-        checked: root.nativeScroll
-        rowEnabled: root.xModeOn
-        onToggled: root.setOptions(!root.nativeScroll, root.noGaps, root.workspacesOnFkeys)
-      }
+        spacing: Style.space(4)
 
-      SwitchRow {
-        id: gapsRow
-        width: parent.width
-        visible: root.view === "main"
-        label: "No gaps"
-        description: "No space between windows"
-        checked: root.noGaps
-        rowEnabled: root.xModeOn
-        onToggled: root.setOptions(root.nativeScroll, !root.noGaps, root.workspacesOnFkeys)
-      }
+        SwitchRow {
+          id: scrollRow
+          width: parent.width
+          label: "Native scroll"
+          description: "Reversed touchpad scrolling"
+          checked: root.nativeScroll
+          rowEnabled: root.xModeOn
+          onToggled: root.setOptions(!root.nativeScroll, root.noGaps, root.workspacesOnFkeys)
+        }
 
-      SwitchRow {
-        id: compactTabsRow
-        width: parent.width
-        visible: root.view === "main"
-        label: "Compact tabs"
-        description: "Tabs in the titlebar"
-        checked: root.compactTabs
-        rowEnabled: root.xModeOn
-        onToggled: root.setCompactTabs(!root.compactTabs)
-      }
+        SwitchRow {
+          id: gapsRow
+          width: parent.width
+          label: "No gaps"
+          description: "On xmode workspaces"
+          checked: root.noGaps
+          rowEnabled: root.xModeOn
+          onToggled: root.setOptions(root.nativeScroll, !root.noGaps, root.workspacesOnFkeys)
+        }
 
-      SwitchRow {
-        id: dockRow
-        width: parent.width
-        visible: root.view === "main"
-        label: "Show dock"
-        description: "The app column on the right"
-        checked: root.dockOn
-        rowEnabled: root.xModeOn
-        onToggled: root.setDock(!root.dockOn)
-      }
+        SwitchRow {
+          id: compactTabsRow
+          width: parent.width
+          label: "Compact tabs"
+          description: "Tabs in the titlebar"
+          checked: root.compactTabs
+          rowEnabled: root.xModeOn
+          onToggled: root.setCompactTabs(!root.compactTabs)
+        }
 
-      // The keys screen is several rows long, so the main panel gets an entry
-      // like an app's card does, and the scope is decided by where it was opened.
-      LinkRow {
-        id: keysEntryRow
-        width: parent.width
-        visible: root.view === "main"
-        label: "Shortcuts"
-        description: Logic.globalKeysSummary(root.globalKeys)
-        onClicked: root.keysOpen = true
+        // The menu's X Mode row sets the default and then moves the workspace on
+        // screen. In the panel the workspace on screen is the thing the user is
+        // looking at, so the row does that half only -- and the dock and the
+        // titlebars change under it without closing the panel.
+        LinkRow {
+          id: xmodeHereRow
+          width: parent.width
+          chevron: false
+          label: "Set workspace to X-Mode"
+          description: "This workspace only"
+          rowEnabled: root.xModeOn
+          onClicked: Quickshell.execDetached(["sh", "-c", Logic.xmodeHereCommand(Quickshell.env("HOME") || "")])
+        }
+
+        // The keys screen is several rows long, so the main panel gets an entry
+        // like an app's card does, and the scope is decided by where it was opened.
+        LinkRow {
+          id: keysEntryRow
+          width: parent.width
+          label: "Shortcuts"
+          description: Logic.globalKeysSummary(root.globalKeys)
+          onClicked: root.keysOpen = true
+        }
+
+        // Options that are not part of the desktop yet live behind this row rather
+        // than on the card: the card is what a user reads at a glance, and an
+        // option that may still change under them should not be in that list.
+        LinkRow {
+          id: experimentalRow
+          width: parent.width
+          label: "Experimental"
+          description: "Unfinished, may change"
+          onClicked: root.experimentalOpen = true
+        }
       }
 
       PanelSeparator {
@@ -866,7 +903,7 @@ Panel {
       CursorSurface {
         id: backRow
         width: parent.width
-        visible: root.view === "app" || root.keysOpen
+        visible: root.view === "app" || root.keysOpen || root.experimentalOpen
         implicitHeight: backText.implicitHeight + Style.spacing.rowPaddingX
         foreground: root.contentForeground
         hasCursor: backMouse.containsMouse
@@ -877,9 +914,11 @@ Panel {
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
           onClicked: {
-            // The keys screen is a page on top of the current one, so back closes
-            // it before it leaves an app's card.
-            if (root.keysOpen)
+            // The keys screen and the Experimental folder are pages on top of the
+            // current one, so back closes them before it leaves an app's card.
+            if (root.experimentalOpen)
+              root.experimentalOpen = false
+            else if (root.keysOpen)
               root.keysOpen = false
             else
               root.openCls = ""
@@ -907,7 +946,8 @@ Panel {
         // header says whose card it is), or the app's own card.
         text: root.keysOpen
           ? (root.openCls === "" ? "EVERY APP: SHORTCUTS" : root.openName + ": SHORTCUTS")
-          : (root.openCls === "" ? "APPS" : root.openName)
+          : (root.experimentalOpen ? "EXPERIMENTAL"
+          : (root.openCls === "" ? "APPS" : root.openName))
         width: parent.width
         elide: Text.ElideRight
         foreground: root.contentForeground
@@ -1024,6 +1064,44 @@ Panel {
             else
               root.setOccupiedKey(id, state)
           }
+        }
+      }
+
+      // The Experimental folder's page. One row today, so it is a Column and not
+      // a scroll region: `fixedAboveHeight` counts it like the switches on the
+      // main card, and a page that grows past the card becomes a Flickable here.
+      Column {
+        id: experimentalPage
+        width: parent.width
+        visible: root.view === "experimental"
+        spacing: 0
+
+        SwitchRow {
+          id: dockRow
+          width: parent.width
+          label: "Show dock"
+          description: "The app column on the right"
+          checked: root.dockOn
+          rowEnabled: root.xModeOn
+          onToggled: root.setDock(!root.dockOn)
+        }
+
+        PanelSeparator {
+          width: parent.width
+          foreground: root.contentForeground
+        }
+
+        Text {
+          width: parent.width
+          leftPadding: Style.space(10)
+          rightPadding: Style.space(10)
+          topPadding: Style.space(6)
+          bottomPadding: Style.space(6)
+          wrapMode: Text.Wrap
+          text: "Options here are unfinished: they can change or go away. The dock's own switch is the pack's column on the right edge, not Omarchy's bar."
+          color: Qt.darker(root.contentForeground, 1.5)
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.caption
         }
       }
 

@@ -47,6 +47,20 @@ function launchExecLine(entry, cls) {
     return "gtk-launch " + id + ".desktop"
 }
 
+// The pack's layout script, told to put the workspace on screen into X-Mode.
+// Same command Omarchy's menu row runs (`xmode default xmode && xmode here`),
+// so the panel and the menu cannot drift: the script is the one place that
+// writes the mode where Omarchy keeps it, and it carries the 4.0 fallback.
+function xmodeHereCommand(home) {
+    var h = String(home || "")
+    // No HOME is not a path: the panel runs this through `sh -c`, so the shell's
+    // own $HOME is the only thing left to point the script at.
+    var script = h === ""
+        ? "\"$HOME\"/.config/hypr/x-mode/xmode"
+        : shellQuote(h + "/.config/hypr/x-mode/xmode")
+    return script + " here"
+}
+
 // The shell command that puts `text` in a file a watcher reads. It writes a
 // sibling temp file and renames it over the target: an in-place `printf > file`
 // truncates the target first, and a watcher that reacts to that event reads a
@@ -116,6 +130,8 @@ function emptyAppCfg() {
         ctrlClick: undefined,
         digitTabs: undefined,
         ctrlTabSwitch: undefined,
+        moveCode: undefined,
+        reopenTab: undefined,
         ctrlAsSuperKeys: [],
         ctrlAsSuperKeysOff: []
     }
@@ -185,6 +201,8 @@ function parseApps(raw) {
                         ctrlClick: triFlag(e.ctrlClick),
                         digitTabs: triFlag(e.digitTabs),
                         ctrlTabSwitch: triFlag(e.ctrlTabSwitch),
+                        moveCode: triFlag(e.moveCode),
+                        reopenTab: triFlag(e.reopenTab),
                         ctrlAsSuperKeys: keys,
                         ctrlAsSuperKeysOff: keysOff
                     }
@@ -398,6 +416,23 @@ function pinSlotIndex(y, fromIndex, hoverIndex, stride, iconSize, n) {
 // client list is re-read on windowtitle. displayName and singleInstance come
 // from the desktop entry. Returns { app, actions } (app may be null, as the
 // caller passes it).
+// The two dispatchers the menu's last rows run, as strings: the dock's Quit asks
+// the app to close (the compositor's own close request), Force Quit is
+// Hyprland's kill, which is SIGKILL and the only thing that ends an app that
+// stopped reading the close request. Pure so a test can tell them apart -- the
+// window disappears either way.
+function windowCloseCommand(addr) {
+    return "hl.dsp.window.close({ window = 'address:" + String(addr) + "' })"
+}
+
+function windowKillCommand(addr) {
+    return "hl.dsp.window.kill({ window = 'address:" + String(addr) + "' })"
+}
+
+function menuHasWindows(app) {
+    return !!(app && app.addrs && app.addrs.length > 0)
+}
+
 function buildMenuActions(menuApp, apps, displayName, singleInstance) {
     var app = menuApp || null
     if (app) {
@@ -440,7 +475,11 @@ function buildMenuActions(menuApp, apps, displayName, singleInstance) {
         a.push({ id: "unpin", label: "Unpin", enabled: true })
     else
         a.push({ id: "pin", label: "Pin", enabled: true })
-    a.push({ id: "close", label: "Quit", enabled: !!(app && app.addrs && app.addrs.length > 0) })
+    // SIGKILL, for the app that stopped answering its close request. Above Quit
+    // and not below it: the last row is the one a hurried click lands on, and
+    // that stays the one that asks the app to close.
+    a.push({ id: "forcequit", label: "Force Quit", enabled: menuHasWindows(app) })
+    a.push({ id: "close", label: "Quit", enabled: menuHasWindows(app) })
     return { app: app, actions: a }
 }
 
@@ -479,7 +518,7 @@ function panelCfgFor(appsCfg, cls) {
     var key = String(cls || "").toLowerCase()
     var e = (appsCfg || {})[key]
     if (!e)
-        return { chrome: true, alwaysTabbar: false, compactTabs: false, ctrlAsSuper: undefined, ctrlCShift: undefined, ctrlClick: undefined, digitTabs: undefined, ctrlTabSwitch: undefined, ctrlAsSuperKeys: [], ctrlAsSuperKeysOff: [] }
+        return { chrome: true, alwaysTabbar: false, compactTabs: false, ctrlAsSuper: undefined, ctrlCShift: undefined, ctrlClick: undefined, digitTabs: undefined, ctrlTabSwitch: undefined, moveCode: undefined, reopenTab: undefined, ctrlAsSuperKeys: [], ctrlAsSuperKeysOff: [] }
     var keys = copyOccupiedKeys(e.ctrlAsSuperKeys)
     var keysOff = copyOccupiedKeys(e.ctrlAsSuperKeysOff)
     foldLegacyCtrlW(e, keys, keysOff)
@@ -492,6 +531,8 @@ function panelCfgFor(appsCfg, cls) {
         ctrlClick: triFlag(e.ctrlClick),
         digitTabs: triFlag(e.digitTabs),
         ctrlTabSwitch: triFlag(e.ctrlTabSwitch),
+        moveCode: triFlag(e.moveCode),
+        reopenTab: triFlag(e.reopenTab),
         ctrlAsSuperKeys: keys,
         ctrlAsSuperKeysOff: keysOff
     }
@@ -648,7 +689,7 @@ function withoutId(list, id) {
 // what lets a desktop-wide setting keep one app that disagrees -- Ctrl+1..6 handed
 // to an editor while the desktop keeps them for the pack's tabs.
 
-var KEY_FLAG_NAMES = ["ctrlAsSuper", "digitTabs", "ctrlTabSwitch", "ctrlClick", "ctrlCShift"]
+var KEY_FLAG_NAMES = ["ctrlAsSuper", "digitTabs", "ctrlTabSwitch", "ctrlClick", "ctrlCShift", "moveCode", "reopenTab"]
 
 // The row for one flag in an app's card: the state, whether the switch reads as on
 // (the effective answer, so an inherited on looks on), and where that answer comes
@@ -891,8 +932,9 @@ function rectsIntersect(a, b) {
     return a.x < b.x + bw && a.x + aw > b.x && a.y < b.y + bh && a.y + ah > b.y
 }
 
-// Pin-list equality: a new array resizes the dock card, so the caller skips
-// the assign when the list is the same.
+// Plain list equality (pins, the remembered launch order): a new array resizes
+// the dock card or rewrites a state file, so the caller skips the assign when
+// the list is the same.
 function samePins(a, b) {
     if (!a || !b || a.length !== b.length)
         return false
@@ -903,14 +945,87 @@ function samePins(a, b) {
     return true
 }
 
+// One spelling of a window address: Hyprland's events carry it as bare hex, its
+// JSON as 0x-hex. Everything that matches an event against the client list goes
+// through here, so a close is never missed for a formatting difference.
+function addressKey(addr) {
+    var s = String(addr || "").toLowerCase()
+    if (s === "")
+        return ""
+    if (s.indexOf("0x") !== 0)
+        s = "0x" + s
+    return s
+}
+
+// The dock's window list: Hyprland's client snapshot merged into what the dock
+// already holds, `touched` being the addresses an event handled while the query
+// was in flight.
+//
+// The snapshot is the authority on which windows exist. Removal used to be the
+// close event's job alone, so a close the dock did not see -- an event socket
+// that stalled, a window that went away while the shell was busy -- kept the app
+// in the column until the shell restarted: a dock listing KeePassXC, Steam and
+// two more with nothing behind them, while Hyprland's own list had none of them.
+// Now a row the snapshot does not have is gone.
+//
+// The exception is a row an event touched during the query: the snapshot was
+// taken before that event, so a window closed in the meantime must not come
+// back from it, and a window opened in the meantime is not in it yet.
+//
+// Rows are updated in place (the dock owns them) and the returned array is new,
+// so assigning it is one change. What the snapshot owns: `mapped`, `hidden`,
+// `workspace` and `focusHistoryID` are the fields the events do not carry, which
+// is what the periodic query is for.
+function mergeClientSnapshot(current, snapshot, touched) {
+    var hold = touched || {}
+    var snap = snapshot || []
+    var byAddr = {}
+    var i
+    for (i = 0; i < snap.length; i++)
+        byAddr[addressKey(snap[i].address)] = snap[i]
+
+    var next = []
+    var seen = {}
+    var cur = current || []
+    for (i = 0; i < cur.length; i++) {
+        var row = cur[i]
+        var id = addressKey(row.address)
+        seen[id] = true
+        var fresh = byAddr[id]
+        if (!fresh && !hold[id])
+            continue // the snapshot says it is gone
+        if (fresh && !hold[id]) {
+            row.mapped = fresh.mapped
+            row.hidden = fresh.hidden
+            if (fresh.workspace && typeof fresh.workspace.id === "number")
+                row.workspace = { id: fresh.workspace.id }
+            if (typeof fresh.focusHistoryID === "number")
+                row.focusHistoryID = fresh.focusHistoryID
+            if (!row.class)
+                row.class = fresh.class
+        }
+        next.push(row)
+    }
+    for (i = 0; i < snap.length; i++) {
+        var sid = addressKey(snap[i].address)
+        if (!seen[sid] && !hold[sid])
+            next.push(snap[i])
+    }
+    return next
+}
+
 // Dock model: group Hyprland clients by class, pinned first in pin order,
-// then the running rest sorted. Skips unmapped, hidden and empty-class
+// then the running rest in `order` -- the remembered launch order, oldest
+// first, so a new app lands at the bottom (reconcileDockOrder below keeps it).
+// A class the order does not know (a cold start, or a window that just
+// appeared) sorts after the known ones, which is also what makes a run
+// without a state file reproducible. Skips unmapped, hidden and empty-class
 // clients. Each entry is { cls, pinned, running, bestAddr, addrs, ws, wins }
 // where bestAddr is the window with the lowest focusHistoryID, ws maps
 // workspace id -> { addr, title, focus } and wins lists { addr, title, ws,
 // focus }. Pure: no QtQuick, no Hyprland, no side effects (the caller clears
 // its own "launching" flags and decides whether the sig changed).
-function buildDockApps(clients, pinned) {
+function buildDockApps(clients, pinned, order) {
     var byClass = {}
     var list = clients || []
     for (var i = 0; i < list.length; i++) {
@@ -963,11 +1078,61 @@ function buildDockApps(clients, pinned) {
         if (!seen[k])
             rest.push(k)
     }
-    rest.sort()
+    // Slot from the remembered order. Unknown classes go after every known one,
+    // and among themselves by name, so several appearing in one event burst
+    // (the compositor's own order is not a thing to rely on) have a stable
+    // place in the column.
+    var slot = {}
+    var ord = order || []
+    for (var o = 0; o < ord.length; o++) {
+        if (slot[ord[o]] === undefined)
+            slot[ord[o]] = o
+    }
+    rest.sort(function(a, b) {
+        var ia = slot[a]
+        var ib = slot[b]
+        if (ia === undefined)
+            return ib === undefined ? (a < b ? -1 : a > b ? 1 : 0) : 1
+        if (ib === undefined)
+            return -1
+        return ia - ib
+    })
     for (var j = 0; j < rest.length; j++) {
         var rk = rest[j]
         out.push({ cls: rk, pinned: false, running: true, bestAddr: byClass[rk].bestAddr, addrs: byClass[rk].addrs, ws: byClass[rk].ws, wins: byClass[rk].wins })
     }
+    return out
+}
+
+// The unpinned column's launch order: `prev` is the order from the last build
+// (or the state file), `classes` the classes running and unpinned now. A class
+// that went away drops out, so an app that quits and comes back is new and
+// goes to the bottom instead of back into its old slot; a class the order has
+// not seen is appended, sorted, so a burst of new windows has a stable order.
+// Returns the list to remember for the next build.
+function reconcileDockOrder(prev, classes) {
+    var running = {}
+    var list = classes || []
+    for (var i = 0; i < list.length; i++)
+        running[list[i]] = true
+    var out = []
+    var seen = {}
+    var old = prev || []
+    for (var j = 0; j < old.length; j++) {
+        var c = old[j]
+        if (running[c] && !seen[c]) {
+            seen[c] = true
+            out.push(c)
+        }
+    }
+    var added = []
+    for (var k in running) {
+        if (!seen[k])
+            added.push(k)
+    }
+    added.sort()
+    for (var m = 0; m < added.length; m++)
+        out.push(added[m])
     return out
 }
 

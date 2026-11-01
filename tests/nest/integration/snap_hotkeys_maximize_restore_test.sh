@@ -14,13 +14,30 @@ mw="${extent%x*}"
 minw=$((mw * 8 / 10))
 
 open_window foot
+settle
+# Both keys below go through hl.get_active_window(): with nothing focused they
+# are silent no-ops, and the assertion that follows would blame the maximize key
+# for a nest where no window had the focus at all.
+assert_eq "$(active_class)" foot "the new window took the focus"
 key super+alt+left
 wait_still foot
 read -r bx by bw bh _ <<<"$(win_geom foot)"
 
 key super+alt+f
-wait_until 5 '[ "$(win_geom foot | cut -d" " -f3)" -ge "$minw" ]' \
-  || fail "Super+Alt+F did not fill the workarea (at $(win_geom foot))"
+if ! wait_until 5 '[ "$(win_geom foot | cut -d" " -f3)" -ge "$minw" ]'; then
+  # Say what the nest looked like instead of only that the box did not grow: a
+  # lost key, a plugin that is not loaded and a pack that never bound the key all
+  # read the same in the assertion below.
+  {
+    echo "  diag: geometry $(win_geom foot)"
+    echo "  diag: plugins $(nest_ctl plugin list 2>&1 | tr '\n' ' ' | cut -c1-200)"
+    echo "  diag: pack loaded $(nest_ctl eval 'return tostring(x_mode ~= nil)' 2>&1)"
+    echo "  diag: binds $(nest_ctl binds -j 2>/dev/null | python3 -c "import json,sys;print([(b.get('description'),b.get('modmask'),b.get('dispatcher')) for b in json.load(sys.stdin) if b.get('key')=='F'])" 2>&1)"
+    echo "  diag: active '$(active_class)' $(nest_ctl active address 2>&1)"
+    echo "  diag: foot windows $(nest_ctl clients -j 2>/dev/null | python3 -c "import json,sys;print([(c['address'],c['at'],c['size'],c['mapped'],c['hidden'],len(c.get('grouped') or [])) for c in json.load(sys.stdin) if c['class']=='foot'])" 2>&1)"
+  } >&2
+  fail "Super+Alt+F did not fill the workarea (at $(win_geom foot))"
+fi
 read -r _ _ xw _ _ <<<"$(win_geom foot)"
 assert_ge "$xw" "$minw" "Super+Alt+F fills the workarea"
 

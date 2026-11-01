@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/render/Texture.hpp>
@@ -10,6 +14,25 @@
 #include <hyprland/src/config/values/types/FontWeightValue.hpp>
 
 inline HANDLE PHANDLE = nullptr;
+
+// Write a small state file whole or not at all. `fopen(path, "w")` truncates
+// first, so a reader -- the shell watches these files -- can see an empty file
+// between the open and the write, and "off" or "no preview" for a frame reads as
+// a bug in the pack. The temp file is a sibling, so the rename stays on one
+// filesystem; the Lua side does the same (layout.write_atomic).
+inline bool writeStateFile(const std::string& path, const std::string& text) {
+    const auto tmp = path + ".tmp";
+    FILE*      f   = std::fopen(tmp.c_str(), "w");
+    if (!f)
+        return false;
+    const bool wrote = std::fputs(text.c_str(), f) >= 0;
+    std::fclose(f);
+    if (!wrote || std::rename(tmp.c_str(), path.c_str()) != 0) {
+        std::remove(tmp.c_str());
+        return false;
+    }
+    return true;
+}
 
 struct SHyprButton {
     std::string          cmd     = "";
@@ -26,8 +49,28 @@ class CDragSession;
 
 extern UP<CDragSession> g_pDragSession;
 
+// The look Omarchy's floating workspaces ask for. Her workspace-modes module
+// writes it into plugin:hyprbars whenever a workspace starts floating. The pack
+// is already the loaded hyprbars, so that write is kept here and drawn only on
+// her windows; the fields above stay the pack's, for its own workspaces.
+struct SOmarchyChrome {
+    bool        set            = false;
+    int         height         = 30;
+    int         textSize       = 12;
+    int         padding        = 10;
+    int         buttonPadding  = 8;
+    std::string textFont       = "monospace";
+    std::string textAlign      = "left";
+    std::string buttonsAlign   = "right";
+    std::string onDoubleClick;
+    CHyprColor  barColor  = CHyprColor(0, 0, 0, 0);
+    CHyprColor  textColor = CHyprColor(0xFFFFFFFF);
+};
+
 struct SGlobalState {
     std::vector<SHyprButton>  buttons;
+    std::vector<SHyprButton>  omarchyButtons;
+    SOmarchyChrome            omarchy;
     std::vector<WP<CHyprBar>> bars;
     uint32_t                  nobarRuleIdx        = 0;
     uint32_t                  alwaysTabbarRuleIdx = 0;
@@ -44,6 +87,22 @@ struct SGlobalState {
         SP<Config::Values::CIntValue>        barButtonPadding;
         SP<Config::Values::CBoolValue>       barBlur, barTitleEnabled, barPartOfWindow, barPrecedenceOverBorder, enabled, iconOnHover;
         SP<Config::Values::CStringValue>     barTextFont, barTextAlign, barButtonsAlignment, onDoubleClick;
+        // The window tag that says "this window is on one of the pack's
+        // workspaces". The Lua side (hypr/x-mode/x-mode.lua) owns the mode and
+        // tags the windows it claimed; the bar is drawn for those only, so a
+        // workspace Omarchy tiles, scrolls or floats itself gets no titlebar to
+        // overlap its layout. Empty means "draw everywhere", which is what a
+        // stock hyprbars does.
+        SP<Config::Values::CStringValue>     xModeWorkspaceTag;
+        // Omarchy's own titlebars build registers `workspace_tag` and
+        // `button_rounding` in the same namespace, and her workspace-modes module
+        // sets them whenever a workspace floats. Unknown keys there are reported as
+        // config errors, so both are accepted here. The tag gates her titlebar the
+        // same way xModeWorkspaceTag gates the pack's (either one draws a bar; the
+        // looks stay separate), and the rounding is hers to draw -- this build
+        // does not use it.
+        SP<Config::Values::CStringValue>     omarchyWorkspaceTag;
+        SP<Config::Values::CStringValue>     omarchyButtonRounding;
         // (tim) x-mode: tabbar height and snap/grouping tunables. Real Hyprland
         // config keys (plugin:hyprbars:*) so they are edited in the config, not
         // in code; the C++ snap engine and Lua grouping read the same value.

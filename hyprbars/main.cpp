@@ -219,6 +219,116 @@ int newLuaButton(lua_State* L) {
     return 0;
 }
 
+// Omarchy's floating workspaces configure this same plugin (it is already
+// loaded) and add her own buttons. Those must not replace the pack's button or
+// its metrics: they are stored beside them and drawn only on her windows.
+static int luaClearButtons(lua_State* L) {
+    (void)L;
+    if (!g_pGlobalState)
+        return 0;
+
+    g_pGlobalState->buttons.clear();
+    for (auto& b : g_pGlobalState->bars) {
+        if (b)
+            b->m_bButtonsDirty = true;
+    }
+    return 0;
+}
+
+static int luaStashOmarchy(lua_State* L) {
+    (void)L;
+    if (!g_pGlobalState || !g_pGlobalState->config.barHeight)
+        return 0;
+
+    auto& style          = g_pGlobalState->omarchy;
+    style.set            = true;
+    style.height         = g_pGlobalState->config.barHeight->value();
+    style.textSize       = g_pGlobalState->config.barTextSize->value();
+    style.padding        = g_pGlobalState->config.barPadding->value();
+    style.buttonPadding  = g_pGlobalState->config.barButtonPadding->value();
+    style.textFont       = g_pGlobalState->config.barTextFont->value();
+    style.textAlign      = g_pGlobalState->config.barTextAlign->value();
+    style.buttonsAlign   = g_pGlobalState->config.barButtonsAlignment->value();
+    style.onDoubleClick  = g_pGlobalState->config.onDoubleClick->value();
+    style.barColor       = CHyprColor{static_cast<uint64_t>(g_pGlobalState->config.barColor->value())};
+    style.textColor      = CHyprColor{static_cast<uint64_t>(g_pGlobalState->config.textColor->value())};
+    g_pGlobalState->omarchyButtons = g_pGlobalState->buttons;
+    return 0;
+}
+
+static int luaOmarchyStyle(lua_State* L) {
+    if (!g_pGlobalState || !lua_istable(L, 1))
+        return 0;
+
+    auto& style = g_pGlobalState->omarchy;
+    style.set   = true;
+    g_pGlobalState->omarchyButtons.clear();
+
+    auto integer = [L](const char* key, int& dst) {
+        lua_getfield(L, 1, key);
+        if (lua_isnumber(L, -1))
+            dst = lua_tointeger(L, -1);
+        lua_pop(L, 1);
+    };
+    auto str = [L](const char* key, std::string& dst) {
+        lua_getfield(L, 1, key);
+        if (lua_isstring(L, -1))
+            dst = lua_tostring(L, -1);
+        lua_pop(L, 1);
+    };
+    auto color = [L](const char* key, CHyprColor& dst) {
+        lua_getfield(L, 1, key);
+        if (lua_isstring(L, -1)) {
+            if (const auto parsed = Config::ParserUtils::parseColor(lua_tostring(L, -1)))
+                dst = *parsed;
+        }
+        lua_pop(L, 1);
+    };
+
+    integer("bar_height", style.height);
+    integer("bar_text_size", style.textSize);
+    integer("bar_padding", style.padding);
+    integer("bar_button_padding", style.buttonPadding);
+    str("bar_text_font", style.textFont);
+    str("bar_text_align", style.textAlign);
+    str("bar_buttons_alignment", style.buttonsAlign);
+    str("on_double_click", style.onDoubleClick);
+    color("bar_color", style.barColor);
+
+    lua_getfield(L, 1, "col");
+    if (lua_istable(L, -1)) {
+        lua_getfield(L, -1, "text");
+        if (lua_isstring(L, -1)) {
+            if (const auto parsed = Config::ParserUtils::parseColor(lua_tostring(L, -1)))
+                style.textColor = *parsed;
+        }
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+
+    for (auto& b : g_pGlobalState->bars) {
+        if (b)
+            b->m_bButtonsDirty = true;
+    }
+    return 0;
+}
+
+static int luaOmarchyButton(lua_State* L) {
+    if (!g_pGlobalState)
+        return 0;
+
+    const auto before = g_pGlobalState->buttons.size();
+    const auto rc     = newLuaButton(L);
+    if (rc != 0)
+        return rc;
+
+    if (g_pGlobalState->buttons.size() == before + 1) {
+        g_pGlobalState->omarchyButtons.push_back(std::move(g_pGlobalState->buttons.back()));
+        g_pGlobalState->buttons.pop_back();
+    }
+    return 0;
+}
+
 static int luaSnap(lua_State* L) {
     if (!lua_istable(L, 1))
         return Config::Lua::Bindings::Internal::configError(L, "snap: expected a table { kind, window? }");
@@ -349,6 +459,19 @@ static int luaChromeHeight(lua_State* L) {
     return 1;
 }
 
+// The outer edge of a window's frame, gap plus border, as its workspace defines
+// it (Snap::edge). Lua measures a group's shift and its fit with this, because
+// the desktop's general:gaps_out is not what a No gaps workspace uses.
+static int luaEdge(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.edge");
+    if (!w)
+        w = Desktop::focusState()->window();
+    lua_pushinteger(L, w ? Snap::edge(w) : 0);
+    return 1;
+}
+
 // Step a window through the cycle sizes on one side (Snap::cycle), the press of
 // Super+Alt+arrow: false when the window is on none of them, and the caller then
 // snaps it to that side's zone.
@@ -472,18 +595,10 @@ static void writeXModeFiles(bool on) {
     const auto  line    = on ? "on\n" : "off\n";
     const char* runtime = std::getenv("XDG_RUNTIME_DIR");
     const auto  rt      = std::format("{}/omarchy-x-mode.state", runtime && *runtime ? runtime : "/tmp");
-    if (FILE* f = std::fopen(rt.c_str(), "w")) {
-        std::fputs(line, f);
-        std::fclose(f);
-    }
+    writeStateFile(rt, line);
     const char* home = std::getenv("HOME");
-    if (home && *home) {
-        const auto path = std::format("{}/.local/state/omarchy-x-mode/enabled", home);
-        if (FILE* f = std::fopen(path.c_str(), "w")) {
-            std::fputs(line, f);
-            std::fclose(f);
-        }
-    }
+    if (home && *home)
+        writeStateFile(std::format("{}/.local/state/omarchy-x-mode/enabled", home), line);
 }
 
 static bool readPersistedXMode() {
@@ -640,6 +755,9 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_group_min_width", "Windows narrower than this (px) are not auto-grouped", 400);
     g_pGlobalState->config.xModeGroupMinHeight =
         makeShared<Config::Values::CIntValue>("plugin:hyprbars:x_mode_group_min_height", "Windows shorter than this (px) are not auto-grouped", 300);
+    g_pGlobalState->config.xModeWorkspaceTag = makeShared<Config::Values::CStringValue>(
+        "plugin:hyprbars:x_mode_workspace_tag",
+        "Only windows carrying this tag get a titlebar (empty: every window)", "xmode-workspace");
 
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.barColor);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.textColor);
@@ -664,6 +782,13 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.compactTabs);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeDockInset);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeBarTopMemoryMs);
+    g_pGlobalState->config.omarchyWorkspaceTag = makeShared<Config::Values::CStringValue>(
+        "plugin:hyprbars:workspace_tag", "Omarchy's name for x_mode_workspace_tag (either one gates the titlebar)", "");
+    g_pGlobalState->config.omarchyButtonRounding =
+        makeShared<Config::Values::CStringValue>("plugin:hyprbars:button_rounding", "Accepted for Omarchy's titlebars build; not used here", "");
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeWorkspaceTag);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.omarchyWorkspaceTag);
+    HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.omarchyButtonRounding);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapMargin);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapCorner);
     HyprlandAPI::addConfigValueV2(PHANDLE, g_pGlobalState->config.xModeSnapShortEdge);
@@ -678,11 +803,16 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addConfigKeyword(PHANDLE, "plugin:hyprbars:hyprbars-button", onNewButton, Hyprlang::SHandlerOptions{});
     else {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "add_button", ::newLuaButton);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "clear_buttons", ::luaClearButtons);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "stash_omarchy", ::luaStashOmarchy);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "omarchy_style", ::luaOmarchyStyle);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "omarchy_button", ::luaOmarchyButton);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "snap", ::luaSnap);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "zone", ::luaZone);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "usable", ::luaUsable);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "bar_top", ::luaBarTop);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "chrome_height", ::luaChromeHeight);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "edge", ::luaEdge);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "cycle", ::luaCycle);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "fit", ::luaFit);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "fit_all", ::luaFitAll);

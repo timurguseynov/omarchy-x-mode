@@ -64,6 +64,18 @@ fi
 # in the middle of a write. The readers go through Logic.readJsonAnswer /
 # readEnabledLine, which answer "nothing" for a torn read; qmllint cannot see
 # which reader has the guard, so the readers are pinned here.
+# Lua parses 200 locals in a chunk and no more, and the config is one big chunk: two
+# locals too many and the *whole* config fails to load -- no titlebars, no zones, the
+# bar never comes up in a nest and every slot dies at bring-up with no error in the
+# scenario. qmllint cannot see Lua, so every module is parsed here.
+for f in "$HERE/../hypr/x-mode"/*.lua; do
+  [ -f "$f" ] || continue
+  if ! luac -p "$f" 2>&1 | sed 's/^/  /'; then
+    echo "  ${RED}FAIL${RESET} ${f##*/} does not parse (see above)"
+    fail=1
+  fi
+done
+
 json_reads="$(grep -cF 'Logic.readJsonAnswer(text())' "$QMLDIR/Panel.qml")"
 if [ "$json_reads" != 2 ]; then
   echo "  ${RED}FAIL${RESET} Panel.qml: $json_reads of its 2 watched files keep their state on a torn read"

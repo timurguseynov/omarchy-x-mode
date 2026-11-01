@@ -1,9 +1,11 @@
 #include "snap.hpp"
 #include "dragSession.hpp"
 #include "globals.hpp"
+#include "titlebarGate.hpp"
 
 #include <hyprland/src/config/ConfigValue.hpp>
 #include <hyprland/src/config/shared/complex/ComplexDataTypes.hpp>
+#include <hyprland/src/config/shared/workspace/WorkspaceRuleManager.hpp>
 #include <hyprland/src/config/shared/actions/ConfigActions.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/desktop/view/Group.hpp>
@@ -72,9 +74,14 @@ static int s_borderOverride = -1;
 static int s_insetOverride  = -1;
 static int s_topOverride    = -1;
 
-int Snap::gapOut() {
+int Snap::gapOut(PHLWINDOW w) {
     if (s_gapOverride >= 0)
         return s_gapOverride;
+    if (w && w->m_workspace) {
+        const auto rule = Config::workspaceRuleMgr()->getWorkspaceRuleFor(w->m_workspace);
+        if (rule && rule->m_gapsOut)
+            return sc<int>(rule->m_gapsOut->m_top);
+    }
     static auto PGAPSOUTDATA = CConfigValue<Config::IComplexConfigValue>("general:gaps_out");
     auto* const PGAPSOUT     = sc<Config::CCssGapData*>(PGAPSOUTDATA.ptr());
     if (!PGAPSOUT)
@@ -82,11 +89,20 @@ int Snap::gapOut() {
     return sc<int>(PGAPSOUT->m_top);
 }
 
-int Snap::border() {
+int Snap::border(PHLWINDOW w) {
     if (s_borderOverride >= 0)
         return s_borderOverride;
+    if (w && w->m_workspace) {
+        const auto rule = Config::workspaceRuleMgr()->getWorkspaceRuleFor(w->m_workspace);
+        if (rule && rule->m_borderSize)
+            return sc<int>(rule->m_borderSize.value());
+    }
     static auto PBORDER = CConfigValue<Config::INTEGER>("general:border_size");
     return sc<int>(*PBORDER);
+}
+
+int Snap::edge(PHLWINDOW w) {
+    return gapOut(w) + border(w);
 }
 
 void Snap::assumeFrame(int gap, int border, int inset, int top) {
@@ -118,7 +134,7 @@ bool Snap::compactTabs(PHLWINDOW w) {
 int Snap::chromeH(PHLWINDOW w) {
     if (windowHasEffect(w, g_pGlobalState->nobarRuleIdx))
         return 0;
-    int h = sc<int>(g_pGlobalState->config.barHeight->value());
+    int h = titlebarHeight(w);
     bool tabs = !w || (w->m_group && w->m_group->size() > 0);
     if (!tabs)
         tabs = windowHasEffect(w, g_pGlobalState->alwaysTabbarRuleIdx);
@@ -200,10 +216,10 @@ static CBox fractionalRect(const CBox& frame, const char* hside, const char* vsi
 // is taken off every side of the frame once. The gap is inset on top of that: a
 // full outer gap on the screen edges, half on an edge shared with the window
 // next to it, so two snapped windows end up exactly one gap apart.
-static CBox applyGaps(const CBox& box, bool innerL, bool innerR, bool innerT, bool innerB) {
-    const int gap  = gapOut();
+static CBox applyGaps(const CBox& box, bool innerL, bool innerR, bool innerT, bool innerB, PHLWINDOW w) {
+    const int gap  = gapOut(w);
     const int half = gap / 2;
-    const int b    = border();
+    const int b    = border(w);
     const int left = b + (innerL ? half : gap);
     const int right = b + (innerR ? half : gap);
     const int top = b + (innerT ? half : gap);
@@ -211,7 +227,7 @@ static CBox applyGaps(const CBox& box, bool innerL, bool innerR, bool innerT, bo
     return {box.x + left, box.y + top, box.w - left - right, box.h - top - bottom};
 }
 
-std::optional<CBox> Snap::zoneBox(eKind kind, PHLMONITOR mon) {
+std::optional<CBox> Snap::zoneBox(eKind kind, PHLMONITOR mon, PHLWINDOW w) {
     if (!mon || kind == eKind::None)
         return std::nullopt;
 
@@ -245,7 +261,7 @@ std::optional<CBox> Snap::zoneBox(eKind kind, PHLMONITOR mon) {
         default: return std::nullopt;
     }
 
-    return applyGaps(fractionalRect(frame, z.hside, z.vside, z.hf, z.vf), z.innerL, z.innerR, z.innerT, z.innerB);
+    return applyGaps(fractionalRect(frame, z.hside, z.vside, z.hf, z.vf), z.innerL, z.innerR, z.innerT, z.innerB, w);
 }
 
 // When a window cannot shrink to its zone (the client minimum is bigger, e.g.
@@ -287,7 +303,7 @@ static bool zoneFullHeight(Snap::eKind kind) {
 }
 
 std::optional<CBox> Snap::contentBox(eKind kind, PHLMONITOR mon, PHLWINDOW w) {
-    auto box = zoneBox(kind, mon);
+    auto box = zoneBox(kind, mon, w);
     if (!box)
         return std::nullopt;
     const int chrome = chromeH(w);
@@ -336,7 +352,7 @@ std::optional<CBox> Snap::cycleBox(bool right, double hf, PHLMONITOR mon, PHLWIN
     // A full-height slice against the side, the edge shared with the window next
     // to it taking the half gap -- the insets a zone takes (see the Lua
     // cycle_geom this replaces: a left cycle is inner *right*).
-    CBox box = applyGaps(fractionalRect(frame, right ? "right" : "left", nullptr, hf, 1), right, !right, false, false);
+    CBox box = applyGaps(fractionalRect(frame, right ? "right" : "left", nullptr, hf, 1), right, !right, false, false, w);
 
     const int chrome = chromeH(w);
     box.y += chrome;
@@ -605,7 +621,7 @@ void Snap::clampToWorkArea(PHLWINDOW w, bool force) {
     // is visible to chromeH as soon as the window has it, while the decoration
     // keeps reporting a titlebar until updateRules hides it.
     const int chrome = chromeH(w);
-    const int edge   = gapOut() + border();
+    const int edge   = gapOut(w) + border(w);
     CBox      box    = TARGET->position();
 
     // A window halfway out of fullscreen still carries the fullscreen box after

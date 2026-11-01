@@ -27,8 +27,20 @@ namespace Snap {
     eKind              kindFromString(std::string_view s);
     const char*        kindToString(eKind k);
 
-    int                gapOut();
-    int                border();
+    // The live gap and border. A workspace rule (the panel's No gaps, on an
+    // xmode workspace only) wins over general:gaps_out and general:border_size,
+    // so the other modes keep the desktop's gaps. Pass the window whose
+    // workspace should be read; null reads the general values. assumeFrame
+    // still wins over both, for matching a layout that has not been applied yet.
+    int                gapOut(PHLWINDOW w = nullptr);
+    int                border(PHLWINDOW w = nullptr);
+    // The window's own outer edge: gap plus border, read from its workspace's
+    // rule first (No gaps is a workspace rule, so general:gaps_out still reports
+    // the desktop's 10 on those workspaces while the window sits in a frame built
+    // with 1). One implementation, because a caller that mixes the two shrinks
+    // the window by the difference: that is what made a tab joining a snapped
+    // window pull it 11px down and cut 22px off its height.
+    int                edge(PHLWINDOW w = nullptr);
     int                chromeH(PHLWINDOW w);
     // Titlebar and tabs share one row (plugin:hyprbars:compact_tabs or the
     // hyprbars:compact_tabs window rule). Chrome is then only the titlebar.
@@ -48,7 +60,7 @@ namespace Snap {
     // clamps windows itself in a few places and needs the same number.
     double             barTop(PHLMONITOR mon);
     // Full snap zone (titlebar + tabbar + content). Preview draws this.
-    std::optional<CBox> zoneBox(eKind kind, PHLMONITOR mon);
+    std::optional<CBox> zoneBox(eKind kind, PHLMONITOR mon, PHLWINDOW w = nullptr);
     // Content box written to the layout target (zone shifted down by chrome).
     std::optional<CBox> contentBox(eKind kind, PHLMONITOR mon, PHLWINDOW w);
 

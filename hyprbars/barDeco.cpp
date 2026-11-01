@@ -30,13 +30,17 @@
 #include "globals.hpp"
 #include "dragSession.hpp"
 #include "snap.hpp"
+#include "titlebarGate.hpp"
 #include "BarPassElement.hpp"
 
 #include <algorithm>
 #include <climits>
+#include <string_view>
 #include <cmath>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <format>
 #include <vector>
 
@@ -47,21 +51,41 @@ static uint32_t g_lastPressTime   = 0;
 static uint32_t g_lastPressButton = 0;
 static uint64_t g_launchSeq       = 0;
 
+// The seq already in the command file. The file outlives this counter: a config
+// reload (a new Hyprland, a plugin unload/load) starts g_launchSeq at zero while
+// the leftover still holds the last seq the dock adopted at startup. Reusing
+// that number is not a second write to the dock -- it is the same one, and its
+// dedupe drops the click: the + would do nothing at all.
+static uint64_t writtenSeq(const std::string& path) {
+    FILE* file = std::fopen(path.c_str(), "r");
+    if (!file)
+        return 0;
+    char     line[128] = {};
+    uint64_t seq       = 0;
+    if (std::fgets(line, sizeof(line), file) != nullptr) {
+        const char* space = std::strrchr(line, ' ');
+        if (space != nullptr)
+            seq = std::strtoull(space + 1, nullptr, 10);
+    }
+    std::fclose(file);
+    return seq;
+}
+
 // Tabbar +: the dock is the pack's one launcher (New Window action / gtk-launch).
 // Same pattern as the snap preview: a command file plus an IPC event so a missed
 // inotify still fires. The seq makes a second + of the same class a new write.
 static void requestLaunch(const std::string& cls) {
     if (cls.empty())
         return;
-    const auto  seq  = ++g_launchSeq;
-    const auto  line = std::format("launch {} {}", cls, seq);
     const char* runtime = std::getenv("XDG_RUNTIME_DIR");
     const auto  path    = std::format("{}/omarchy-x-mode-launch.cmd", runtime && *runtime ? runtime : "/tmp");
-    FILE*       file    = std::fopen(path.c_str(), "w");
-    if (file) {
-        std::fprintf(file, "%s\n", line.c_str());
-        std::fclose(file);
-    }
+    g_launchSeq         = std::max(g_launchSeq, writtenSeq(path)) + 1;
+    const auto seq  = g_launchSeq;
+    const auto line = std::format("launch {} {}", cls, seq);
+    // Said out loud as well: a scenario that clicks + and sees no window reads
+    // the same whether the click never arrived or the file never landed.
+    Log::logger->log(Log::DEBUG, "[hyprbars] tab +: {} seq {}", cls, seq);
+    writeStateFile(path, line + "\n");
     if (g_pEventManager)
         g_pEventManager->postEvent(SHyprIPCEvent{.event = "xmodelaunch", .data = line});
 }
@@ -100,6 +124,13 @@ bool holdUnderFullscreen(PHLWINDOW w) {
     if (focused && Desktop::focusState()->window() != FS)
         Desktop::focusState()->rawWindowFocus(FS, Desktop::FOCUS_REASON_SWITCH_TO_WINDOW_SOFT);
     return true;
+}
+
+// The pack's tag and Omarchy's floating-workspace tag each draw a bar (see
+// titlebarGate.hpp). A tiled or scrolling workspace carries neither, so nothing
+// is reserved above the window and the layout gets the whole box.
+static bool onXmodeWorkspace(PHLWINDOW w) {
+    return wantsTitlebarWindow(w);
 }
 
 // Hyprland's CWindowState::moveToZ lifts the whole X11 transient stack when it
@@ -234,8 +265,9 @@ bool CHyprBar::groupCurrent() {
 }
 
 SDecorationPositioningInfo CHyprBar::getPositioningInfo() {
-    const auto                 HEIGHT     = g_pGlobalState->config.barHeight->value();
-    const auto                 ENABLED    = g_pGlobalState->config.enabled->value() && xModeEnabled();
+    const auto                 PWINDOW    = m_pWindow.lock();
+    const auto                 HEIGHT     = titlebarHeight(PWINDOW);
+    const auto                 ENABLED    = g_pGlobalState->config.enabled->value() && xModeEnabled() && onXmodeWorkspace(PWINDOW);
     const auto                 PRECEDENCE = g_pGlobalState->config.barPrecedenceOverBorder->value();
     // Reserve the tabbar for every group member, not only the current one: the
     // positioner caches these extents and its fast path never recomputes them
@@ -267,7 +299,7 @@ std::string CHyprBar::getDisplayName() {
 }
 
 bool CHyprBar::inputIsValid() {
-    if (m_hidden || !xModeEnabled())
+    if (m_hidden || !xModeEnabled() || !onXmodeWorkspace(m_pWindow.lock()))
         return false;
 
     if (g_pSeatManager->m_seatGrab && !g_pSeatManager->m_seatGrab->accepts(m_pWindow->wlSurface()->resource()))
@@ -394,6 +426,30 @@ void CHyprBar::onTouchMove(Event::SCallbackInfo& info, ITouch::SMotionEvent e) {
     m_bDraggingThis = true;
 }
 
+// Omarchy's floating buttons name the window as %WINDOW% (address:0x…, the
+// same text hyprctl prints). Left as written, the command asks for a window
+// that does not exist, so close, maximize and minimize all do nothing.
+static std::string commandForWindow(const std::string& cmd, PHLWINDOW w) {
+    constexpr std::string_view token = "%WINDOW%";
+    if (!w || cmd.find(token) == std::string::npos)
+        return cmd;
+
+    const auto address = std::format("0x{:x}", reinterpret_cast<uintptr_t>(w.get()));
+    std::string out;
+    out.reserve(cmd.size() + address.size());
+    for (std::size_t from = 0;;) {
+        const auto at = cmd.find(token, from);
+        if (at == std::string::npos) {
+            out.append(cmd, from, std::string::npos);
+            break;
+        }
+        out.append(cmd, from, at - from);
+        out += address;
+        from = at + token.size();
+    }
+    return out;
+}
+
 void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch::SDownEvent> touchEvent, uint32_t button) {
     m_bTouchEv = touchEvent.has_value();
     if (m_bTouchEv)
@@ -415,11 +471,12 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
         COORDS   = Vector2D(PMONITOR->m_position.x + e.pos.x * PMONITOR->m_size.x, PMONITOR->m_position.y + e.pos.y * PMONITOR->m_size.y) - assignedBoxGlobal().pos();
     }
 
-    const auto HEIGHT           = g_pGlobalState->config.barHeight->value();
-    const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
-    const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-    const auto ALIGNBUTTONS     = g_pGlobalState->config.barButtonsAlignment->value();
-    const auto ON_DOUBLE_CLICK  = g_pGlobalState->config.onDoubleClick->value();
+    const auto PWINFORSTYLE     = m_pWindow.lock();
+    const auto HEIGHT           = titlebarHeight(PWINFORSTYLE);
+    const auto BARBUTTONPADDING = titlebarButtonPadding(PWINFORSTYLE);
+    const auto BARPADDING       = titlebarPadding(PWINFORSTYLE);
+    const auto ALIGNBUTTONS     = titlebarButtonsAlign(PWINFORSTYLE);
+    const auto ON_DOUBLE_CLICK  = titlebarDoubleClick(PWINFORSTYLE);
 
     const bool BUTTONSRIGHT = ALIGNBUTTONS != "left";
 
@@ -460,6 +517,7 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
     if (TAB >= 0 && (m_bTouchEv || button == 272)) {
         info.cancelled   = true;
         m_bCancelledDown = true;
+        Log::logger->log(Log::DEBUG, "[hyprbars] tab click: {} on {:x}", TAB, (uintptr_t)PWINDOW.get());
         PHLWINDOW target;
         if (PWINDOW->m_group) {
             const auto MEMBERS = PWINDOW->m_group->windows();
@@ -522,7 +580,7 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
 
     if (!ON_DOUBLE_CLICK.empty() &&
         std::chrono::duration_cast<std::chrono::milliseconds>(Time::steadyNow() - m_lastMouseDown).count() < 400 /* Arbitrary delay I found suitable */) {
-        Config::Supplementary::executor()->spawn(ON_DOUBLE_CLICK);
+        Config::Supplementary::executor()->spawn(commandForWindow(ON_DOUBLE_CLICK, PWINDOW));
         m_bDragPending = false;
     } else {
         m_lastMouseDown = Time::steadyNow();
@@ -619,7 +677,7 @@ void CHyprBar::moveDragWindow(const Vector2D& coords) {
     if (MON) {
         const auto TOP    = MON->m_reservedArea.top();
         const auto CHROME = (double)Snap::chromeH(PWINDOW);
-        const auto LIMIT  = TOP + (double)Snap::border();
+        const auto LIMIT  = TOP + (double)Snap::border(PWINDOW);
         if (newPos.y - CHROME < LIMIT)
             newPos.y = LIMIT + CHROME;
     }
@@ -631,13 +689,12 @@ bool CHyprBar::doButtonPress(Config::INTEGER barPadding, Config::INTEGER barButt
     //check if on a button
     float offset = barPadding;
 
-    for (auto& b : g_pGlobalState->buttons) {
+    for (auto& b : titlebarButtons(m_pWindow.lock())) {
         const auto BARBUF     = Vector2D{(int)assignedBoxGlobal().w, barHeight};
         Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - barButtonPadding - b.size - offset : offset), (BARBUF.y - b.size) / 2.0}.floor();
 
         if (VECINRECT(COORDS, currentPos.x, currentPos.y, currentPos.x + b.size + barButtonPadding, currentPos.y + b.size)) {
-            // hit on close
-            g_pKeybindManager->m_dispatchers["exec"](b.cmd);
+            g_pKeybindManager->m_dispatchers["exec"](commandForWindow(b.cmd, m_pWindow.lock()));
             return true;
         }
 
@@ -647,16 +704,17 @@ bool CHyprBar::doButtonPress(Config::INTEGER barPadding, Config::INTEGER barButt
 }
 
 void CHyprBar::renderBarTitle(const Vector2D& bufferSize, const float scale) {
-    const auto COLORVAL         = g_pGlobalState->config.textColor->value();
-    const auto SIZE             = g_pGlobalState->config.barTextSize->value();
+    const auto PWINDOW          = m_pWindow.lock();
+    const auto COLORVAL         = titlebarTextColor(PWINDOW);
+    const auto SIZE             = omarchyTitlebarWindow(PWINDOW) ? g_pGlobalState->omarchy.textSize : g_pGlobalState->config.barTextSize->value();
     const auto WEIGHT           = g_pGlobalState->config.barTextWeight->value();
-    const auto FONT             = g_pGlobalState->config.barTextFont->value();
-    const auto ALIGN            = g_pGlobalState->config.barTextAlign->value();
-    const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-    const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
+    const auto FONT             = omarchyTitlebarWindow(PWINDOW) ? g_pGlobalState->omarchy.textFont : g_pGlobalState->config.barTextFont->value();
+    const auto ALIGN            = titlebarTextAlign(PWINDOW);
+    const auto BARPADDING       = titlebarPadding(PWINDOW);
+    const auto BARBUTTONPADDING = titlebarButtonPadding(PWINDOW);
 
     float      buttonSizes = BARBUTTONPADDING;
-    for (auto& b : g_pGlobalState->buttons) {
+    for (auto& b : titlebarButtons(PWINDOW)) {
         buttonSizes += b.size + BARBUTTONPADDING;
     }
 
@@ -671,7 +729,7 @@ void CHyprBar::renderBarTitle(const Vector2D& bufferSize, const float scale) {
         return;
     }
 
-    const CHyprColor COLOR = m_bForcedTitleColor.value_or(configColor(COLORVAL));
+    const CHyprColor COLOR = m_bForcedTitleColor.value_or(COLORVAL);
     m_pTextTex             = g_pHyprRenderer->renderText(m_szLastTitle, COLOR, scaledSize, false, FONT, maxWidth, WEIGHT.m_value);
 }
 
@@ -679,7 +737,7 @@ size_t CHyprBar::getVisibleButtonCount(Config::INTEGER barButtonPadding, Config:
     float  availableSpace = bufferSize.x - barPadding * scale * 2;
     size_t count          = 0;
 
-    for (const auto& button : g_pGlobalState->buttons) {
+    for (const auto& button : titlebarButtons(m_pWindow.lock())) {
         const float buttonSpace = (button.size + barButtonPadding) * scale;
         if (availableSpace >= buttonSpace) {
             count++;
@@ -692,18 +750,20 @@ size_t CHyprBar::getVisibleButtonCount(Config::INTEGER barButtonPadding, Config:
 }
 
 void CHyprBar::renderBarButtons(CBox* barBox, const float scale, const float a) {
-    const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
-    const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-    const auto ALIGNBUTTONS     = g_pGlobalState->config.barButtonsAlignment->value();
+    const auto PWINDOW          = m_pWindow.lock();
+    const auto BARBUTTONPADDING = titlebarButtonPadding(PWINDOW);
+    const auto BARPADDING       = titlebarPadding(PWINDOW);
+    const auto ALIGNBUTTONS     = titlebarButtonsAlign(PWINDOW);
     const auto INACTIVECOLOR    = g_pGlobalState->config.inactiveButtonColor->value();
 
     const bool BUTTONSRIGHT    = ALIGNBUTTONS != "left";
     const auto visibleCount    = getVisibleButtonCount(BARBUTTONPADDING, BARPADDING, Vector2D{barBox->w, barBox->h}, scale);
     const bool INVALIDATEICONS = m_bButtonsDirty || m_bWindowSizeChanged;
 
-    int        offset = BARPADDING * scale;
+    auto&      buttons = titlebarButtons(PWINDOW);
+    int        offset  = BARPADDING * scale;
     for (size_t i = 0; i < visibleCount; ++i) {
-        auto&      button           = g_pGlobalState->buttons[i];
+        auto&      button           = buttons[i];
         const auto scaledButtonSize = button.size * scale;
         const auto scaledButtonsPad = BARBUTTONPADDING * scale;
 
@@ -728,21 +788,23 @@ void CHyprBar::renderBarButtons(CBox* barBox, const float scale, const float a) 
 }
 
 void CHyprBar::renderBarButtonsText(CBox* barBox, const float scale, const float a) {
-    const auto HEIGHT           = g_pGlobalState->config.barHeight->value();
-    const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
-    const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-    const auto ALIGNBUTTONS     = g_pGlobalState->config.barButtonsAlignment->value();
+    const auto PWINDOW          = m_pWindow.lock();
+    const auto HEIGHT           = titlebarHeight(PWINDOW);
+    const auto BARBUTTONPADDING = titlebarButtonPadding(PWINDOW);
+    const auto BARPADDING       = titlebarPadding(PWINDOW);
+    const auto ALIGNBUTTONS     = titlebarButtonsAlign(PWINDOW);
     const auto ICONONHOVER      = g_pGlobalState->config.iconOnHover->value();
 
     const bool BUTTONSRIGHT = ALIGNBUTTONS != "left";
     const auto visibleCount = getVisibleButtonCount(BARBUTTONPADDING, BARPADDING, Vector2D{barBox->w, barBox->h}, scale);
     const auto COORDS       = cursorRelativeToBar();
 
+    auto&      buttons      = titlebarButtons(PWINDOW);
     int        offset        = BARPADDING * scale;
     float      noScaleOffset = BARPADDING;
 
     for (size_t i = 0; i < visibleCount; ++i) {
-        auto&      button           = g_pGlobalState->buttons[i];
+        auto&      button           = buttons[i];
         const auto scaledButtonSize = button.size * scale;
         const auto scaledButtonsPad = BARBUTTONPADDING * scale;
 
@@ -1067,13 +1129,16 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
 }
 
 void CHyprBar::applyEnabled() {
-    m_bLastEnabledState = g_pGlobalState->config.enabled->value() && xModeEnabled();
+    // The same expression draw() compares against, tag included: leaving the tag
+    // term out made the two never agree, so every frame repositioned the bar and
+    // damaged it again.
+    m_bLastEnabledState = g_pGlobalState->config.enabled->value() && xModeEnabled() && onXmodeWorkspace(m_pWindow.lock());
     g_pDecorationPositioner->repositionDeco(this);
     damageEntire();
 }
 
 void CHyprBar::draw(PHLMONITOR pMonitor, const float& a) {
-    const auto ENABLED = g_pGlobalState->config.enabled->value() && xModeEnabled();
+    const auto ENABLED = g_pGlobalState->config.enabled->value() && xModeEnabled() && onXmodeWorkspace(m_pWindow.lock());
     if (m_bLastEnabledState != ENABLED)
         applyEnabled();
 
@@ -1113,10 +1178,10 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
     const auto  PWINDOW = m_pWindow.lock();
 
     static auto PENABLEBLURGLOBAL = CConfigValue<Config::BOOL>("decoration:blur:enabled");
-    const auto  BARCOLOR          = g_pGlobalState->config.barColor->value();
-    const auto  HEIGHT            = g_pGlobalState->config.barHeight->value();
+    const auto  BARCOLOR          = titlebarBarColor(PWINDOW);
+    const auto  HEIGHT            = titlebarHeight(PWINDOW);
     const auto  PRECEDENCE        = g_pGlobalState->config.barPrecedenceOverBorder->value();
-    const auto  ALIGNBUTTONS      = g_pGlobalState->config.barButtonsAlignment->value();
+    const auto  ALIGNBUTTONS      = titlebarButtonsAlign(PWINDOW);
     const auto  ENABLETITLE       = g_pGlobalState->config.barTitleEnabled->value();
     const auto  ENABLEBLUR        = g_pGlobalState->config.barBlur->value();
     const auto  INACTIVECOLOR     = g_pGlobalState->config.inactiveButtonColor->value();
@@ -1134,7 +1199,7 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
         }
     }
 
-    const CHyprColor DEST_COLOR = m_bForcedBarColor.value_or(configColor(BARCOLOR));
+    const CHyprColor DEST_COLOR = m_bForcedBarColor.value_or(BARCOLOR);
     if (DEST_COLOR != m_cRealBarColor->goal())
         *m_cRealBarColor = DEST_COLOR;
 
@@ -1238,12 +1303,12 @@ void CHyprBar::renderPass(PHLMONITOR pMonitor, const float& a) {
 
     CBox textBox = {titleBarBox.x, titleBarBox.y, (int)BARBUF.x, (int)(HEIGHT * pMonitor->m_scale)};
     if (ENABLETITLE && !COMPACTTABS && m_pTextTex) {
-        const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-        const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
-        const auto ALIGN            = g_pGlobalState->config.barTextAlign->value();
+        const auto BARPADDING       = titlebarPadding(PWINDOW);
+        const auto BARBUTTONPADDING = titlebarButtonPadding(PWINDOW);
+        const auto ALIGN            = titlebarTextAlign(PWINDOW);
 
         float      buttonSizes = BARBUTTONPADDING;
-        for (auto& b : g_pGlobalState->buttons) {
+        for (auto& b : titlebarButtons(PWINDOW)) {
             buttonSizes += b.size + BARBUTTONPADDING;
         }
 
@@ -1381,17 +1446,18 @@ void CHyprBar::updateRules() {
 }
 
 void CHyprBar::damageOnButtonHover() {
-    const auto BARPADDING       = g_pGlobalState->config.barPadding->value();
-    const auto BARBUTTONPADDING = g_pGlobalState->config.barButtonPadding->value();
-    const auto HEIGHT           = g_pGlobalState->config.barHeight->value();
-    const auto ALIGNBUTTONS     = g_pGlobalState->config.barButtonsAlignment->value();
+    const auto PWINDOW          = m_pWindow.lock();
+    const auto BARPADDING       = titlebarPadding(PWINDOW);
+    const auto BARBUTTONPADDING = titlebarButtonPadding(PWINDOW);
+    const auto HEIGHT           = titlebarHeight(PWINDOW);
+    const auto ALIGNBUTTONS     = titlebarButtonsAlign(PWINDOW);
     const bool BUTTONSRIGHT     = ALIGNBUTTONS != "left";
 
     float      offset = BARPADDING;
 
     const auto COORDS = cursorRelativeToBar();
 
-    for (auto& b : g_pGlobalState->buttons) {
+    for (auto& b : titlebarButtons(PWINDOW)) {
         const auto BARBUF     = Vector2D{(int)assignedBoxGlobal().w, HEIGHT};
         Vector2D   currentPos = Vector2D{(BUTTONSRIGHT ? BARBUF.x - BARBUTTONPADDING - b.size - offset : offset), (BARBUF.y - b.size) / 2.0}.floor();
 

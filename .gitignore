@@ -22,7 +22,10 @@ Icon
 # Build artifacts
 *.so
 *.o
+*.d
 build/
+__pycache__/
+*.pyc
 
 .pi/sessions
 
