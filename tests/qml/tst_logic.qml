@@ -286,7 +286,7 @@ TestCase {
         var ids = []
         for (var i = 0; i < r.actions.length; i++)
             ids.push(r.actions[i].id)
-        compare(ids, ["new", "sep", "win:0x1", "win:0x2", "sep", "pin", "close"])
+        compare(ids, ["new", "sep", "win:0x1", "win:0x2", "sep", "pin", "forcequit", "close"])
         compare(r.actions[0].label, "New Foot")
     }
 
@@ -300,6 +300,34 @@ TestCase {
         for (var j = 0; j < r.actions.length; j++)
             ids.push(r.actions[j].id)
         verify(ids.indexOf("unpin") !== -1, "pinned app offers unpin")
+    }
+
+    // The two rows run different dispatchers, and that is the only difference a
+    // test can see: the window goes away either way.
+    function test_menu_close_and_kill_commands() {
+        compare(Logic.windowCloseCommand("0xabc"), "hl.dsp.window.close({ window = 'address:0xabc' })")
+        compare(Logic.windowKillCommand("0xabc"), "hl.dsp.window.kill({ window = 'address:0xabc' })")
+    }
+
+    // Force Quit is the SIGKILL row, and it sits above Quit: the last row is
+    // what a hurried click lands on, and that has to be the one that asks the
+    // app to close rather than killing it.
+    function test_buildMenuActions_force_quit_before_quit() {
+        var r = Logic.buildMenuActions(mkMenuApp(), [mkMenuApp()], "Foot", false)
+        var ids = []
+        for (var i = 0; i < r.actions.length; i++)
+            ids.push(r.actions[i].id)
+        compare(ids[ids.length - 1], "close", "Quit stays the last row")
+        compare(ids[ids.length - 2], "forcequit", "Force Quit is the row above it")
+
+        var idle = mkMenuApp()
+        idle.addrs = []
+        idle.wins = []
+        var none = Logic.buildMenuActions(idle, [idle], "Foot", false)
+        var quit = none.actions[none.actions.length - 1]
+        var force = none.actions[none.actions.length - 2]
+        compare(force.enabled, false, "nothing to kill for an app with no windows")
+        compare(quit.enabled, false, "and nothing to quit")
     }
 
     function mkPanelRunning() {

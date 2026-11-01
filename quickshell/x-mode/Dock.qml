@@ -287,7 +287,17 @@ Item {
     if (!app || !app.addrs)
       return
     for (var i = 0; i < app.addrs.length; i++)
-      Hyprland.dispatch("hl.dsp.window.close({ window = 'address:" + app.addrs[i] + "' })")
+      Hyprland.dispatch(Logic.windowCloseCommand(app.addrs[i]))
+  }
+
+  // Force Quit: SIGKILL, for the window whose app stopped reading its close
+  // request. Hyprland's kill dispatcher is the one that does that, so this is
+  // the same round trip closeApp makes, with the other dispatcher.
+  function killApp(app) {
+    if (!app || !app.addrs)
+      return
+    for (var i = 0; i < app.addrs.length; i++)
+      Hyprland.dispatch(Logic.windowKillCommand(app.addrs[i]))
   }
 
   function openMenu(app, screenY) {
@@ -349,6 +359,8 @@ Item {
       menuCloseDefer.pinCls = app ? app.cls : ""
     } else if (id === "close")
       closeApp(app)
+    else if (id === "forcequit")
+      killApp(app)
     // The menu layer goes away on the next turn. Destroying it in this click
     // waits on a frame callback before the close or focus dispatch is written,
     // and the nest then never delivers that frame.

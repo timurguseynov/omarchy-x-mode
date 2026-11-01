@@ -13,7 +13,10 @@ read -r px py <<<"$(dock_icon_point 0)"
 pointer_click "$px" "$py" right
 settle
 
-read -r rx ry <<<"$(dock_menu_row_point 0 5 "26 7 26 7 26 26")"
+# Rows: New, separator, the window, separator, Pin, Force Quit, Quit. Quit is
+# still the last one -- Force Quit went above it so the row a hurried click
+# lands on stays the one that asks the app to close.
+read -r rx ry <<<"$(dock_menu_row_point 0 6 "26 7 26 7 26 26 26")"
 pointer_click "$rx" "$ry"
 # The quit dispatch is itself a hyprctl. A tight poll fills the nest's socket
 # and the close sits behind it until this wait gives up.

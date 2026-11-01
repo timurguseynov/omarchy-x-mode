@@ -416,6 +416,23 @@ function pinSlotIndex(y, fromIndex, hoverIndex, stride, iconSize, n) {
 // client list is re-read on windowtitle. displayName and singleInstance come
 // from the desktop entry. Returns { app, actions } (app may be null, as the
 // caller passes it).
+// The two dispatchers the menu's last rows run, as strings: the dock's Quit asks
+// the app to close (the compositor's own close request), Force Quit is
+// Hyprland's kill, which is SIGKILL and the only thing that ends an app that
+// stopped reading the close request. Pure so a test can tell them apart -- the
+// window disappears either way.
+function windowCloseCommand(addr) {
+    return "hl.dsp.window.close({ window = 'address:" + String(addr) + "' })"
+}
+
+function windowKillCommand(addr) {
+    return "hl.dsp.window.kill({ window = 'address:" + String(addr) + "' })"
+}
+
+function menuHasWindows(app) {
+    return !!(app && app.addrs && app.addrs.length > 0)
+}
+
 function buildMenuActions(menuApp, apps, displayName, singleInstance) {
     var app = menuApp || null
     if (app) {
@@ -458,7 +475,11 @@ function buildMenuActions(menuApp, apps, displayName, singleInstance) {
         a.push({ id: "unpin", label: "Unpin", enabled: true })
     else
         a.push({ id: "pin", label: "Pin", enabled: true })
-    a.push({ id: "close", label: "Quit", enabled: !!(app && app.addrs && app.addrs.length > 0) })
+    // SIGKILL, for the app that stopped answering its close request. Above Quit
+    // and not below it: the last row is the one a hurried click lands on, and
+    // that stays the one that asks the app to close.
+    a.push({ id: "forcequit", label: "Force Quit", enabled: menuHasWindows(app) })
+    a.push({ id: "close", label: "Quit", enabled: menuHasWindows(app) })
     return { app: app, actions: a }
 }
 
