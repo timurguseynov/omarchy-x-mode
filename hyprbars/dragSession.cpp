@@ -184,12 +184,8 @@ void CDragSession::setPreview(const std::string& line) {
     m_lastPreview = line;
 
     const char* runtime = std::getenv("XDG_RUNTIME_DIR");
-    const auto  path    = std::format("{}/omarchy-snap-preview.cmd", runtime && *runtime ? runtime : "/tmp");
-    FILE*       file    = std::fopen(path.c_str(), "w");
-    if (!file)
-        return;
-    std::fprintf(file, "%s\n", line.c_str());
-    std::fclose(file);
+    const auto path = std::format("{}/omarchy-snap-preview.cmd", runtime && *runtime ? runtime : "/tmp");
+    writeStateFile(path, line + "\n");
 
     if (g_pEventManager)
         g_pEventManager->postEvent(SHyprIPCEvent{.event = "xmodesnap", .data = line});

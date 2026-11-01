@@ -80,13 +80,12 @@ static void requestLaunch(const std::string& cls) {
     const char* runtime = std::getenv("XDG_RUNTIME_DIR");
     const auto  path    = std::format("{}/omarchy-x-mode-launch.cmd", runtime && *runtime ? runtime : "/tmp");
     g_launchSeq         = std::max(g_launchSeq, writtenSeq(path)) + 1;
-    const auto  seq     = g_launchSeq;
-    const auto  line    = std::format("launch {} {}", cls, seq);
-    FILE*       file    = std::fopen(path.c_str(), "w");
-    if (file) {
-        std::fprintf(file, "%s\n", line.c_str());
-        std::fclose(file);
-    }
+    const auto seq  = g_launchSeq;
+    const auto line = std::format("launch {} {}", cls, seq);
+    // Said out loud as well: a scenario that clicks + and sees no window reads
+    // the same whether the click never arrived or the file never landed.
+    Log::logger->log(Log::DEBUG, "[hyprbars] tab +: {} seq {}", cls, seq);
+    writeStateFile(path, line + "\n");
     if (g_pEventManager)
         g_pEventManager->postEvent(SHyprIPCEvent{.event = "xmodelaunch", .data = line});
 }
@@ -518,6 +517,7 @@ void CHyprBar::handleDownEvent(Event::SCallbackInfo& info, std::optional<ITouch:
     if (TAB >= 0 && (m_bTouchEv || button == 272)) {
         info.cancelled   = true;
         m_bCancelledDown = true;
+        Log::logger->log(Log::DEBUG, "[hyprbars] tab click: {} on {:x}", TAB, (uintptr_t)PWINDOW.get());
         PHLWINDOW target;
         if (PWINDOW->m_group) {
             const auto MEMBERS = PWINDOW->m_group->windows();

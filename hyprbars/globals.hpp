@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/render/Texture.hpp>
@@ -10,6 +14,25 @@
 #include <hyprland/src/config/values/types/FontWeightValue.hpp>
 
 inline HANDLE PHANDLE = nullptr;
+
+// Write a small state file whole or not at all. `fopen(path, "w")` truncates
+// first, so a reader -- the shell watches these files -- can see an empty file
+// between the open and the write, and "off" or "no preview" for a frame reads as
+// a bug in the pack. The temp file is a sibling, so the rename stays on one
+// filesystem; the Lua side does the same (layout.write_atomic).
+inline bool writeStateFile(const std::string& path, const std::string& text) {
+    const auto tmp = path + ".tmp";
+    FILE*      f   = std::fopen(tmp.c_str(), "w");
+    if (!f)
+        return false;
+    const bool wrote = std::fputs(text.c_str(), f) >= 0;
+    std::fclose(f);
+    if (!wrote || std::rename(tmp.c_str(), path.c_str()) != 0) {
+        std::remove(tmp.c_str());
+        return false;
+    }
+    return true;
+}
 
 struct SHyprButton {
     std::string          cmd     = "";

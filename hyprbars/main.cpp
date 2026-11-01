@@ -595,18 +595,10 @@ static void writeXModeFiles(bool on) {
     const auto  line    = on ? "on\n" : "off\n";
     const char* runtime = std::getenv("XDG_RUNTIME_DIR");
     const auto  rt      = std::format("{}/omarchy-x-mode.state", runtime && *runtime ? runtime : "/tmp");
-    if (FILE* f = std::fopen(rt.c_str(), "w")) {
-        std::fputs(line, f);
-        std::fclose(f);
-    }
+    writeStateFile(rt, line);
     const char* home = std::getenv("HOME");
-    if (home && *home) {
-        const auto path = std::format("{}/.local/state/omarchy-x-mode/enabled", home);
-        if (FILE* f = std::fopen(path.c_str(), "w")) {
-            std::fputs(line, f);
-            std::fclose(f);
-        }
-    }
+    if (home && *home)
+        writeStateFile(std::format("{}/.local/state/omarchy-x-mode/enabled", home), line);
 }
 
 static bool readPersistedXMode() {
