@@ -158,6 +158,14 @@ file has no `session:` stamp from this session, the worker died, or the run was
 started from a tool that deleted `PI_SESSION_ID`. Look at that, by hand, and fix
 it; do not add a sleep and check again.
 
+A `sleep` right after `async.sh run` is the shape this goes wrong in, and it
+keeps looking harmless: it is only a few seconds, and then a `ls` or a `tail` to
+"see how it is going". Do not do it. There is nothing to see -- the log is empty
+until the run ends -- so the turn is over the moment the label is named. If
+there is work that cannot invalidate the run (reading a finished run's log,
+editing something no scenario reads), do that; if there is not, end the turn and
+let the report arrive.
+
 `tests/async.sh run` writes `<log>.status` the moment a run ends: the same text
 `status` prints (state, summary lines, counts, the failing scenarios) plus the
 log path, and a `session:` stamp when a pi session started the run. The project
