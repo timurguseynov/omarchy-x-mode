@@ -35,7 +35,7 @@ assert_eq "$(viewed_workspace)" 1 "the test starts on workspace 1"
 # point for the second icon falls in the padding under a one-icon card.
 dock_settle
 
-read -r px py <<<"$(dock_icon_point 1)"
+read -r px py <<<"$(dock_icon_point "$(dock_icon_index kitty)")"
 pointer_click "$px" "$py"
 on_kitty_ws() { [ "$(viewed_workspace)" = 2 ] && [ "$(active_class)" = kitty ]; }
 for _ in $(seq 1 12); do

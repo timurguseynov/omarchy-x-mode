@@ -88,6 +88,14 @@ Item {
   // it. Written only when the published list changes, the same moment the
   // icons move.
   readonly property string orderPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode.dock-order"
+  // What the dock saw and what it did with it, one line per event, for the runs
+  // where a click does nothing. A click that never reaches a handler and one the
+  // handler throws away look identical from outside -- the app does not change --
+  // and this is the difference. Off unless X_MODE_DOCK_DEBUG=1, so a normal
+  // session writes nothing.
+  readonly property bool debugClicks: Quickshell.env("X_MODE_DOCK_DEBUG") === "1"
+  readonly property string clickLogPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode.dock-clicks"
+  property var clickLog: []
   readonly property string launchPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode-launch.cmd"
   property int lastLaunchSeq: -1
   property bool launchFileReady: false
@@ -171,6 +179,15 @@ Item {
     return Logic.samePins(a, b)
   }
 
+  function noteClick(line) {
+    if (!root.debugClicks)
+      return
+    var log = root.clickLog.slice(-40)
+    log.push(Number(Date.now() % 100000).toFixed(3) + " " + line)
+    root.clickLog = log
+    clickFile.setText(log.join("\n") + "\n")
+  }
+
   function focusAddr(addr) {
     if (!addr)
       return
@@ -214,6 +231,7 @@ Item {
   function activate(app) {
     // A left-click on the dock (now reachable while the menu is open, since
     // the overlay no longer covers it) dismisses any open menu.
+    root.noteClick("activate " + app.cls + " running=" + app.running + " best=" + app.bestAddr + " active=" + root.activeClass)
     root.closeMenu()
     if (app.running) {
       focusGroup(app)
@@ -301,6 +319,7 @@ Item {
   }
 
   function openMenu(app, screenY) {
+    root.noteClick("openMenu " + (app ? app.cls : "null"))
     // The overlay is a new layer. Creating it inside the click handler waits
     // on a frame callback before the handler returns, and the nest then cannot
     // deliver that frame. Open it on the next turn, after the click is done.
@@ -589,6 +608,12 @@ Item {
   FileView {
     id: orderFile
     path: root.orderPath
+    printErrors: false
+  }
+
+  FileView {
+    id: clickFile
+    path: root.clickLogPath
     printErrors: false
   }
 
@@ -955,6 +980,7 @@ Item {
                   property bool dragArmed: false
 
                   onPressed: function(mouse) {
+                    root.noteClick("press " + (mouse.button === Qt.RightButton ? "right" : "left") + " " + item.modelData.cls)
                     if (mouse.button !== Qt.LeftButton || !item.pinnedItem)
                       return
                     pressLocalY = mouse.y
@@ -1000,6 +1026,7 @@ Item {
                       return
                     }
                     dragArmed = false
+                    root.noteClick("release " + (mouse.button === Qt.RightButton ? "right" : "left") + " " + item.modelData.cls)
                     if (mouse.button === Qt.RightButton)
                       root.openMenu(item.modelData, item.menuScreenY())
                     else if (mouse.button === Qt.LeftButton)
@@ -1010,6 +1037,7 @@ Item {
                     dragArmed = false
                   }
                   onClicked: function(mouse) {
+                    root.noteClick("clicked " + (mouse.button === Qt.RightButton ? "right" : "left") + " " + item.modelData.cls)
                     if (mouse.button === Qt.RightButton && !dragArmed)
                       root.openMenu(item.modelData, item.menuScreenY())
                   }

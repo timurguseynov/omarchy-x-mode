@@ -13,7 +13,7 @@ open_window foot
 open_window kitty
 dock_settle
 
-read -r px py <<<"$(dock_icon_point 0)"
+read -r px py <<<"$(dock_icon_point "$(dock_icon_index foot)")"
 pointer_click "$px" "$py" right
 settle
 

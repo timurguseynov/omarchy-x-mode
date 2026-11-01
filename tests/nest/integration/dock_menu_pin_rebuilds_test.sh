@@ -12,12 +12,12 @@ dock_settle
 
 assert_eq "$(dock_box | awk '{print $4}')" 72 "two running apps, no pins"
 
-# Icon 1 is kitty (opened second: the running column is in launch order). Pin it.
-read -r px py <<<"$(dock_icon_point 1)"
+# Pin kitty's icon, found by class: the column's order is the dock's.
+read -r px py <<<"$(dock_icon_point "$(dock_icon_index kitty)")"
 pointer_click "$px" "$py" right
 settle
 
-read -r rx ry <<<"$(dock_menu_row_point 1 4 "26 7 26 7 26 26")"
+read -r rx ry <<<"$(dock_menu_row_point 1 4 "26 7 26 7 26 26 26")"
 pointer_click "$rx" "$ry"
 
 # Pin has to rebuild on that click. The 3s client reconcile would also move

@@ -1276,6 +1276,23 @@ else:
 '
 }
 
+# Where a class sits in the column the dock is showing. Scenarios click "the
+# other app's icon", and the column's order is the dock's -- pinned first, then
+# the remembered running order, and a class it has not seen yet sorted by name.
+# That is not the order the scenario opened its windows in, so aiming by index
+# clicks whatever the dock happened to put there.
+dock_icon_index() { # CLASS
+  local i=0 c
+  for c in $(dock_order); do
+    if [ "$c" = "$1" ]; then
+      echo "$i"
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  return 1
+}
+
 dock_settle() {
   local want prev="" cur i stable=0 h
   # The wanted height is recomputed as windows come and go during the wait.
@@ -1342,27 +1359,33 @@ dock_menu_row_point() { # ICON_INDEX ROW_INDEX "26 7 26 ..."
   # The menu is a layer of its own and is not up in the same breath as the
   # click. Its width is the screen the card is placed against; the point is
   # meaningless until that width exists.
-  local screen_w i
+  local screen_w screen_h i
   # A 50ms poll keeps the nest's socket busy, and the menu's own commit then
   # waits behind it. A wider gap lets the layer finish mapping before the click.
   # Fifteen seconds, not five: the menu is a Quickshell surface on a machine that
   # may be running five nests at once, and five was what made the dock-menu
   # scenarios fail in a full run and pass on their own.
   for i in $(seq 1 60); do
-    screen_w="$(dock_layer_box x-mode-dock-menu 2>/dev/null | awk '{print $3}')"
-    [ -n "$screen_w" ] && [ "$screen_w" -ge 100 ] && break
+    read -r _ _ screen_w screen_h <<<"$(dock_layer_box x-mode-dock-menu 2>/dev/null || true)"
+    [ -n "${screen_w:-}" ] && [ "$screen_w" -ge 100 ] && break
     screen_w=""
     sleep 0.25
   done
-  [ -n "$screen_w" ] || fail "the dock menu did not open"
+  [ -n "${screen_w:-}" ] || fail "the dock menu did not open"
+  # The card's own height decides where it lands: DockMenu clamps it to the
+  # screen, so a menu that grew a row (Force Quit) is pushed up near the bottom
+  # edge and every row moves with it. Modelling only "the card sits at the icon"
+  # aimed above the row that was meant, and the scenario then clicked a
+  # neighbour -- which read as "the row did nothing".
   python3 -c "
 rows = [int(x) for x in '$3'.split()]
 idx = $2
-screen_w, dock_x, dock_y = $screen_w, $dx, $dy
+screen_w, screen_h, dock_x, dock_y = $screen_w, $screen_h, $dx, $dy
 gaps_out = 5           # Style.gapsOut: half of general:gaps_out
-card_w, card_h, pad = 240, 12, 7
+card_w, menu_pad = 240, 12
+card_h = sum(rows) + 2 * (len(rows) - 1) + menu_pad
 card_x = screen_w - gaps_out - 40 - card_w - gaps_out * 2
-card_y = dock_y + $1 * 32            # aligned with the icon, minus the pad
+card_y = max(8, min(screen_h - card_h - 8, dock_y + $1 * 32))
 offset = 6
 for i in range(idx):
     offset += rows[i] + 2

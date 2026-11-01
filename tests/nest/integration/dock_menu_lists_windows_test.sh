@@ -24,11 +24,11 @@ for a in $order; do
 done
 assert_ne "$other" "" "there is another window of the app"
 
-read -r px py <<<"$(dock_icon_point 0)"
+read -r px py <<<"$(dock_icon_point "$(dock_icon_index foot)")"
 pointer_click "$px" "$py" right
 settle
 
-read -r rx ry <<<"$(dock_menu_row_point 0 3 "26 7 26 26 7 26 26")"
+read -r rx ry <<<"$(dock_menu_row_point 0 3 "26 7 26 26 7 26 26 26")"
 pointer_click "$rx" "$ry"
 # Same rule as the icon click: the row's focus is a dispatch through the dock,
 # and a settle is a fixed guess at how long that takes.

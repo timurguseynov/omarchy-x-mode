@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # The menu's pin row remembers the class in the pinned file, which is how a
 # pinned icon survives a restart. The row order below is the menu this test
-# expects: New, a separator, the window row, a separator, Pin/Unpin, Quit.
+# expects: New, a separator, the window row, a separator, Pin/Unpin, Force
+# Quit, Quit -- and the row list has to be the whole menu, because the card's
+# height decides where it is clamped on the screen.
 . "$(dirname "$0")/../../lib.sh"
 
 dock_start
@@ -10,11 +12,11 @@ dock_settle
 
 assert_eq "$(cat "$(dock_pinned_file)" 2>/dev/null || echo absent)" absent "nothing is pinned yet"
 
-read -r px py <<<"$(dock_icon_point 0)"
+read -r px py <<<"$(dock_icon_point "$(dock_icon_index foot)")"
 pointer_click "$px" "$py" right
 settle
 
-read -r rx ry <<<"$(dock_menu_row_point 0 4 "26 7 26 7 26 26")"
+read -r rx ry <<<"$(dock_menu_row_point 0 4 "26 7 26 7 26 26 26")"
 pointer_click "$rx" "$ry"
 settle
 
@@ -27,10 +29,10 @@ assert_eq "$(python3 -c "import json;print(','.join(json.load(open('$(dock_pinne
 assert_eq "$(dock_box | awk '{print $4}')" 40 "one pinned running app is a one-icon card"
 
 # The same row now reads Unpin. Clicking it clears the file again.
-read -r px py <<<"$(dock_icon_point 0)"
+read -r px py <<<"$(dock_icon_point "$(dock_icon_index foot)")"
 pointer_click "$px" "$py" right
 settle
-read -r rx ry <<<"$(dock_menu_row_point 0 4 "26 7 26 7 26 26")"
+read -r rx ry <<<"$(dock_menu_row_point 0 4 "26 7 26 7 26 26 26")"
 pointer_click "$rx" "$ry"
 settle
 

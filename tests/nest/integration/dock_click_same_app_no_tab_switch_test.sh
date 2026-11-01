@@ -14,7 +14,7 @@ nest_ctl dispatch "hl.dsp.focus({ window = 'class:foot' })" >/dev/null
 sleep 0.3
 before="$(active_tab_index foot)"
 
-read -r px py <<<"$(dock_icon_point 0)"
+read -r px py <<<"$(dock_icon_point "$(dock_icon_index foot)")"
 pointer_click "$px" "$py"
 settle
 
