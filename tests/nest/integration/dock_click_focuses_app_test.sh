@@ -15,8 +15,10 @@ assert_eq "$(active_class)" foot "foot is focused to begin with"
 
 read -r px py <<<"$(dock_icon_point 1)"
 pointer_click "$px" "$py"
-settle
-
+# Wait for the thing, not for a fixed pause: under five nests the dock's dispatch
+# can take longer than a settle, and asserting on the pause reported a lost click
+# that had only not landed yet.
+wait_until 5 '[ "$(active_class)" = kitty ]' || fail "clicking an icon did not focus that app (got $(active_class))"
 assert_eq "$(active_class)" kitty "clicking an icon focuses that app"
 assert_eq "$(topmost)" kitty "clicking an icon raises that app"
 

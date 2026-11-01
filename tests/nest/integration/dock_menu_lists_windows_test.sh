@@ -30,8 +30,9 @@ settle
 
 read -r rx ry <<<"$(dock_menu_row_point 0 3 "26 7 26 26 7 26 26")"
 pointer_click "$rx" "$ry"
-settle
-
+# Same rule as the icon click: the row's focus is a dispatch through the dock,
+# and a settle is a fixed guess at how long that takes.
+wait_until 5 '[ "$(active_address)" = "$other" ]' || fail "the window row did not focus that window (got $(active_address))"
 assert_eq "$(active_address)" "$other" "the window row focuses that window"
 
 dock_stop
