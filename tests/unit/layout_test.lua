@@ -111,6 +111,33 @@ plan = layout.plan_arrange({
 }, in_order)
 check("four apps split evenly", kinds(plan), "left,right,left,right")
 
+-- The one way the pack writes a state file. An in-place open truncates first,
+-- so a writer that dies between the open and the write leaves an empty file and
+-- every reader takes that as the state -- which is how the panel's list of keys
+-- to replace vanished while an install ran on a loaded machine. Written whole or
+-- not at all.
+local tmpdir = (os.getenv("HOME") or "/tmp") .. "/write-atomic-test"
+os.execute("rm -rf '" .. tmpdir .. "' && mkdir -p '" .. tmpdir .. "'")
+local target = tmpdir .. "/state.json"
+
+check("write_atomic.new", layout.write_atomic(target, '{"a":1}\n'), true)
+local f = io.open(target, "r")
+check("write_atomic.content", f and f:read("*a"), '{"a":1}\n')
+if f then f:close() end
+
+check("write_atomic.replaces", layout.write_atomic(target, '{"a":2}\n'), true)
+f = io.open(target, "r")
+check("write_atomic.replaced", f and f:read("*a"), '{"a":2}\n')
+if f then f:close() end
+check("write_atomic.no-tmp-left", io.open(target .. ".tmp", "r"), nil)
+
+-- A write that cannot land leaves the old file alone and no temp behind.
+check("write_atomic.fails", layout.write_atomic(tmpdir .. "/missing/dir/x", "x"), false)
+f = io.open(target, "r")
+check("write_atomic.old-intact", f and f:read("*a"), '{"a":2}\n')
+if f then f:close() end
+os.execute("rm -rf '" .. tmpdir .. "'")
+
 if failures > 0 then
   os.exit(1)
 end

@@ -192,24 +192,46 @@ local function restore_path()
   return ctx.state_dir .. "/restore.txt"
 end
 
+-- Write a file whole or not at all. `io.open(path, "w")` truncates first, so a
+-- writer that dies between the open and the write leaves an empty file, and every
+-- reader -- the panel, the next pass of the config, a test -- takes that emptiness
+-- as the state. The panel's list of keys to replace vanished exactly that way
+-- while an install ran on a loaded machine. The temp file is a sibling, so the
+-- rename stays on one filesystem and is atomic.
+function M.write_atomic(path, text)
+  local tmp = path .. ".tmp"
+  local file = io.open(tmp, "w")
+  if file == nil then
+    return false
+  end
+  if not file:write(text) then
+    file:close()
+    os.remove(tmp)
+    return false
+  end
+  file:close()
+  if not os.rename(tmp, path) then
+    os.remove(tmp)
+    return false
+  end
+  return true
+end
+
 local function write_saved()
   local path = restore_path()
   if path == nil then
     return
   end
-  local file = io.open(path, "w")
-  if file == nil then
-    return
-  end
+  local lines = {}
   for addr, box in pairs(saved) do
     -- math.floor: the addresses and sizes come from Hyprland as floats, and %d
     -- on a number that is not integer-valued raises in Lua 5.3+.
-    file:write(string.format(
+    lines[#lines + 1] = string.format(
       "%s %d %d %d %d\n",
       tostring(addr), math.floor(box.x), math.floor(box.y), math.floor(box.w), math.floor(box.h)
-    ))
+    )
   end
-  file:close()
+  M.write_atomic(path, table.concat(lines))
 end
 
 -- Read back what earlier parses saved. An entry whose window is gone is dropped

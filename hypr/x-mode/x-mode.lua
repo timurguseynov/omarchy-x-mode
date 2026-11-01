@@ -109,12 +109,7 @@ function mode_sync.persist()
     return
   end
   os.execute("mkdir -p " .. string.format("%q", X_MODE_STATE))
-  local file = io.open(mode_sync.path(), "w")
-  if file == nil then
-    return
-  end
-  file:write(modes.dump(X_MODE_MODES))
-  file:close()
+  layout.write_atomic(mode_sync.path(), modes.dump(X_MODE_MODES))
 end
 
 if not mode_sync.shared then
@@ -214,11 +209,7 @@ if not x_mode_wanted() then
   -- the same as a fresh install. Only the off path writes it:
   -- the on path consumes it, so a reload while already on does nothing.
   pcall(function()
-    local marker = io.open(X_MODE_STATE .. "/arrange", "w")
-    if marker then
-      marker:write("on")
-      marker:close()
-    end
+    layout.write_atomic(X_MODE_STATE .. "/arrange", "on")
   end)
   -- Keep the plugin around so the bar toggle still works after a reload.
   o.exec_on_start("hyprpm reload -n")
@@ -897,12 +888,7 @@ local function switcher_write(line)
     return
   end
   last_switcher = line
-  local file = io.open(SWITCHER_PATH, "w")
-  if file == nil then
-    return
-  end
-  file:write(line .. "\n")
-  file:close()
+  layout.write_atomic(SWITCHER_PATH, line .. "\n")
 end
 
 local switcher_order = {}
@@ -1791,11 +1777,7 @@ local function read_settings()
     return raw
   end
   local raw = slurp(LEGACY_SETTINGS_PATH) or settings.merge(slurp(LEGACY_OPTIONS_PATH), slurp(LEGACY_APPS_PATH))
-  local out = io.open(SETTINGS_PATH, "w")
-  if out then
-    out:write(raw, "\n")
-    out:close()
-  end
+  layout.write_atomic(SETTINGS_PATH, raw .. "\n")
   return raw
 end
 
@@ -2476,12 +2458,21 @@ local function apply_steal_wraps(raw)
 end
 
 local function write_occupied(raw)
-  local file = io.open(X_MODE_STATE .. "/occupied.json", "w")
-  if file == nil then
+  -- Built before the file is opened, and only written when it built: opening
+  -- with "w" truncates first, so a build that died left an empty occupied.json
+  -- and the panel's list of keys to replace simply vanished -- a bug that reads
+  -- as "the panel lost its rows", not as a write that failed.
+  local ok, json = pcall(function()
+    return supermap.occupied_json(supermap.stealable(raw, STEAL_OWN, omarchy_exec))
+  end)
+  if not ok or type(json) ~= "string" then
+    -- Say why, next to the file the panel reads: a silent failure here is a
+    -- panel that quietly shows nothing.
+    layout.write_atomic(X_MODE_STATE .. "/occupied.error", tostring(json) .. "\n")
     return
   end
-  file:write(supermap.occupied_json(supermap.stealable(raw, STEAL_OWN, omarchy_exec)), "\n")
-  file:close()
+  layout.write_atomic(X_MODE_STATE .. "/occupied.json", json .. "\n")
+  os.remove(X_MODE_STATE .. "/occupied.error")
 end
 
 -- What the plan produced, next to the files the panel and the tests read. The
@@ -2492,11 +2483,8 @@ end
 -- rewrites keeps the last good numbers through a map that has been dropped, which
 -- is how a dead Super as Ctrl looked healthy.
 local function write_super_ctrl(planned, bound, keys)
-  local out = io.open(X_MODE_STATE .. "/super-ctrl.json", "w")
-  if out ~= nil then
-    out:write(string.format('{"planned":%d,"bound":%d,"keys":%d}\n', planned, bound, keys))
-    out:close()
-  end
+  layout.write_atomic(X_MODE_STATE .. "/super-ctrl.json",
+    string.format('{"planned":%d,"bound":%d,"keys":%d}\n', planned, bound, keys))
 end
 
 local function bind_super_ctrl(raw, gen)
@@ -3518,11 +3506,7 @@ publish_active_mode = function()
   elseif X_MODE_MODES.default ~= nil then
     mode = X_MODE_MODES.default
   end
-  local out = io.open(ACTIVE_MODE_PATH, "w")
-  if out ~= nil then
-    out:write(string.format("%s %s\n", tostring(id or 0), mode))
-    out:close()
-  end
+  layout.write_atomic(ACTIVE_MODE_PATH, string.format("%s %s\n", tostring(id or 0), mode))
 end
 
 local function apply_active_mode()
@@ -3637,12 +3621,8 @@ function mode_sync.write_workspace(id, mode)
   end
   local dir = workspace_layouts_dir()
   os.execute("mkdir -p " .. string.format("%q", dir))
-  local file = io.open(dir .. "/" .. tostring(id) .. ".lua", "w")
-  if file == nil then
-    return
-  end
-  file:write(string.format('o.workspace_mode({ workspace = "%s", mode = "%s" })\n', tostring(id), mode))
-  file:close()
+  layout.write_atomic(dir .. "/" .. tostring(id) .. ".lua",
+    string.format('o.workspace_mode({ workspace = "%s", mode = "%s" })\n', tostring(id), mode))
 end
 
 -- Where the pack hears about a mode change. Two callers: Omarchy's own
