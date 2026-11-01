@@ -74,19 +74,25 @@ Pack code, in this repo:
   "maybe this helps" line in the helper -- if it did not answer the question it was
   written for, it is removed in the same turn. Keep only what turned its own red
   green, or what the report it came from explicitly asked for.
-- A scenario that fails in a full run is the agent's to isolate, and it is chased
-  on its own -- `tests/async.sh run <label> bash tests/nest/run.sh <name>` -- not
-  by running the suite again. The whole run is not there to prove that the
-  scenarios work together: it is there to prove that what changed did not break
-  anything that is related to it (the grouping of the dock, the keys of a mode,
-  the plugin under an install). So a red scenario is read alone, first at its own
-  name and then against whatever it shares state with, and the full run comes back
-  as the last check before a commit, not as the way to investigate. Nothing in the
-  suite retries anything: a red line is a red line, and it is the agent that runs it
-  again, by hand, once the reason is known. Run *that scenario* -- not a group of
-  them, not a filter that happens to match its neighbours: a group is a different
-  run with a different order, so it neither reproduces what the full run did nor
-  proves the scenario is fine, and it costs the same minutes for nothing.
+- A red scenario is always isolated, whatever the conditions were. Every failure
+  is chased on its own -- `tests/async.sh run <label> bash tests/nest/run.sh
+  <name>` -- before anything else is said about it. Not "the box was loaded, so
+  run the suite again", not "it passed last time", not a group of neighbours: the
+  isolation is the first step every time, and the `conditions:` line decides only
+  how the result is read, never whether it is read. A loaded box does not make a
+  red line less real; it makes the *run* less conclusive, and the way to find out
+  which is to run that scenario alone.
+- The whole run is not there to prove that the scenarios work together: it is
+  there to prove that what changed did not break anything that is related to it
+  (the grouping of the dock, the keys of a mode, the plugin under an install). So
+  a red scenario is read alone first, and then against whatever it shares state
+  with, and the full run comes back as the last check before a commit, not as the
+  way to investigate. Nothing in the suite retries anything: a red line is a red
+  line, and it is the agent that runs it again, by hand, once the reason is known.
+  Run *that scenario* -- not a group of them, not a filter that happens to match
+  its neighbours: a group is a different run with a different order, so it neither
+  reproduces what the full run did nor proves the scenario is fine, and it costs
+  the same minutes for nothing.
 - A scenario carries the diagnostics that would name its cause, and a red one
   gets them added. `assert_eq ... (got X)` says what the scenario read; it does
   not say who wrote X, so on a failure the run leaves the other side behind too:
