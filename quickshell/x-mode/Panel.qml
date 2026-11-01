@@ -59,6 +59,11 @@ Panel {
   property bool noGaps: false
   property bool compactTabs: false
   property bool workspacesOnFkeys: false
+  // The right-edge dock. On unless the file turned it off: the option arrived
+  // after the dock, so a file written before it keeps its dock. Both halves
+  // follow it -- the dock hides its layer, the pack drops the snap inset -- and
+  // only an explicit false takes the dock away.
+  property bool dockOn: true
   // The card is capped so it never spills past the popup. The app list gets a
   // taller cap than the per-app card: with the fixed content above it, the 480
   // left room for barely two rows before the list had to scroll.
@@ -77,7 +82,13 @@ Panel {
   // The keys screen is a page on top of whatever is showing: back returns to it,
   // and its scope is decided by where it was opened from (no class = every app).
   property bool keysOpen: false
-  readonly property string view: root.keysOpen ? "keys" : (root.openCls === "" ? "main" : "app")
+  // The Experimental folder: options that are not ready to be part of the main
+  // card. It is a page like the keys screen -- back returns to whatever opened
+  // it -- so a row moving in or out of here does not reshuffle the card.
+  property bool experimentalOpen: false
+  readonly property string view: root.keysOpen ? "keys"
+    : (root.experimentalOpen ? "experimental"
+    : (root.openCls === "" ? "main" : "app"))
   property var running: []
   property string query: ""
   property string openCls: ""
@@ -167,6 +178,11 @@ Panel {
     writeSettings("hyprctl reload >/dev/null")
   }
 
+  function setDock(value) {
+    root.dockOn = !!value
+    writeSettings("hyprctl reload >/dev/null")
+  }
+
   // The panel's whole state in one file, so the options and the app list can
   // never drift apart. `followUp` is the hyprctl call the change needs.
   function writeSettings(followUp) {
@@ -195,7 +211,7 @@ Panel {
       apps[k] = row
     }
     var json = JSON.stringify({
-      options: { nativeScroll: root.nativeScroll, noGaps: root.noGaps, compactTabs: root.compactTabs, workspacesOnFkeys: root.workspacesOnFkeys, lockScreenKey: root.lockKey, keys: root.globalKeys },
+      options: { nativeScroll: root.nativeScroll, noGaps: root.noGaps, compactTabs: root.compactTabs, workspacesOnFkeys: root.workspacesOnFkeys, lockScreenKey: root.lockKey, dock: root.dockOn, keys: root.globalKeys },
       apps: apps
     })
     // Atomic (see Logic.stateWriteCommand): the panel watches this file, and an
@@ -230,6 +246,7 @@ Panel {
     if (opened) {
       openCls = ""
       keysOpen = false
+      experimentalOpen = false
       // A filter left from the last time the panel was open would hide apps
       // the next time it is, so every open starts from the whole list.
       query = ""
@@ -266,6 +283,8 @@ Panel {
       root.noGaps = !!o.noGaps
       root.compactTabs = !!o.compactTabs
       root.workspacesOnFkeys = !!o.workspacesOnFkeys
+      // Absent means on: a file written before the option keeps its dock.
+      root.dockOn = !(o.dock === false)
       root.globalKeys = Logic.migrateGlobalKeys(o.keys)
       root.lockKey = !(o.lockScreenKey === false)
       root.appsCfg = Logic.parseApps((d && d.apps) || {})
@@ -276,6 +295,7 @@ Panel {
       root.noGaps = false
       root.compactTabs = false
       root.workspacesOnFkeys = false
+      root.dockOn = true
       root.globalKeys = ({})
       root.lockKey = true
       root.appsCfg = {}
@@ -857,6 +877,17 @@ Panel {
         onClicked: root.keysOpen = true
       }
 
+      // Options that are not part of the desktop yet live behind this row rather
+      // than on the card: the card is what a user reads at a glance, and an
+      // option that may still change under them should not be in that list.
+      LinkRow {
+        id: experimentalRow
+        width: parent.width
+        visible: root.view === "main"
+        label: "Experimental"
+        description: "Unfinished, may change"
+        onClicked: root.experimentalOpen = true
+      }
       PanelSeparator {
         id: sepMid
         visible: root.view === "main"
@@ -866,7 +897,7 @@ Panel {
       CursorSurface {
         id: backRow
         width: parent.width
-        visible: root.view === "app" || root.keysOpen
+        visible: root.view === "app" || root.keysOpen || root.experimentalOpen
         implicitHeight: backText.implicitHeight + Style.spacing.rowPaddingX
         foreground: root.contentForeground
         hasCursor: backMouse.containsMouse
@@ -877,9 +908,11 @@ Panel {
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
           onClicked: {
-            // The keys screen is a page on top of the current one, so back closes
-            // it before it leaves an app's card.
-            if (root.keysOpen)
+            // The keys screen and the Experimental folder are pages on top of the
+            // current one, so back closes them before it leaves an app's card.
+            if (root.experimentalOpen)
+              root.experimentalOpen = false
+            else if (root.keysOpen)
               root.keysOpen = false
             else
               root.openCls = ""
@@ -907,7 +940,8 @@ Panel {
         // header says whose card it is), or the app's own card.
         text: root.keysOpen
           ? (root.openCls === "" ? "EVERY APP: SHORTCUTS" : root.openName + ": SHORTCUTS")
-          : (root.openCls === "" ? "APPS" : root.openName)
+          : (root.experimentalOpen ? "EXPERIMENTAL"
+          : (root.openCls === "" ? "APPS" : root.openName))
         width: parent.width
         elide: Text.ElideRight
         foreground: root.contentForeground
@@ -1024,6 +1058,44 @@ Panel {
             else
               root.setOccupiedKey(id, state)
           }
+        }
+      }
+
+      // The Experimental folder's page. One row today, so it is a Column and not
+      // a scroll region: `fixedAboveHeight` counts it like the switches on the
+      // main card, and a page that grows past the card becomes a Flickable here.
+      Column {
+        id: experimentalPage
+        width: parent.width
+        visible: root.view === "experimental"
+        spacing: 0
+
+        SwitchRow {
+          id: dockRow
+          width: parent.width
+          label: "Show dock"
+          description: "The app column on the right"
+          checked: root.dockOn
+          rowEnabled: root.xModeOn
+          onToggled: root.setDock(!root.dockOn)
+        }
+
+        PanelSeparator {
+          width: parent.width
+          foreground: root.contentForeground
+        }
+
+        Text {
+          width: parent.width
+          leftPadding: Style.space(10)
+          rightPadding: Style.space(10)
+          topPadding: Style.space(6)
+          bottomPadding: Style.space(6)
+          wrapMode: Text.Wrap
+          text: "Options here are unfinished: they can change or go away. The dock's own switch is the pack's column on the right edge, not Omarchy's bar."
+          color: Qt.darker(root.contentForeground, 1.5)
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.caption
         }
       }
 

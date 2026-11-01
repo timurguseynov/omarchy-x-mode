@@ -33,6 +33,14 @@ check("opt.compactTabs", ct.compact_tabs, true)
 local ctapp = settings.parse_options('{"options":{},"apps":{"foot":{"compactTabs":true}}}')
 check("opt.compactTabs.not-an-app", ctapp.compact_tabs, false)
 
+-- The right-edge dock's own switch. Absent means on: the option arrived after
+-- the dock, so a settings file written before it has to keep its dock.
+local dockoff = settings.parse_options('{"options":{"dock":false},"apps":{}}')
+check("opt.dock.off", dockoff.dock, false)
+check("opt.dock.default", d.dock, true)
+local dockon = settings.parse_options('{"options":{"dock":true},"apps":{}}')
+check("opt.dock.on", dockon.dock, true)
+
 local f = settings.parse_options('{"options":{"workspacesOnFkeys":true},"apps":{}}')
 check("opt.workspacesOnFkeys", f.workspaces_fkeys, true)
 

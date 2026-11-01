@@ -489,18 +489,35 @@ end
 -- x-mode-dock layer below, so a change to the card moves the zones with it.
 -- Until that layer exists (the shell starts after this config) the last width
 -- it had is used, and this one only before it has ever been seen.
-local DOCK_CARD_FALLBACK = 40
-local dock_card = DOCK_CARD_FALLBACK
+-- The panel's "Show dock" row turns the card -- and so this inset -- off with
+-- the dock: the zones then end at the outer gap, as if no dock were there. The
+-- flag is forward-declared here (load_options, far below, is what reads it) and
+-- asked through DOCK_INSET at every publish, so the option is never a copy.
+-- The dock's two facts in one table -- whether the panel's "Show dock" option
+-- has it on, and the card width the layer last reported (40 before it has ever
+-- been seen). One table rather than a local each because this file is at Lua's
+-- 200-local limit for the top-level function.
+local dock = { on = true, card = 40 }
 -- Declared up here so the dock inset can see it. The panel's No gaps is filled
 -- in when the settings load; until then the desktop's own gap is the margin.
 local no_gaps = false
+-- The card width is only part of the inset while the dock is shown: with the
+-- option off there is no card to clear, and the inset is the outer gap alone.
+-- Read here rather than at the callers so the no-gap pass (which publishes the
+-- card on its own) cannot put a width back behind the option's back.
+local function DOCK_INSET()
+  if not dock.on then
+    return 0
+  end
+  return dock.card
+end
 local function DOCK_PULL()
   -- The dock is only on xmode workspaces, and No gaps is only for those, so the
   -- card sits on the screen edge instead of half a gap in.
   if no_gaps then
-    return dock_card
+    return DOCK_INSET()
   end
-  return dock_card + math.floor(GAP_OUT() / 2)
+  return DOCK_INSET() + math.floor(GAP_OUT() / 2)
 end
 local GROUP_MIN_W       = cfg_int("plugin:hyprbars:x_mode_group_min_width", 400)
 local GROUP_MIN_H       = cfg_int("plugin:hyprbars:x_mode_group_min_height", 300)
@@ -556,10 +573,10 @@ end
 
 local function refresh_dock_card()
   local w = dock_card_now()
-  if w == nil or w == dock_card then
+  if w == nil or w == dock.card then
     return
   end
-  dock_card = w
+  dock.card = w
   apply_gap_geometry()
   -- The zones moved with the card; put the windows that were on one back on it,
   -- matched against the frame they were placed in (layout.lua keeps it).
@@ -661,8 +678,11 @@ layout.init({
   -- is never dealt into the pack's zones.
   in_xmode = in_xmode,
   dock_card = function()
-    return dock_card
+    return dock.card
   end,
+  -- What the right inset actually counts, which the no-gap pass publishes and
+  -- so has to be the option's answer and not the last card the dock had.
+  dock_inset = DOCK_INSET,
   -- The frame numbers the pack publishes. layout.lua asks for them instead of
   -- keeping a copy: a frame that moved is what asks for a re-apply, so the
   -- numbers it compares have to be the ones the plugin was actually told.
@@ -2021,6 +2041,7 @@ local function load_options()
   no_gaps = o.no_gaps
   compact_tabs = o.compact_tabs
   workspaces_fkeys = o.workspaces_fkeys
+  dock.on = o.dock
   lock_key = o.lock_key
   key_flags = o.key_flags
   global_steal = o.global_steal

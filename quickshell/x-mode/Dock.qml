@@ -56,6 +56,11 @@ Item {
   // and not to a workspace: "only on xmode desktops" means the dock hides itself,
   // and this is the one piece of the pack's state it cannot get from Hyprland.
   property string workspaceMode: ""
+  // The panel's "Show dock" option. The dock's own half of it: the layer is
+  // hidden while it is off, and the card stops counting for the snap inset
+  // because no layer is there to be read. Default on, so a file written before
+  // the option existed keeps its dock.
+  property bool dockOn: true
   // Pinned-icon drag reorder (Mac dock style). Track by class so Repeater
   // reshuffles do not flash the icon back to its old slot on drop.
   property string dragCls: ""
@@ -718,6 +723,35 @@ Item {
       root.xModeOn = on
   }
 
+  // The panel's settings file, for the two options the dock reads itself: the
+  // dock's own switch and No gaps, in one parse of one file. Same torn-read rule
+  // as everything else here: a read that is not an answer keeps what the dock is
+  // showing.
+  function applySettingsLine(raw) {
+    var d = Logic.readJsonAnswer(raw)
+    if (d === null)
+      return
+    var o = (d && d.options) || {}
+    root.noGaps = o.noGaps === true
+    var next = !(o.dock === false)
+    if (next === root.dockOn)
+      return
+    root.dockOn = next
+    if (!next && root.menuOpen)
+      root.closeMenu()
+  }
+
+  FileView {
+    id: settingsFile
+    path: (Quickshell.env("HOME") || "") + "/.config/hypr/x-mode.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.applySettingsLine(text())
+    // No file is the default: the dock shows, the gaps are the desktop's own.
+    onLoadFailed: root.noGaps = false
+  }
+
   FileView {
     path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-x-mode.workspace"
     watchChanges: true
@@ -733,26 +767,6 @@ Item {
     // No file: an install that has not loaded the config yet, or a pack without the
     // publication. Show the dock rather than take it away.
     onLoadFailed: root.workspaceMode = ""
-  }
-
-  FileView {
-    id: gapsFile
-    path: (Quickshell.env("HOME") || "") + "/.config/hypr/x-mode.json"
-    watchChanges: true
-    printErrors: false
-    onFileChanged: reload()
-    function take(raw) {
-      var on = false
-      try {
-        var parsed = JSON.parse(String(raw || ""))
-        on = !!(parsed && parsed.options && parsed.options.noGaps)
-      } catch (e) {
-        on = false
-      }
-      root.noGaps = on
-    }
-    onLoaded: gapsFile.take(text())
-    onLoadFailed: root.noGaps = false
   }
 
   FileView {
@@ -824,7 +838,8 @@ Item {
         PanelWindow {
           id: panel
           screen: modelData
-          visible: root.xModeOn && (root.workspaceMode === "" || root.workspaceMode === "xmode")
+          visible: root.xModeOn && root.dockOn
+            && (root.workspaceMode === "" || root.workspaceMode === "xmode")
           anchors {
             top: true
             right: true

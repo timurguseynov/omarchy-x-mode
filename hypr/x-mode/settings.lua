@@ -204,6 +204,10 @@ function M.parse_options(raw)
     native_scroll = raw:find('"nativeScroll"%s*:%s*true') ~= nil,
     no_gaps = raw:find('"noGaps"%s*:%s*true') ~= nil,
     workspaces_fkeys = raw:find('"workspacesOnFkeys"%s*:%s*true') ~= nil,
+    -- Right-edge dock on or off, scoped to the options block like compactTabs.
+    -- The one option whose default is on besides the lock key: the dock is what
+    -- a Mac user expects, so only an explicit false takes it away.
+    dock = opts:find('"dock"%s*:%s*false') == nil,
     -- One Chrome-like titlebar row instead of titlebar + tabbar. Scoped to the
     -- options block so an app class cannot set it for the desktop.
     compact_tabs = opts:find('"compactTabs"%s*:%s*true') ~= nil,

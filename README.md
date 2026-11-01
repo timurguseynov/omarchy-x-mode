@@ -92,7 +92,13 @@ The main card:
 * **No gaps** — windows sit flush, on an xmode workspace only
 * **Compact tabs** — tabs in the titlebar, for every app
 * **Shortcuts** — the default for every app
+* **Experimental** — options that are not part of the desktop yet
 * **Apps** — open one to change its titlebar and shortcuts
+
+The Experimental page:
+
+* **Show dock** — the pack’s app column on the right edge. Off hides it and gives its screen space back to the snap zones. Not Omarchy’s bar.
+* Anything here is unfinished: it can change or go away in a later version.
 
 An app’s card:
 
