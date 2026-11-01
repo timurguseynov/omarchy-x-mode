@@ -818,76 +818,82 @@ Panel {
 
       PanelSeparator { id: sepTop; foreground: root.contentForeground }
 
-      SwitchRow {
-        id: scrollRow
+      // The card's rows are one group, spaced like the shortcuts screen's rows
+      // and the app list's (Style.space(4)) instead of at the card's own section
+      // gap: they are one list to read down, and the 14 that separates sections
+      // made every switch look like its own section.
+      Column {
+        id: mainRows
         width: parent.width
         visible: root.view === "main"
-        label: "Native scroll"
-        description: "Reversed touchpad scrolling"
-        checked: root.nativeScroll
-        rowEnabled: root.xModeOn
-        onToggled: root.setOptions(!root.nativeScroll, root.noGaps, root.workspacesOnFkeys)
+        spacing: Style.space(4)
+
+        SwitchRow {
+          id: scrollRow
+          width: parent.width
+          label: "Native scroll"
+          description: "Reversed touchpad scrolling"
+          checked: root.nativeScroll
+          rowEnabled: root.xModeOn
+          onToggled: root.setOptions(!root.nativeScroll, root.noGaps, root.workspacesOnFkeys)
+        }
+
+        SwitchRow {
+          id: gapsRow
+          width: parent.width
+          label: "No gaps"
+          description: "On xmode workspaces"
+          checked: root.noGaps
+          rowEnabled: root.xModeOn
+          onToggled: root.setOptions(root.nativeScroll, !root.noGaps, root.workspacesOnFkeys)
+        }
+
+        SwitchRow {
+          id: compactTabsRow
+          width: parent.width
+          label: "Compact tabs"
+          description: "Tabs in the titlebar"
+          checked: root.compactTabs
+          rowEnabled: root.xModeOn
+          onToggled: root.setCompactTabs(!root.compactTabs)
+        }
+
+        // The menu's X Mode row sets the default and then moves the workspace on
+        // screen. In the panel the workspace on screen is the thing the user is
+        // looking at, so the row does that half only -- and the dock and the
+        // titlebars change under it without closing the panel.
+        LinkRow {
+          id: xmodeHereRow
+          width: parent.width
+          chevron: false
+          label: "Set workspace to X-Mode"
+          description: "This workspace only"
+          rowEnabled: root.xModeOn
+          onClicked: Quickshell.execDetached(["sh", "-c", Logic.xmodeHereCommand(Quickshell.env("HOME") || "")])
+        }
+
+        // The keys screen is several rows long, so the main panel gets an entry
+        // like an app's card does, and the scope is decided by where it was opened.
+        LinkRow {
+          id: keysEntryRow
+          width: parent.width
+          label: "Shortcuts"
+          description: Logic.globalKeysSummary(root.globalKeys)
+          onClicked: root.keysOpen = true
+        }
+
+        // Options that are not part of the desktop yet live behind this row rather
+        // than on the card: the card is what a user reads at a glance, and an
+        // option that may still change under them should not be in that list.
+        LinkRow {
+          id: experimentalRow
+          width: parent.width
+          label: "Experimental"
+          description: "Unfinished, may change"
+          onClicked: root.experimentalOpen = true
+        }
       }
 
-      SwitchRow {
-        id: gapsRow
-        width: parent.width
-        visible: root.view === "main"
-        label: "No gaps"
-        description: "On xmode workspaces"
-        checked: root.noGaps
-        rowEnabled: root.xModeOn
-        onToggled: root.setOptions(root.nativeScroll, !root.noGaps, root.workspacesOnFkeys)
-      }
-
-      SwitchRow {
-        id: compactTabsRow
-        width: parent.width
-        visible: root.view === "main"
-        label: "Compact tabs"
-        description: "Tabs in the titlebar"
-        checked: root.compactTabs
-        rowEnabled: root.xModeOn
-        onToggled: root.setCompactTabs(!root.compactTabs)
-      }
-
-      // The menu's X Mode row sets the default and then moves the workspace on
-      // screen. In the panel the workspace on screen is the thing the user is
-      // looking at, so the row does that half only -- and the dock and the
-      // titlebars change under it without closing the panel.
-      LinkRow {
-        id: xmodeHereRow
-        width: parent.width
-        visible: root.view === "main"
-        chevron: false
-        label: "Set workspace to X-Mode"
-        description: "This workspace only"
-        rowEnabled: root.xModeOn
-        onClicked: Quickshell.execDetached(["sh", "-c", Logic.xmodeHereCommand(Quickshell.env("HOME") || "")])
-      }
-
-      // The keys screen is several rows long, so the main panel gets an entry
-      // like an app's card does, and the scope is decided by where it was opened.
-      LinkRow {
-        id: keysEntryRow
-        width: parent.width
-        visible: root.view === "main"
-        label: "Shortcuts"
-        description: Logic.globalKeysSummary(root.globalKeys)
-        onClicked: root.keysOpen = true
-      }
-
-      // Options that are not part of the desktop yet live behind this row rather
-      // than on the card: the card is what a user reads at a glance, and an
-      // option that may still change under them should not be in that list.
-      LinkRow {
-        id: experimentalRow
-        width: parent.width
-        visible: root.view === "main"
-        label: "Experimental"
-        description: "Unfinished, may change"
-        onClicked: root.experimentalOpen = true
-      }
       PanelSeparator {
         id: sepMid
         visible: root.view === "main"
