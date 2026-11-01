@@ -147,6 +147,17 @@ per label under `$XDG_RUNTIME_DIR`.
 After starting a run, say which label is going and stop there: do **not** poll it
 with `status`, do not `sleep` before a check, and do not wait for it in a call.
 
+**Nothing in this flow gets a timeout.** Not the run (`timeout 900 bash
+tests/async.sh run ...`), not a `sleep` before looking at a log, not a `tail` of
+a log that a scenario is still writing. A timeout is a guess about how long the
+work takes, and it turns "the run is still going" into "the run failed" without
+telling anyone which. The run reports itself when it ends, so the absence of a
+report is not a reason to wait longer -- it is the answer. If the report does not
+arrive, something is wrong with the report: the watcher is not loaded, the status
+file has no `session:` stamp from this session, the worker died, or the run was
+started from a tool that deleted `PI_SESSION_ID`. Look at that, by hand, and fix
+it; do not add a sleep and check again.
+
 `tests/async.sh run` writes `<log>.status` the moment a run ends: the same text
 `status` prints (state, summary lines, counts, the failing scenarios) plus the
 log path, and a `session:` stamp when a pi session started the run. The project
