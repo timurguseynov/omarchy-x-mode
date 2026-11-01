@@ -11,15 +11,27 @@ INCLUDES = `pkg-config --cflags pixman-1 libdrm hyprland libinput libudev waylan
 LIBS =
 
 SRC = main.cpp barDeco.cpp BarPassElement.cpp snap.cpp dragSession.cpp
+OBJ = $(SRC:.cpp=.o)
+DEP = $(OBJ:.o=.d)
 TARGET = hyprbars.so
 
+# One object per source, so `make -j` has five things to do instead of one. The
+# single rule this used to have handed all five files to one g++ invocation,
+# which compiles them one after another: 47 seconds of wall clock for 45 seconds
+# of CPU on six cores, and `make -j` changed nothing because there was only ever
+# one job.
 all: $(TARGET)
 
-$(TARGET): $(SRC)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(EXTRA_FLAGS) $(INCLUDES) $^ $> -o $@ $(LIBS)
+$(TARGET): $(OBJ)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(EXTRA_FLAGS) $^ -o $@ $(LIBS)
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) $(EXTRA_FLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
+
+-include $(DEP)
 
 clean:
-	rm -f ./$(TARGET)
+	rm -f ./$(TARGET) $(OBJ) $(DEP)
 
 meson-build:
 	mkdir -p build

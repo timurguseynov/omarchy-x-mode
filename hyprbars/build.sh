@@ -22,5 +22,7 @@ fi
 
 echo "==> building hyprbars"
 make -C "$HERE" clean
-PKG_CONFIG_PATH="${HEADERS}/share/pkgconfig" make -C "$HERE" all
+# -j: the Makefile has one object per source now, so the five translate units
+# compile side by side. JOBS overrides it for a machine that is busy already.
+PKG_CONFIG_PATH="${HEADERS}/share/pkgconfig" make -C "$HERE" -j"${JOBS:-$(nproc)}" all
 echo "==> built ${HERE}/hyprbars.so"
