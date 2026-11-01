@@ -87,6 +87,19 @@ Pack code, in this repo:
   them, not a filter that happens to match its neighbours: a group is a different
   run with a different order, so it neither reproduces what the full run did nor
   proves the scenario is fine, and it costs the same minutes for nothing.
+- A scenario carries the diagnostics that would name its cause, and a red one
+  gets them added. `assert_eq ... (got X)` says what the scenario read; it does
+  not say who wrote X, so on a failure the run leaves the other side behind too:
+  the dock's own click log, the order file, the pack's published mode, the tail of
+  the relevant log. That is how the last two dock failures were found -- the click
+  log said `press right kitty` where the test aimed at foot, and the menu's own
+  layer box showed the card clamped away from where the helper thought it was.
+  Print them on failure, not on a green run (a successful run stays quiet and
+  fast), and prefer a product that publishes what it saw over a test that guesses:
+  the dock's order file, the workspace mode the pack publishes, the
+  `X_MODE_DOCK_DEBUG` click log. Every red scenario is an opportunity to move a
+  guess into an observation, so the next run of that scenario explains itself
+  instead of needing a probe.
 - Do not test by hand on the live session. If something needs to be checked
   there, say so and wait: the user will check it. If you need log output, ask
   for it instead of collecting it yourself.
