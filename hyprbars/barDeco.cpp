@@ -37,8 +37,10 @@
 #include <climits>
 #include <string_view>
 #include <cmath>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <format>
 #include <vector>
 
@@ -49,16 +51,37 @@ static uint32_t g_lastPressTime   = 0;
 static uint32_t g_lastPressButton = 0;
 static uint64_t g_launchSeq       = 0;
 
+// The seq already in the command file. The file outlives this counter: a config
+// reload (a new Hyprland, a plugin unload/load) starts g_launchSeq at zero while
+// the leftover still holds the last seq the dock adopted at startup. Reusing
+// that number is not a second write to the dock -- it is the same one, and its
+// dedupe drops the click: the + would do nothing at all.
+static uint64_t writtenSeq(const std::string& path) {
+    FILE* file = std::fopen(path.c_str(), "r");
+    if (!file)
+        return 0;
+    char     line[128] = {};
+    uint64_t seq       = 0;
+    if (std::fgets(line, sizeof(line), file) != nullptr) {
+        const char* space = std::strrchr(line, ' ');
+        if (space != nullptr)
+            seq = std::strtoull(space + 1, nullptr, 10);
+    }
+    std::fclose(file);
+    return seq;
+}
+
 // Tabbar +: the dock is the pack's one launcher (New Window action / gtk-launch).
 // Same pattern as the snap preview: a command file plus an IPC event so a missed
 // inotify still fires. The seq makes a second + of the same class a new write.
 static void requestLaunch(const std::string& cls) {
     if (cls.empty())
         return;
-    const auto  seq  = ++g_launchSeq;
-    const auto  line = std::format("launch {} {}", cls, seq);
     const char* runtime = std::getenv("XDG_RUNTIME_DIR");
     const auto  path    = std::format("{}/omarchy-x-mode-launch.cmd", runtime && *runtime ? runtime : "/tmp");
+    g_launchSeq         = std::max(g_launchSeq, writtenSeq(path)) + 1;
+    const auto  seq     = g_launchSeq;
+    const auto  line    = std::format("launch {} {}", cls, seq);
     FILE*       file    = std::fopen(path.c_str(), "w");
     if (file) {
         std::fprintf(file, "%s\n", line.c_str());

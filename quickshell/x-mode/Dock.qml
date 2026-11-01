@@ -613,6 +613,12 @@ Item {
 
   // Tabbar +. Ignore the leftover on first load so a previous session's file
   // does not spawn a window when the dock starts; seq then dedupes the IPC.
+  //
+  // A missing file primes too. Without that the first + of a session -- the one
+  // whose write is the first thing this FileView ever loads -- was taken for
+  // that leftover and dropped, and the click's own IPC event was then deduped
+  // by the seq it had just adopted: the click did nothing at all. That is the
+  // tabbar_plus_opens_window_test flake.
   FileView {
     path: root.launchPath
     watchChanges: true
@@ -628,6 +634,7 @@ Item {
       }
       root.applyLaunchCmd(text())
     }
+    onLoadFailed: root.launchFileReady = true
   }
 
   FileView {
