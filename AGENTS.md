@@ -74,14 +74,18 @@ Pack code, in this repo:
   "maybe this helps" line in the helper -- if it did not answer the question it was
   written for, it is removed in the same turn. Keep only what turned its own red
   green, or what the report it came from explicitly asked for.
-- A red scenario is always isolated, whatever the conditions were. Every failure
-  is chased on its own -- `tests/async.sh run <label> bash tests/nest/run.sh
-  <name>` -- before anything else is said about it. Not "the box was loaded, so
-  run the suite again", not "it passed last time", not a group of neighbours: the
-  isolation is the first step every time, and the `conditions:` line decides only
-  how the result is read, never whether it is read. A loaded box does not make a
-  red line less real; it makes the *run* less conclusive, and the way to find out
-  which is to run that scenario alone.
+- A red run is followed by re-running exactly what failed, as its own run:
+  `tests/async.sh run <label> bash tests/nest/run.sh <failed> <failed> ...`. Those
+  names and nothing else -- not the whole suite again, not a filter that happens
+  to match neighbours. That re-run is the isolation, and it answers the only
+  question worth asking first: is this the code or the run? A scenario that
+  passes there was the full run's interaction -- five nests' worth of state and
+  load -- and is left alone. A scenario that fails there again is the real one,
+  and *it* is chased on its own from then on.
+- Whatever the `conditions:` line says, the failing scenarios are re-run: it
+  decides how the result is read, never whether it is read. A loaded box does not
+  make a red line less real; it makes the *run* less conclusive, and the re-run is
+  how that is told apart. Nor is "it passed last time" a reason to skip it.
 - The whole run is not there to prove that the scenarios work together: it is
   there to prove that what changed did not break anything that is related to it
   (the grouping of the dock, the keys of a mode, the plugin under an install). So
