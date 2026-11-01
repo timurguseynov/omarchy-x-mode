@@ -20,6 +20,37 @@ usage() {
   sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
 }
 
+# The machine the run is about to use, as one line. Five nests need memory and
+# CPU, and a run that starts on a box someone else is using fails scenarios that
+# are fine -- three runs this week were spent on exactly that. Recording the
+# conditions is what lets a red report be read as "the box" or "the code"; the
+# multiplier below lets the same scenarios wait longer instead of failing.
+conditions_line() {
+  local avail load1 cpus slow
+  avail="$(awk '/^MemAvailable:/ { printf "%.1fG", $2 / 1048576 }' /proc/meminfo)"
+  load1="$(awk '{print $1}' /proc/loadavg)"
+  cpus="$(nproc)"
+  slow="$(slow_factor "$load1" "$avail" "$cpus")"
+  printf 'conditions: memory %s, load %s, %s cpus%s\n' "$avail" "$load1" "$cpus" \
+    "$([ "$slow" = 1 ] && echo "" || echo ", waits x$slow")"
+}
+
+# How much longer to wait, from what the machine looks like. A box with a VM on
+# it, or one that is still busy with something else, doubles every wait cap: the
+# scenarios then take longer instead of losing to a pause that a quiet machine
+# would have met.
+slow_factor() { # LOAD1 AVAIL CPUS
+  local load1="$1" avail="$2" cpus="$3"
+  if [ "${NEST_SLOW:-}" != "" ]; then
+    echo "$NEST_SLOW"
+  elif awk -v l="$load1" -v c="$cpus" 'BEGIN { exit !(l > c) }' ||
+    ! awk -v a="${avail%G}" 'BEGIN { exit !(a >= 4) }'; then
+    echo 2
+  else
+    echo 1
+  fi
+}
+
 # One place that says how a run is doing, so `status` and the status file a
 # finished run leaves behind cannot disagree.
 status_text() { # LABEL LOG
@@ -85,6 +116,9 @@ case "${1:-}" in
     fi
     log="$LOG_DIR/xmode-test-$label.log"
     : > "$log"
+    # Read before the nests start: measured when the run ends, this would report
+    # the teardown's load and read as a loaded box that never was.
+    conditions_line > "$log.conditions"
     rm -f "$log.status"
     # Both the run and its report are detached into sessions of their own. A
     # tool call that starts a run can be aborted, and a background child of that
@@ -92,7 +126,10 @@ case "${1:-}" in
     # writer did not, so a finished run reported nothing. `setsid -w` keeps the
     # wrapper alive for as long as the command, which is the pid the watcher
     # waits on.
-    nohup setsid -w env NEST_JOBS=5 NEST_WORKSPACE=5 "$@" > "$log" 2>&1 &
+    nohup setsid -w env NEST_JOBS=5 NEST_WORKSPACE=5 \
+      NEST_SLOW="$(slow_factor "$(awk '{print $1}' /proc/loadavg)" \
+        "$(awk '/^MemAvailable:/ { printf "%.1fG", $2 / 1048576 }' /proc/meminfo)" "$(nproc)")" \
+      "$@" > "$log" 2>&1 &
     echo "$!" > "$log.pid"
     nohup setsid -w "$SELF" watch "$label" "$log" >/dev/null 2>&1 &
     printf 'started %s (pid %s) -> %s\n' "$label" "$(cat "$log.pid")" "$log"
@@ -115,6 +152,9 @@ case "${1:-}" in
       fi
       printf 'log: %s\n' "$log"
       status_text "$label" "$log"
+      # The machine the run *started* on, kept with the verdict: a red that began
+      # on a box someone else was using is not evidence about the code.
+      cat "$log.conditions" 2>/dev/null || true
     } > "$log.status"
     ;;
   status)

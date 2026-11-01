@@ -228,9 +228,37 @@ Item {
   function appDisplayName(cls) { return icons.appDisplayName(cls) }
   function isSingleInstance(cls) { return icons.isSingleInstance(cls) }
 
+  // A click decides from `apps`, and `apps` is a publish behind: a client event
+  // that has arrived but whose timer has not fired yet leaves the click looking
+  // at the column as it was before that window appeared or changed focus. The
+  // click then picks the window it knew about -- the other tab of the group, the
+  // other workspace -- and the run that clicked right after focusing sees a tab
+  // switch nobody asked for. Publish first, then decide.
+  function flushClients() {
+    if (!clientPublish.running)
+      return
+    clientPublish.stop()
+    root.clients = root.clientBuf
+    root.rebuildApps()
+  }
+
+  // The delegate hands over the app object it was built with, which the flush
+  // above may have just replaced. Same class, current data.
+  function freshApp(app) {
+    if (!app)
+      return app
+    for (var i = 0; i < root.apps.length; i++) {
+      if (root.apps[i].cls === app.cls)
+        return root.apps[i]
+    }
+    return app
+  }
+
   function activate(app) {
     // A left-click on the dock (now reachable while the menu is open, since
     // the overlay no longer covers it) dismisses any open menu.
+    root.flushClients()
+    app = root.freshApp(app)
     root.noteClick("activate " + app.cls + " running=" + app.running + " best=" + app.bestAddr + " active=" + root.activeClass)
     root.closeMenu()
     if (app.running) {
@@ -319,6 +347,8 @@ Item {
   }
 
   function openMenu(app, screenY) {
+    root.flushClients()
+    app = root.freshApp(app)
     root.noteClick("openMenu " + (app ? app.cls : "null"))
     // The overlay is a new layer. Creating it inside the click handler waits
     // on a frame callback before the handler returns, and the nest then cannot

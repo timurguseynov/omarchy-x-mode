@@ -36,6 +36,18 @@ elapsed_ms=$(( ($(date +%s%N) - start) / 1000000 ))
 
 echo "  ok   wait_until re-evaluates its condition, and gives up on time"
 
+# A machine someone else is using is what makes a green suite red: the same
+# waits have to stretch instead. NEST_SLOW is the multiplier async.sh sets from
+# the machine's own numbers, so the harness has to honour it.
+start=$(date +%s%N)
+if NEST_SLOW=2 wait_until 1 '[ -e "$TMP/never" ]'; then
+  fail "wait_until reported success for a condition that never holds under NEST_SLOW"
+fi
+scaled_ms=$(( ($(date +%s%N) - start) / 1000000 ))
+[ "$scaled_ms" -ge 1800 ] || fail "NEST_SLOW=2 did not stretch a 1s wait (${scaled_ms}ms)"
+
+echo "  ok   NEST_SLOW stretches the wait caps"
+
 # A finished run's status file names the pi session that started it, so another
 # agent (Goose, a second pi session) does not wake up for it. A run with no
 # session id -- a terminal, Goose -- stays unstamped, and a watcher that only

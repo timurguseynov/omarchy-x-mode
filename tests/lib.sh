@@ -8,6 +8,11 @@
 # keeps covered nests presenting; both are removed when the run ends.
 
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Every wait cap below is multiplied by this. A machine someone else is using -- a
+# VM, a build, another run -- then makes a scenario take longer instead of failing
+# on a pause a quiet box would have met. async.sh sets it from the machine's own
+# numbers; a scenario run by hand gets 1 unless it is asked for more.
+NEST_SLOW="${NEST_SLOW:-1}"
 REPO_DIR="$(cd "$TESTS_DIR/.." && pwd)"
 XDGCHILD_DIR="$TESTS_DIR/xdgchild"
 # Paths that depend on which nest this process talks to. A parallel run gives
@@ -58,7 +63,21 @@ RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; RESET=$'\033[0m'
 
 # --- assertions --------------------------------------------------------------
 
-fail() { echo "${RED}FAIL${RESET}: $*" >&2; exit 1; }
+# What the dock saw and what the column was showing, printed with the failure.
+# A dock scenario that fails says "got X"; these say who wrote X. Small, and only
+# on the failure, so a green run pays nothing for them.
+fail() {
+  echo "${RED}FAIL${RESET}: $*" >&2
+  local clicks="$DOCK_RUNTIME/omarchy-x-mode.dock-clicks" order="$DOCK_RUNTIME/omarchy-x-mode.dock-order"
+  if [ -n "${DOCK_RUNTIME:-}" ] && [ -s "$clicks" ]; then
+    echo "  dock clicks (last 8):" >&2
+    tail -8 "$clicks" | sed 's/^/    /' >&2
+  fi
+  if [ -n "${DOCK_RUNTIME:-}" ] && [ -s "$order" ]; then
+    echo "  dock column: $(tr '\n' ' ' < "$order")" >&2
+  fi
+  exit 1
+}
 
 assert_eq()      { [ "$1" = "$2" ] || fail "${3:-expected '$2', got '$1'}"; }
 assert_ne()      { [ "$1" != "$2" ] || fail "${3:-expected anything but '$2'}"; }
@@ -790,7 +809,7 @@ refresh_apps() {
 wait_until() { # SECONDS CONDITION...
   local secs="$1" i
   shift
-  for i in $(seq 1 $((secs * 20))); do
+  for i in $(seq 1 $((secs * 20 * NEST_SLOW))); do
     eval "$*" && return 0
     sleep 0.05
   done
@@ -826,7 +845,7 @@ open_window() { # CLASS [COUNT]
   # Wait until the window is mapped and has a box, not merely listed. A fixed
   # pause after the count would sleep the same half second on every call, and a
   # step that reads the geometry right after would otherwise race the map.
-  for i in $(seq 1 80); do
+  for i in $(seq 1 $((80 * NEST_SLOW))); do
     got="$(nest_query count "$cls")"
     # Whether the window joins a group is the scenario's to check. Waiting for it
     # here made a scenario that asserts "these do not group" wait for a join
@@ -860,7 +879,7 @@ open_command() { # CLASS COMMAND...
 open_xdgchild() { # PARENT_CLASS CHILD_CLASS
   local i
   env WAYLAND_DISPLAY="$(nest_display)" setsid "$XDGCHILD_BIN" "$1" "$2" >/dev/null 2>&1 < /dev/null &
-  for i in $(seq 1 80); do
+  for i in $(seq 1 $((80 * NEST_SLOW))); do
     if [ "$(count_class "$1")" -ge 1 ] && [ "$(count_class "$2")" -ge 1 ]; then
       return 0
     fi
@@ -1145,13 +1164,14 @@ ShellRoot {
 }
 QML
   env HOME="$NEST_STATE/home" \
+    X_MODE_DOCK_DEBUG=1 \
     XDG_RUNTIME_DIR="$DOCK_RUNTIME" \
     WAYLAND_DISPLAY="$DOCK_RUNTIME/$(nest_socket)" \
     HYPRLAND_INSTANCE_SIGNATURE="$SIG" QT_QPA_PLATFORM=wayland \
     setsid qs -p "$DOCK_CFG" > "$DOCK_LOG" 2>&1 < /dev/null &
   echo $! > "$NEST_STATE/dock.pid"
   local i
-  for i in $(seq 1 60); do
+  for i in $(seq 1 $((60 * NEST_SLOW))); do
     dock_box >/dev/null 2>&1 && return 0
     sleep 0.25
   done
@@ -1303,7 +1323,7 @@ dock_settle() {
   # queued, so the card stays on the previous column. A short yield, then a
   # slower poll, leaves the socket free for the dock.
   sleep 0.2
-  for i in $(seq 1 32); do
+  for i in $(seq 1 $((32 * NEST_SLOW))); do
     [ $((i % 4)) -eq 1 ] && want="$(dock_expect_h)"
     cur="$(dock_box 2>/dev/null || true)"
     h="${cur##* }"
@@ -1365,7 +1385,7 @@ dock_menu_row_point() { # ICON_INDEX ROW_INDEX "26 7 26 ..."
   # Fifteen seconds, not five: the menu is a Quickshell surface on a machine that
   # may be running five nests at once, and five was what made the dock-menu
   # scenarios fail in a full run and pass on their own.
-  for i in $(seq 1 60); do
+  for i in $(seq 1 $((60 * NEST_SLOW))); do
     read -r _ _ screen_w screen_h <<<"$(dock_layer_box x-mode-dock-menu 2>/dev/null || true)"
     [ -n "${screen_w:-}" ] && [ "$screen_w" -ge 100 ] && break
     screen_w=""
