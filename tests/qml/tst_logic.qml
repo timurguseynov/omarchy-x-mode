@@ -20,6 +20,17 @@ TestCase {
         compare(Logic.parseEnabled(null), true, "missing file reads as on")
     }
 
+    // The panel's "Set workspace to X-Mode" row runs the pack's own layout
+    // script -- the same command Omarchy's menu row ends with -- so the two
+    // cannot write different modes.
+    function test_xmodeHereCommand() {
+        compare(Logic.xmodeHereCommand("/home/tim"), "'/home/tim/.config/hypr/x-mode/xmode' here")
+        compare(Logic.xmodeHereCommand("/home/a b"), "'/home/a b/.config/hypr/x-mode/xmode' here",
+                "a home with a space stays one argument")
+        compare(Logic.xmodeHereCommand(""), "\"$HOME\"/.config/hypr/x-mode/xmode here",
+                "no home falls back to the shell's $HOME, still one argument")
+    }
+
     function test_shellQuote() {
         compare(Logic.shellQuote("abc"), "'abc'")
         compare(Logic.shellQuote("a'b"), "'a'\\''b'")

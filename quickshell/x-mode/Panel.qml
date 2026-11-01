@@ -410,18 +410,24 @@ Panel {
     id: lrow
     property string label: ""
     property string description: ""
+    // A row that acts where it is, instead of opening a screen, draws no
+    // chevron. A row the desktop is off for is not clickable -- the same two
+    // states SwitchRow has.
+    property bool chevron: true
+    property bool rowEnabled: true
     signal clicked()
 
     implicitHeight: lrowContent.implicitHeight + Style.spacing.rowPaddingX
     foreground: root.contentForeground
-    hasCursor: lrowMouse.containsMouse
+    hasCursor: lrowMouse.containsMouse && lrow.rowEnabled
+    opacity: lrow.rowEnabled ? 1 : 0.5
 
     MouseArea {
       id: lrowMouse
       anchors.fill: parent
       hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onClicked: lrow.clicked()
+      cursorShape: lrow.rowEnabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+      onClicked: if (lrow.rowEnabled) lrow.clicked()
     }
 
     Item {
@@ -437,8 +443,8 @@ Panel {
         id: lrowText
         spacing: Style.space(1)
         anchors.left: parent.left
-        anchors.right: lrowChevron.left
-        anchors.rightMargin: Style.space(10)
+        anchors.right: lrow.chevron ? lrowChevron.left : parent.right
+        anchors.rightMargin: lrow.chevron ? Style.space(10) : 0
         anchors.verticalCenter: parent.verticalCenter
 
         Text {
@@ -462,6 +468,7 @@ Panel {
 
       Text {
         id: lrowChevron
+        visible: lrow.chevron
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
         text: "›"
@@ -822,6 +829,21 @@ Panel {
         checked: root.compactTabs
         rowEnabled: root.xModeOn
         onToggled: root.setCompactTabs(!root.compactTabs)
+      }
+
+      // The menu's X Mode row sets the default and then moves the workspace on
+      // screen. In the panel the workspace on screen is the thing the user is
+      // looking at, so the row does that half only -- and the dock and the
+      // titlebars change under it without closing the panel.
+      LinkRow {
+        id: xmodeHereRow
+        width: parent.width
+        visible: root.view === "main"
+        chevron: false
+        label: "Set workspace to X-Mode"
+        description: "This workspace only"
+        rowEnabled: root.xModeOn
+        onClicked: Quickshell.execDetached(["sh", "-c", Logic.xmodeHereCommand(Quickshell.env("HOME") || "")])
       }
 
       // The keys screen is several rows long, so the main panel gets an entry

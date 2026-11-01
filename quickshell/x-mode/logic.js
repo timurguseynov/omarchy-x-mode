@@ -47,6 +47,20 @@ function launchExecLine(entry, cls) {
     return "gtk-launch " + id + ".desktop"
 }
 
+// The pack's layout script, told to put the workspace on screen into X-Mode.
+// Same command Omarchy's menu row runs (`xmode default xmode && xmode here`),
+// so the panel and the menu cannot drift: the script is the one place that
+// writes the mode where Omarchy keeps it, and it carries the 4.0 fallback.
+function xmodeHereCommand(home) {
+    var h = String(home || "")
+    // No HOME is not a path: the panel runs this through `sh -c`, so the shell's
+    // own $HOME is the only thing left to point the script at.
+    var script = h === ""
+        ? "\"$HOME\"/.config/hypr/x-mode/xmode"
+        : shellQuote(h + "/.config/hypr/x-mode/xmode")
+    return script + " here"
+}
+
 // The shell command that puts `text` in a file a watcher reads. It writes a
 // sibling temp file and renames it over the target: an in-place `printf > file`
 // truncates the target first, and a watcher that reacts to that event reads a
