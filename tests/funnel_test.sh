@@ -106,6 +106,7 @@ bash "$HERE/auto.sh" >"$TMP/auto.out" || fail "auto did not turn a solo pass int
 grep -q '^  FAIL ' "$TMP/auto.out" && fail "the suite failure leaked into the auto receipt"
 grep -q '^== nest ok$' "$TMP/auto.out" || fail "auto did not finish nest ok"
 grep -q 'suite log:' "$TMP/auto.out" || fail "auto hid where the original red log went"
+grep -q '^== suite: ok 0  FAIL 1  WARN 0  NOT RUN 0  exit 1$' "$TMP/auto.out" || fail "the receipt hid the original suite counts: $(cat "$TMP/auto.out")"
 grep -q '^  FAIL integration/a_test$' "$XMODE_TEST_LOG.suite" || fail "the original failure was not kept"
 
 # A red suite that names no scenario is not a nest pass.
