@@ -42,7 +42,16 @@
 #include <cstdlib>
 #include <cstring>
 #include <format>
+#include <unordered_map>
 #include <vector>
+
+// What each bar last published to $XDG_RUNTIME_DIR/omarchy-x-mode.tab-textures:
+// the size of its tab title-texture cache at the last write (see renderTabs, and
+// m_tabTexs in barDeco.hpp). A scenario reads that file to see the cache grow, so
+// it has to be one number and not one per bar; renderTabs only writes when its
+// bar's number changes, which leaves the file showing the bar that last moved.
+// Kept here rather than on the bar so the observation needs no new member there.
+static std::unordered_map<const CHyprBar*, size_t> g_tabTexCounts;
 
 // One physical mouse press is delivered to every bar. Record which press we
 // already handled so a later bar cannot act on the same click (see
@@ -1091,6 +1100,16 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
         g_pHyprOpenGL->renderRect(rowBox, CHyprColor(ROW.r, ROW.g, ROW.b, ROW.a * a), {});
     }
 
+    // The keys this frame draws. The cache is keyed by title (and the geometry
+    // that decides the ellipsis), so a window that retitles itself leaves the
+    // texture of every earlier title behind, keyed by text no tab has any more --
+    // twelve titles of one grouped window were twelve textures held until a
+    // config reload. Collected while the tabs are drawn, and applied only after
+    // the loop below: an early return or a skipped member must not be read as
+    // "this tab is gone".
+    std::vector<std::string> drawnKeys;
+    drawnKeys.reserve(N);
+
     for (int i = 0; i < N; i++) {
         auto m = members[i].lock();
         if (!m)
@@ -1107,6 +1126,7 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
             auto tex = g_pHyprRenderer->renderText(title, ISACTIVE ? TXTACT : TXTIN, TAB_FONT, false, FONT, TAB_MAXW, TAB_WEIGHT);
             it       = m_tabTexs.emplace(key, tex).first;
         }
+        drawnKeys.push_back(key);
         if (it->second && it->second->m_texID != 0) {
             // Integer device-pixel position: a half-pixel offset makes the
             // GL_LINEAR texture sample between texels and the text looks blurred.
@@ -1126,6 +1146,33 @@ void CHyprBar::renderTabs(CBox* barBox, const float scale, const float a) {
         g_pHyprOpenGL->renderRect(plusBox, CHyprColor(TABIN.r, TABIN.g, TABIN.b, TABIN.a * a), {});
     const CHyprColor plusCol{TEXT.r, TEXT.g, TEXT.b, TEXT.a * a};
     drawTabPlus(plusBox.x + plusBox.w / 2.0 + TAB_PLUS_NUDGE * scale, glyphY, scale, plusCol);
+
+    // Drop what this frame did not draw. Up to here the tabs on screen have each
+    // recorded their key, so anything left in the map is a title the group no
+    // longer has -- a closed tab, a tab that left, a window that retitled
+    // itself -- and its texture is not going to be drawn again. This runs after
+    // the loop and never on the early returns above, so a frame that skipped a
+    // tab (a lock that failed, a bar too narrow to draw at all) keeps its
+    // textures instead of throwing away the cache on the way past.
+    if (drawnKeys.size() != m_tabTexs.size()) {
+        std::erase_if(m_tabTexs, [&drawnKeys](const auto& entry) { return std::find(drawnKeys.begin(), drawnKeys.end(), entry.first) == drawnKeys.end(); });
+    }
+
+    // How many title textures this bar's cache holds, published so a scenario can
+    // see whether the cache is bounded: with the erasure above it is the tabs on
+    // screen, so a grouped window whose title keeps changing holds one texture
+    // per tab and not one per title it has ever had. Written only when the number
+    // changed since this bar last published it, so a still tabbar costs no file
+    // write per frame. The tmp+rename is writeStateFile's, so a reader never sees
+    // a half-written number; the last value that *was* written is kept even when
+    // the write fails, so a failed write retries on the next frame instead of
+    // being remembered as published.
+    const size_t TABTEXS = m_tabTexs.size();
+    if (auto it = g_tabTexCounts.find(this); it == g_tabTexCounts.end() || it->second != TABTEXS) {
+        const char* runtime = std::getenv("XDG_RUNTIME_DIR");
+        if (writeStateFile(std::format("{}/omarchy-x-mode.tab-textures", runtime && *runtime ? runtime : "/tmp"), std::format("{}\n", TABTEXS)))
+            g_tabTexCounts[this] = TABTEXS;
+    }
 }
 
 void CHyprBar::applyEnabled() {
@@ -1364,6 +1411,9 @@ void CHyprBar::onConfigReloaded() {
     m_bTitleColorChanged = true;
     m_pTextTex           = nullptr;
     m_tabTexs.clear();
+    // The cache is empty again, so the count this bar last published no longer
+    // describes it: forget it, and the next frame writes the new number out.
+    g_tabTexCounts.erase(this);
 
     g_pDecorationPositioner->repositionDeco(this);
     damageEntire();
