@@ -1781,25 +1781,12 @@ local function read_settings()
   return raw
 end
 
--- The apps object on its own, out of the settings file.
--- A settings file is written by truncating it first (the panel does exactly that),
--- so a read can catch a prefix of one. The parser looks for keys rather than
--- requiring a document, so a prefix parses -- as "every flag off, no app cards".
--- With the plan dropping the installed binds before it reads the flags, that torn
--- read took the whole Super-as-Ctrl map away mid-write: Cmd+Z stopped reaching
--- every app. A prefix is not an answer; `{` at the start and no closing `}` means
--- the writer has not finished, and the caller keeps what it already has.
-local function complete_settings(raw)
-  local s = tostring(raw or "")
-  if s:find("^%s*{") == nil then
-    return s ~= ""
-  end
-  return s:find("}%s*$") ~= nil
-end
-
+-- The apps object on its own, out of the settings file. Whether the text is a
+-- finished document is settings.complete: a prefix is not an answer, and the
+-- caller keeps what it already has.
 local function current_settings()
   local raw = read_settings()
-  if raw ~= nil and not complete_settings(raw) then
+  if raw ~= nil and not settings.complete(raw) then
     return nil
   end
   if raw == nil then

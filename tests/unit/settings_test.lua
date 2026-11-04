@@ -237,6 +237,17 @@ local add2, drop2 = settings.rule_diff({ b = true }, { b = true })
 check("diff.unchanged.add", #add2, 0)
 check("diff.unchanged.drop", #drop2, 0)
 
+-- A torn settings write starts with { and has not closed it. That is not an
+-- answer. Anything else is: an empty string is not a document, and a file that
+-- is not an object is left for the caller as it is.
+check("complete.nil", settings.complete(nil), false)
+check("complete.empty", settings.complete(""), false)
+check("complete.object", settings.complete("{}"), true)
+check("complete.trailing-space", settings.complete("{}\n"), true)
+check("complete.prefix", settings.complete('  {"a":1'), false)
+check("complete.not-object", settings.complete("not json"), true)
+check("complete.padded", settings.complete(' {"a":1}\n'), true)
+
 if failures > 0 then
   os.exit(1)
 end

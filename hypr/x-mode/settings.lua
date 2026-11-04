@@ -278,4 +278,18 @@ function M.rule_diff(desired, applied)
   return enable, disable
 end
 
+-- A settings file is written by truncating it first, so a read can catch a
+-- prefix. The parser looks for keys rather than requiring a document, so a
+-- prefix parses as every flag off. A prefix is not an answer: `{` at the start
+-- and no closing `}` means the writer has not finished, and the caller keeps
+-- what it already has. A missing value is the empty string, not the word nil,
+-- and that is not a document. A file that is not an object is returned as complete.
+function M.complete(raw)
+  local s = tostring(raw or "")
+  if s:find("^%s*{") == nil then
+    return s ~= ""
+  end
+  return s:find("}%s*$") ~= nil
+end
+
 return M
