@@ -147,7 +147,13 @@ Pack code, in this repo:
 - After every successful edit or completed task, commit in the repo that owns
   the change when the user asks. The message says what changed and why. Do not
   commit until a fresh GPT check of that exact diff returns accept. Asking for
-  the commit does not skip the check or replace the verdict.
+  the commit does not skip the check or replace the verdict. Before that check,
+  and without being asked, start `bash tests/async.sh run suite bash tests/auto.sh`
+  and wait for its receipt. Send the diff to GPT only after that receipt is
+  green. A red or incomplete suite is not a commit. Skip the suite when the
+  diff is only prose: Markdown and AGENTS.md. Source, tests, scripts, QML, and
+  anything the pack runs still need the green receipt first. A mixed diff is
+  not prose.
 
 ## Running the suite from an agent session
 
