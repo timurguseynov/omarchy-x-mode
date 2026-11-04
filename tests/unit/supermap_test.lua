@@ -39,6 +39,8 @@ check("code.W", supermap.key_code("W"), 25)
 -- no bind needs (nothing binds Super+Insert), only the send.
 check("code.insert", supermap.key_code("INSERT"), 118)
 check("code.digit", supermap.key_code("1"), 10)
+check("digit.1", supermap.digit_name(1), "1")
+check("digit.10", supermap.digit_name(10), "0")
 check("code.tab", supermap.key_code("TAB"), 23)
 check("code.unknown", supermap.key_code("nope"), nil)
 check("code.nil", supermap.key_code(nil), nil)

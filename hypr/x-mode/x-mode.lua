@@ -2606,10 +2606,7 @@ end
 -- generated Super-as-Ctrl binds cannot carry the reserved half either: they exist
 -- only while some app has that flag.
 local function digit_name(index)
-  if index == 10 then
-    return "0"
-  end
-  return tostring(index)
+  return supermap.digit_name(index)
 end
 
 local function digit_key(index)

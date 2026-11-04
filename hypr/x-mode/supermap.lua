@@ -136,6 +136,14 @@ local function occupied(raw, modmask)
   return set
 end
 
+-- Workspace 10 is the 0 key. The other indexes are their own digits.
+function M.digit_name(index)
+  if index == 10 then
+    return "0"
+  end
+  return tostring(index)
+end
+
 function M.key_id(key, shift)
   key = tostring(key or "")
   if shift then
