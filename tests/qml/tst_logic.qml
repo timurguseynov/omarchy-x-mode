@@ -81,8 +81,11 @@ TestCase {
     function test_stateWriteCommand() {
         var cmd = Logic.stateWriteCommand("/home/u/.config/hypr/x-mode.json", '{"a":"b"}', "hyprctl reload >/dev/null")
         verify(cmd.indexOf("mkdir -p '/home/u/.config/hypr'") === 0, "the parent directory is made first")
-        verify(cmd.indexOf("> '/home/u/.config/hypr/x-mode.json.tmp'") >= 0, "the text goes to a sibling temp file")
-        verify(cmd.indexOf("mv -f '/home/u/.config/hypr/x-mode.json.tmp' '/home/u/.config/hypr/x-mode.json'") >= 0,
+        var again = Logic.stateWriteCommand("/home/u/.config/hypr/x-mode.json", '{"a":"c"}', "")
+        var fixed = "/home/u/.config/hypr/x-mode.json.tmp"
+        verify(cmd.indexOf(fixed) < 0 && again.indexOf(fixed) < 0, "two writers do not share " + fixed)
+        verify(cmd !== again, "each write gets its own temp file")
+        verify(cmd.indexOf("mv -f ") >= 0 && cmd.indexOf("'/home/u/.config/hypr/x-mode.json'") > cmd.indexOf("mv -f "),
                "the target is replaced, never truncated in place")
         verify(cmd.indexOf("hyprctl reload") > cmd.indexOf("mv -f"), "the follow-up runs after the file is in place")
         var tricky = Logic.stateWriteCommand("/tmp/x.json", "it's $HOME `id`", "")

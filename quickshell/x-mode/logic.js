@@ -66,11 +66,16 @@ function xmodeHereCommand(home) {
 // truncates the target first, and a watcher that reacts to that event reads a
 // half-written file. `followUp` is chained after the rename, so a command that
 // has to read the file back (`hyprctl reload`) sees the whole thing.
+// A fixed `<path>.tmp` is one file for every writer. Two commands generated
+// in the same moment would truncate each other's temp and rename the wrong
+// bytes. The counter makes each command's temp its own sibling.
+var stateWriteSeq = 0
 function stateWriteCommand(path, text, followUp) {
     var p = String(path || "")
     var slash = p.lastIndexOf("/")
     var dir = slash < 0 ? "." : (slash === 0 ? "/" : p.slice(0, slash))
-    var tmp = p + ".tmp"
+    stateWriteSeq += 1
+    var tmp = p + "." + stateWriteSeq + "-" + Date.now() + ".tmp"
     var cmd = "mkdir -p " + shellQuote(dir) +
         " && printf '%s\\n' " + shellQuote(text) +
         " > " + shellQuote(tmp) +

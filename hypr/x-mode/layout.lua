@@ -198,8 +198,17 @@ end
 -- as the state. The panel's list of keys to replace vanished exactly that way
 -- while an install ran on a loaded machine. The temp file is a sibling, so the
 -- rename stays on one filesystem and is atomic.
+--
+-- The temp name carries a counter, and is not `path .. ".tmp"`: two writers of the
+-- same target -- the panel saving while the config's own pass writes, a rearrange
+-- landing during a restore -- would otherwise open and truncate one shared temp,
+-- and whichever renamed second put the other's half-written body on the target. A
+-- name of its own per attempt means each write either lands whole or is removed,
+-- and a failure never touches the target or the other writer's temp.
+local write_seq = 0
 function M.write_atomic(path, text)
-  local tmp = path .. ".tmp"
+  write_seq = write_seq + 1
+  local tmp = string.format("%s.%d-%d.tmp", path, os.time(), write_seq)
   local file = io.open(tmp, "w")
   if file == nil then
     return false

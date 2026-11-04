@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <string>
 
+#include <unistd.h>
+
 #include <hyprland/src/plugins/PluginAPI.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/render/Texture.hpp>
@@ -20,9 +22,18 @@ inline HANDLE PHANDLE = nullptr;
 // between the open and the write, and "off" or "no preview" for a frame reads as
 // a bug in the pack. The temp file is a sibling, so the rename stays on one
 // filesystem; the Lua side does the same (layout.write_atomic).
+//
+// The temp name is unique per attempt -- the writing process and a counter -- and
+// not `path + ".tmp"`: two writes of the same file (a click and the ring buffer
+// behind it, a preview and a workspace publication) would otherwise open and
+// truncate one shared temp, and the second rename would put the first writer's
+// half-written body on the target. Each attempt therefore either lands whole or
+// removes its own temp, and never touches the target or another writer's temp.
+// Counter and not only the pid: one process is the common case.
 inline bool writeStateFile(const std::string& path, const std::string& text) {
-    const auto tmp = path + ".tmp";
-    FILE*      f   = std::fopen(tmp.c_str(), "w");
+    static size_t seq = 0;
+    const auto    tmp = path + "." + std::to_string((long)getpid()) + "-" + std::to_string(++seq) + ".tmp";
+    FILE*         f   = std::fopen(tmp.c_str(), "w");
     if (!f)
         return false;
     const bool wrote = std::fputs(text.c_str(), f) >= 0;

@@ -131,10 +131,54 @@ check("write_atomic.replaced", f and f:read("*a"), '{"a":2}\n')
 if f then f:close() end
 check("write_atomic.no-tmp-left", io.open(target .. ".tmp", "r"), nil)
 
--- A write that cannot land leaves the old file alone and no temp behind.
+-- Each write needs a temp path of its own. `path .. ".tmp"` is one fixed name,
+-- so two writers of the same target open and truncate the same file: whichever
+-- finishes second renames the other's half-written body onto the target, and the
+-- file is then a state nobody wrote. The names are read out of the writes
+-- themselves by wrapping io.open, so the check follows whatever the helper
+-- opens. A blocked write below goes through the wrapper too, so what it opens
+-- is not counted as one of this pair's temps.
+local real_open = io.open
+local tmp_seen = {}
+io.open = function(path, ...)
+  if type(path) == "string" and path:sub(-4) == ".tmp" then
+    tmp_seen[#tmp_seen + 1] = path
+  end
+  return real_open(path, ...)
+end
+local ok_a = layout.write_atomic(target, '{"a":3}\n')
+local ok_b = layout.write_atomic(target, '{"a":4}\n')
+io.open = real_open
+
+check("write_atomic.two-writes.ok", ok_a and ok_b, true)
+check("write_atomic.two-temps", #tmp_seen, 2)
+-- The two writers opened one temp path: a fixed `path .. ".tmp"` is the only
+-- way that happens, and it is the bug this check is for. Said in these words so
+-- the failure names the shared file instead of a boolean.
+check("write_atomic.temps-differ", tmp_seen[1] == tmp_seen[2] and "same temp path: " .. tostring(tmp_seen[1]) or "different", "different")
+-- And neither may be the literal fixed name: a temp the helper picks has to be
+-- its own path and not `<target>.tmp`, which two writers would share again.
+local fixed = target .. ".tmp"
+for i = 1, #tmp_seen do
+  check("write_atomic.temp-" .. i .. "-not-fixed", tmp_seen[i] == fixed and "the fixed temp path " .. fixed or "own path", "own path")
+end
+-- The last write wins, and no temp is left from either.
+local after = real_open(target, "r")
+check("write_atomic.two-writes.content", after and after:read("*a"), '{"a":4}\n')
+if after then after:close() end
+local leftover = io.open(target .. ".tmp", "r")
+check("write_atomic.two-writes.no-tmp-left", leftover, nil)
+if leftover then leftover:close() end
+for i = 1, #tmp_seen do
+  local left = io.open(tmp_seen[i], "r")
+  check("write_atomic.temp-" .. i .. "-removed", left, nil)
+  if left then left:close() end
+end
+
+-- A write that cannot land leaves the last successful contents alone.
 check("write_atomic.fails", layout.write_atomic(tmpdir .. "/missing/dir/x", "x"), false)
 f = io.open(target, "r")
-check("write_atomic.old-intact", f and f:read("*a"), '{"a":2}\n')
+check("write_atomic.old-intact", f and f:read("*a"), '{"a":4}\n')
 if f then f:close() end
 os.execute("rm -rf '" .. tmpdir .. "'")
 
