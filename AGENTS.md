@@ -145,7 +145,9 @@ Pack code, in this repo:
   loaded `x-mode-hyprbars.so`: overwriting a mapped `.so` corrupts its pages and
   crashes the compositor (`SIGILL`). The nest is where a plugin gets loaded.
 - After every successful edit or completed task, commit in the repo that owns
-  the change when the user asks. The message says what changed and why.
+  the change when the user asks. The message says what changed and why. Do not
+  commit until a fresh GPT check of that exact diff returns accept. Asking for
+  the commit does not skip the check or replace the verdict.
 
 ## Running the suite from an agent session
 
