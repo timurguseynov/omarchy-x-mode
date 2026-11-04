@@ -37,6 +37,16 @@ check("vec.array", x .. "," .. y, "8,9")
 x, y = values.vec(nil)
 check("vec.nil", x .. "," .. y, "0,0")
 
+check("class.nil", values.window_class(nil), "")
+check("class.initial", values.window_class({ initial_class = "Foot", class = "Other" }), "foot")
+check("class.fallback", values.window_class({ class = "KITTY" }), "kitty")
+check("class.empty", values.window_class({}), "")
+
+check("tag.nil", values.window_tagged(nil, "xmode"), false)
+check("tag.plain", values.window_tagged({ tags = { "xmode" } }, "xmode"), true)
+check("tag.star", values.window_tagged({ tags = { "xmode*" } }, "xmode"), true)
+check("tag.other", values.window_tagged({ tags = { "other" } }, "xmode"), false)
+
 if failures > 0 then
   os.exit(1)
 end

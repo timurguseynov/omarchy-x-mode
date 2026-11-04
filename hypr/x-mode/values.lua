@@ -46,4 +46,24 @@ function M.vec(value)
   return value[1] or 0, value[2] or 0
 end
 
+-- The class the pack groups and matches on. initial_class wins; both are
+-- lowercased so a rule written in lower case still hits the window.
+function M.window_class(w)
+  if w == nil then
+    return ""
+  end
+  return string.lower(tostring(w.initial_class or w.class or ""))
+end
+
+-- A rule lists tags with a trailing "*". The window's own list is what counts,
+-- and either spelling matches.
+function M.window_tagged(w, tag)
+  for _, t in ipairs((w and w.tags) or {}) do
+    if t == tag or t == tag .. "*" then
+      return true
+    end
+  end
+  return false
+end
+
 return M

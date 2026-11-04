@@ -601,10 +601,7 @@ end
 -- The top the bar reserves. It is a layer-shell surface and is gone for a
 
 local function window_class(w)
-  if w == nil then
-    return ""
-  end
-  return string.lower(tostring(w.initial_class or w.class or ""))
+  return values.window_class(w)
 end
 
 -- layout.lua owns everything that puts a window on a zone: the snap, the
@@ -3308,12 +3305,7 @@ x_mode.layout = layout
 -- A rule's tags are listed with a trailing "*", so a strict compare passes them
 -- over; the window's own list is what counts.
 local function window_tagged(w, tag)
-  for _, t in ipairs((w and w.tags) or {}) do
-    if t == tag or t == tag .. "*" then
-      return true
-    end
-  end
-  return false
+  return values.window_tagged(w, tag)
 end
 
 local function set_window_tag(w, tag, on)
