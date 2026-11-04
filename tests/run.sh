@@ -18,6 +18,11 @@ if [ -f "$HERE/harness_test.sh" ]; then
   bash "$HERE/harness_test.sh" || fail=1
 fi
 
+# Test receipts are visible without waking the model on green, but unknown or
+# failed commands must still ask for attention. Plain Node, no model or nest.
+echo "== test-status"
+bash "$HERE/test_status_test.sh" || fail=1
+
 # install.sh's own steps. It is the one file that edits what the user owns, and
 # the shapes it edits are Omarchy's.
 if [ -f "$HERE/install_test.sh" ]; then

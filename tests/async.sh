@@ -64,6 +64,13 @@ status_text() { # LABEL LOG
     state="done, no summary line"
   fi
   printf '%s: %s\n' "$label" "$state"
+  # A later green nest cannot hide an earlier failed unit layer. The detached
+  # command wrapper records its real exit; older or interrupted runs stay unknown.
+  if [ -f "$log.exit" ]; then
+    printf 'exit: %s\n' "$(cat "$log.exit")"
+  else
+    printf 'exit: unknown\n'
+  fi
   if grep -qaE "^== " "$log"; then
     grep -aE "^== " "$log" | tail -2
   else
@@ -93,7 +100,7 @@ for raw in open(sys.argv[1], errors='replace'):
     elif 'hyprland reported an error' in line:
         warn += 1
 print('ok: %d  FAIL: %d  WARN: %d  NOT RUN: %d' % (ok, failures, warn, notrun))
-for name in names[:5]:
+for name in names:
     print('  ' + name)
 PY
   grep -a "hyprland reported an error" "$log" | head -5
@@ -119,7 +126,7 @@ case "${1:-}" in
     # Read before the nests start: measured when the run ends, this would report
     # the teardown's load and read as a loaded box that never was.
     conditions_line > "$log.conditions"
-    rm -f "$log.status"
+    rm -f "$log.status" "$log.status.tmp" "$log.exit"
     # Both the run and its report are detached into sessions of their own. A
     # tool call that starts a run can be aborted, and a background child of that
     # shell would die with it: the run (nohup) used to survive while the status
@@ -129,7 +136,14 @@ case "${1:-}" in
     nohup setsid -w env NEST_JOBS=5 NEST_WORKSPACE=5 \
       NEST_SLOW="$(slow_factor "$(awk '{print $1}' /proc/loadavg)" \
         "$(awk '/^MemAvailable:/ { printf "%.1fG", $2 / 1048576 }' /proc/meminfo)" "$(nproc)")" \
-      XMODE_TEST_LOG="$log" "$@" > "$log" 2>&1 &
+      bash -c '
+        log="$1"; shift
+        export XMODE_TEST_LOG="$log"
+        "$@"
+        rc=$?
+        printf "%s\n" "$rc" > "$log.exit"
+        exit "$rc"
+      ' xmode-test "$log" "$@" > "$log" 2>&1 &
     echo "$!" > "$log.pid"
     nohup setsid -w "$SELF" watch "$label" "$log" >/dev/null 2>&1 &
     printf 'started %s (pid %s) -> %s\n' "$label" "$(cat "$log.pid")" "$log"
@@ -155,7 +169,10 @@ case "${1:-}" in
       # The machine the run *started* on, kept with the verdict: a red that began
       # on a box someone else was using is not evidence about the code.
       cat "$log.conditions" 2>/dev/null || true
-    } > "$log.status"
+    } > "$log.status.tmp"
+    # Publish only a whole receipt: a watcher must not wake on its prefix and
+    # then again on the final counts. The sibling rename is atomic.
+    mv -f "$log.status.tmp" "$log.status"
     ;;
   status)
     label="${2:-}"

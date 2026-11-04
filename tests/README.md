@@ -46,12 +46,18 @@ bash tests/async.sh run suite bash tests/run.sh
 bash tests/async.sh status suite
 ```
 
-The `run` also writes `<log>.status` when the run ends: the same text `status`
-prints, plus the log path, and a `session:` stamp when a pi session started it.
-`.pi/extensions/test-status.ts` watches those files and sends one as a message
-that starts a turn only when the stamp is this session, so a finished run
-reaches the agent that started it -- not Goose, and not another pi session --
-instead of being polled for.
+The `run` records the command's actual exit in `<log>.exit` and atomically
+publishes `<log>.status`: the same text `status` prints, the exit, log path and
+`session:` stamp. `.pi/extensions/test-status.ts` records matching-session
+receipts in the conversation. Confirmed green (finished, exit 0, recognized
+success summary, at least one reported check, zero FAIL/WARN/NOT RUN) does not
+start a model turn. Red or incomplete evidence does; another session's run never
+does. No model is needed to execute, wait for, or announce a green test run.
+
+`test_status_test.sh` runs the watcher's Node tests without a model or compositor:
+green/red/unknown routing, session isolation, duplicate suppression and the real
+detached runner's exit evidence. Node must support native TypeScript stripping
+(Node 22.18+); the wrapper emits suite-format verdicts so Node failures are counted.
 
 Nest scenarios can be picked by name, whole or in part:
 

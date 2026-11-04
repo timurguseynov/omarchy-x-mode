@@ -152,8 +152,9 @@ Pack code, in this repo:
 Tests here take minutes, and an agent tool call that waits for one is killed
 part-way: that reads as a hang and wastes the run. So **no test run is waited for
 inside a call**. The agent's whole part is to start the run detached; the run
-reports itself when it is over (see the status file below), and the agent
-resumes from that report.
+reports itself when it is over (see the status file below). A confirmed green
+receipt is recorded without a model turn; red or incomplete evidence wakes the
+agent for investigation.
 
 ```sh
 bash tests/async.sh run suite bash tests/run.sh
@@ -185,19 +186,19 @@ there is work that cannot invalidate the run (reading a finished run's log,
 editing something no scenario reads), do that; if there is not, end the turn and
 let the report arrive.
 
-`tests/async.sh run` writes `<log>.status` the moment a run ends: the same text
-`status` prints (state, summary lines, counts, the failing scenarios) plus the
-log path, and a `session:` stamp when a pi session started the run. The project
-extension `.pi/extensions/test-status.ts` watches those files and sends that
-text as a message that starts a turn **only when the stamp is this session**, so
-**the run reports itself** and a run Goose or another session started does not:
-the agent starts a run, stops, and resumes on its own when the report arrives --
-no timer, no poll, no token. The user's token (`готово` when the run is green,
-`+` when there is something in it for the agent) is only the fallback for when
-the watcher is not loaded, such as a session started before the extension was
-added.
+`tests/async.sh run` atomically publishes `<log>.status` when a run ends: the
+same text `status` prints (state, command exit, summary lines, counts, failing
+scenarios), the log path, and a `session:` stamp. The detached command wrapper
+records its exit in `<log>.exit`; absent exit evidence is unknown, never green.
+The project extension `.pi/extensions/test-status.ts` records matching-session
+reports in the conversation. A confirmed green receipt is visible without
+starting a model turn: finished, `exit: 0`, a recognized `all ok`/`nest ok`
+summary, at least one recognized check, and zero FAIL/WARN/NOT RUN counts.
+Red or incomplete evidence starts a turn; another session's report never does.
+The agent starts a run and stops -- no polling or model call to announce green.
+A user-supplied report remains the fallback when the watcher is not loaded.
 
-That report starts a turn, and the turn is not the user talking. It is one
+A red or incomplete report starts a turn, and the turn is not the user talking. It is one
 machine message about one finished run: read the log and the status file, say
 what they say, and stop. Do not pick the previous conversation back up, do not
 re-ask a question that is still waiting for an answer, and do not read a green
@@ -222,8 +223,8 @@ until it is restarted.
 Once a run has reported itself (or been reported), the agent may read the log,
 the status file and the run's counts -- that is looking at a finished run, not
 polling a going one. Only the sanctioned invocation counts as evidence, and a run
-counts once its status file says finished with `FAIL: 0`, `WARN: 0` and
-`NOT RUN: 0`:
+counts once its status file says finished with `exit: 0`, a recognized success
+summary, at least one reported check, and `FAIL: 0`, `WARN: 0`, `NOT RUN: 0`:
 
 - `WARN` is Hyprland's own errors, reported as `WARN` lines: a config that threw
   while parsing, a Lua callback that threw while the session ran. Those are real
@@ -236,8 +237,8 @@ counts once its status file says finished with `FAIL: 0`, `WARN: 0` and
 
 While a run is going, work on something that cannot invalidate it: do not edit
 files a running suite reads, and start no second run against the same scenarios.
-If there is nothing else to do, say so and stop: the report is a message that
-will arrive.
+If there is nothing else to do, say so and stop: the receipt will be recorded,
+and only red or incomplete evidence needs a new model turn.
 
 A scenario written to look at one thing while working on a test is named
 `tests/nest/integration/debug_tmp_test.sh`: it is gitignored on purpose, and it
