@@ -218,7 +218,12 @@ function M.write_atomic(path, text)
     os.remove(tmp)
     return false
   end
-  file:close()
+  -- close flushes. A failure here means the temp is not the whole text, so it
+  -- must not be renamed over the target.
+  if not file:close() then
+    os.remove(tmp)
+    return false
+  end
   if not os.rename(tmp, path) then
     os.remove(tmp)
     return false

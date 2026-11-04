@@ -175,6 +175,27 @@ for i = 1, #tmp_seen do
   if left then left:close() end
 end
 
+-- A flush that fails at close must not publish the new body. The real close still
+-- runs, so the descriptor is released; only the reported result is a failure.
+local probe = io.open(target, "r")
+local close_index = debug.getmetatable(probe).__index
+probe:close()
+local real_close = close_index.close
+local armed = true
+close_index.close = function(self)
+  local ok, err, code = real_close(self)
+  if armed then
+    armed = false
+    return nil, "flush failed", 28
+  end
+  return ok, err, code
+end
+check("write_atomic.close-fails", layout.write_atomic(target, '{"a":5}\n'), false)
+close_index.close = real_close
+f = io.open(target, "r")
+check("write_atomic.close-keeps-old", f and f:read("*a"), '{"a":4}\n')
+if f then f:close() end
+
 -- A write that cannot land leaves the last successful contents alone.
 check("write_atomic.fails", layout.write_atomic(tmpdir .. "/missing/dir/x", "x"), false)
 f = io.open(target, "r")
