@@ -482,7 +482,14 @@ PY
 do_install() {
   log_file "=== install start (pid $$, $0 $*)"
   fix_hypr_instance
-  manifest_reset
+
+  # The manifest is NOT reset here. It is the only record of what the install that
+  # is already on disk created, and this run may still die -- the build below is
+  # the step that does. Emptying it first left a failed reinstall with an empty
+  # installed.txt (and a failed first install with one that existed at all), so
+  # `uninstall.sh` removed nothing, said it was done, and the pack stayed on disk.
+  # It is cleared after the build has succeeded and before the first entry is
+  # written (see below), so a failure up to that point leaves the file as it was.
 
   # Snapshot the open windows so uninstall can put them back the way they were
   # before the pack floated/grouped them. Keep the first snapshot across
@@ -518,6 +525,12 @@ print(json.dumps(out))
     warn "hyprbars build failed; aborting before installing configs"
     exit 1
   fi
+
+  # Only now is the old manifest spent: the build succeeded, so this run is going
+  # to install. Clearing it here -- after the build, before the first entry -- is
+  # what keeps a failed build (the case above) from truncating it, and still keeps
+  # a successful reinstall from carrying the previous run's entries.
+  manifest_reset
   manifest_add "$HYPRBARS_SO"
 
   # If the user already has a stock hyprbars loaded, disable it and remember
