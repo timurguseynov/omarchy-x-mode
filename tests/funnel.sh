@@ -85,7 +85,23 @@ run_names() { # outfile name...
   fi
 }
 
-passed() { grep -qE "^  ok +${1}( |$)" "$2"; }
+# The nest runner paints ok/FAIL/NOT RUN. The codes are not part of the verdict.
+passed() {
+  python3 - "$1" "$2" <<'PY'
+import re, sys
+name, path = sys.argv[1], sys.argv[2]
+strip = re.compile(r'\x1b\[[0-9;]*m')
+pat = re.compile(r'^  ok +' + re.escape(name) + r'( |$)')
+try:
+    lines = open(path, errors='replace')
+except FileNotFoundError:
+    raise SystemExit(1)
+for raw in lines:
+    if pat.match(strip.sub('', raw).rstrip('\n')):
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
 declare -A left
 if [ "${#names[@]}" -eq 1 ]; then
   printf 'funnel solo: %s\n' "${names[0]}"

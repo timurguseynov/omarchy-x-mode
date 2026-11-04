@@ -163,4 +163,17 @@ set -e
 [ "$rc" -ne 0 ] || fail "a passing rerun cleared a Hyprland warning"
 grep -q 'hyprland reported an error' "$TMP/warn-fail.out" || fail "the warning was dropped: $(cat "$TMP/warn-fail.out")"
 
+# The nest runner colors its verdict. A pass hidden by those codes is not a failure.
+cat > "$TMP/color-runner" <<'SH'
+#!/usr/bin/env bash
+printf '  \033[32mok\033[0m   %s\n' "$1"
+echo '== nest ok'
+SH
+chmod +x "$TMP/color-runner"
+printf '  FAIL integration/colored_test\n== nest failed\n' > "$TMP/color.log"
+export FUNNEL_RUNNER="$TMP/color-runner"
+bash "$HERE/funnel.sh" "$TMP/color.log" >"$TMP/color.out" || fail "a colored nest ok was counted as a failure: $(cat "$TMP/color.out")"
+grep -q '^  ok   integration/colored_test$' "$TMP/color.out" || fail "the colored pass was not cleared: $(cat "$TMP/color.out")"
+grep -q '^== nest ok$' "$TMP/color.out" || fail "a colored pass did not finish nest ok"
+
 echo "  ok   funnel_shrinks_failures_without_hiding_the_original_log"
