@@ -446,6 +446,13 @@ end
 check("needed.excludes-own", ids(supermap.needed_steal_ids({ Q = true, A = true, F = true }, {})), "A")
 check("needed.app", ids(supermap.needed_steal_ids({}, { foot = { ctrl_as_super_keys = { Z = true, TAB = true } } })), "Z")
 check("needed.empty", ids(supermap.needed_steal_ids({}, {})), "")
+check("bind.plain", supermap.bind_string("T", false), "SUPER + T")
+check("bind.shift", supermap.bind_string("T", true), "SUPER + SHIFT + T")
+check("replay.exec", supermap.replay_command({ dispatcher = "exec", arg = "omarchy-menu" }), "omarchy-menu")
+check("replay.empty-arg", supermap.replay_command({ dispatcher = "exec_cmd" }), "")
+check("replay.dispatch", supermap.replay_command({ dispatcher = "workspace", arg = "2" }), "hyprctl dispatch workspace 2")
+check("replay.lua", supermap.replay_command({ dispatcher = "__lua", arg = "x" }), nil)
+check("replay.none", supermap.replay_command({}), nil)
 
 if failures > 0 then
   os.exit(1)

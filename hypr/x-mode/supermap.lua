@@ -514,4 +514,26 @@ function M.needed_steal_ids(global_steal, apps)
   return set
 end
 
+-- The bind string Hyprland matches. Shift is its own chord, not a flag on the
+-- plain one.
+function M.bind_string(key, shift)
+  if shift then
+    return "SUPER + SHIFT + " .. key
+  end
+  return "SUPER + " .. key
+end
+
+-- The shell command that replays one saved Omarchy bind, or nil when there is
+-- nothing to run. An exec with no argument is still a command: the empty string.
+function M.replay_command(orig)
+  local d = (orig and orig.dispatcher) or ""
+  if d == "exec" or d == "exec_cmd" then
+    return orig.arg or ""
+  end
+  if d ~= "" and d ~= "__lua" then
+    return "hyprctl dispatch " .. d .. " " .. (orig.arg or "")
+  end
+  return nil
+end
+
 return M

@@ -2301,20 +2301,13 @@ local function ensure_omarchy_replay()
 end
 
 local function steal_bind_string(key, shift)
-  if shift then
-    return "SUPER + SHIFT + " .. key
-  end
-  return "SUPER + " .. key
+  return supermap.bind_string(key, shift)
 end
 
 local function replay_orig(orig)
-  local d = orig.dispatcher or ""
-  if d == "exec" or d == "exec_cmd" then
-    hl.exec_cmd(orig.arg or "")
-    return
-  end
-  if d ~= "" and d ~= "__lua" then
-    hl.exec_cmd("hyprctl dispatch " .. d .. " " .. (orig.arg or ""))
+  local cmd = supermap.replay_command(orig)
+  if cmd ~= nil then
+    hl.exec_cmd(cmd)
   end
 end
 
