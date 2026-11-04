@@ -29,6 +29,7 @@ local supermap = dofile(X_MODE_DIR .. "supermap.lua")
 local textkeys = dofile(X_MODE_DIR .. "textkeys.lua")
 local layout = dofile(X_MODE_DIR .. "layout.lua")
 local modes = dofile(X_MODE_DIR .. "modes.lua")
+local values = dofile(X_MODE_DIR .. "values.lua")
 
 -- Workspace modes. Omarchy keeps one per workspace -- dwindle, scrolling, its own
 -- floating -- in $XDG_STATE_HOME/omarchy/workspace-layouts, and replays those
@@ -80,10 +81,7 @@ local mode_sync = { shared = modes.can_persist(os.getenv("OMARCHY_PATH")) }
 -- three `lua` processes pinned at 100%. The proxy has no __len, so `#` reads 0
 -- and the list comes back empty; in Hyprland the result is a plain array.
 local function as_list(v)
-  if type(v) ~= "table" or #v == 0 then
-    return {}
-  end
-  return v
+  return values.as_list(v)
 end
 
 
@@ -446,22 +444,10 @@ end)
 -- patched plugin), so the C++ and Lua read the same value.
 local function cfg_int(key, fallback)
   local ok, value = pcall(hl.get_config, key)
-  if not ok or value == nil then
+  if not ok then
     return fallback
   end
-  if type(value) == "number" then
-    return math.floor(value)
-  end
-  if type(value) == "table" then
-    return math.floor(value.top or value[1] or fallback)
-  end
-  if type(value) == "string" then
-    local n = value:match("(%d+)")
-    if n ~= nil then
-      return tonumber(n)
-    end
-  end
-  return fallback
+  return values.cfg_int(value, fallback)
 end
 
 local TITLEBAR          = cfg_int("plugin:hyprbars:bar_height", TITLEBAR_FALLBACK)
@@ -609,16 +595,7 @@ local function drag_owns(w)
 end
 
 local function vec(value)
-  if type(value) ~= "table" then
-    return 0, 0
-  end
-  if value.x ~= nil then
-    return value.x, value.y or 0
-  end
-  if value.w ~= nil then
-    return value.w, value.h or 0
-  end
-  return value[1] or 0, value[2] or 0
+  return values.vec(value)
 end
 
 -- The top the bar reserves. It is a layer-shell surface and is gone for a
