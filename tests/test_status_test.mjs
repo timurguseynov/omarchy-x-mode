@@ -40,11 +40,11 @@ async function fixture(t) {
 }
 const green = 'routing: finished\n== all ok\nexit: 0\nok: 12  FAIL: 0  WARN: 0  NOT RUN: 0';
 
-test('confirmed green run is visible but never wakes the main model', async t => {
+test('confirmed green run is visible and wakes the main model', async t => {
   const f = await fixture(t);
   await f.publish(green);
-  assert.equal(f.messages.filter(m => m.options?.triggerTurn).length, 0,
-    'a passing test receipt must not spend a main-model turn');
+  assert.equal(f.messages.filter(m => m.options?.triggerTurn).length, 1,
+    'a passing test receipt must start a main-model turn');
   assert.ok(f.entries.length > 0 || f.messages.length > 0, 'the green receipt must remain visible/durable');
 });
 test('red run wakes exactly once with the original evidence', async t => {

@@ -160,9 +160,8 @@ Pack code, in this repo:
 Tests here take minutes, and an agent tool call that waits for one is killed
 part-way: that reads as a hang and wastes the run. So **no test run is waited for
 inside a call**. The agent's whole part is to start the run detached; the run
-reports itself when it is over (see the status file below). A confirmed green
-receipt is recorded without a model turn; red or incomplete evidence wakes the
-agent for investigation.
+reports itself when it is over (see the status file below). A finished receipt
+wakes the agent, green included.
 
 ```sh
 bash tests/async.sh run suite bash tests/run.sh
@@ -199,21 +198,18 @@ same text `status` prints (state, command exit, summary lines, counts, failing
 scenarios), the log path, and a `session:` stamp. The detached command wrapper
 records its exit in `<log>.exit`; absent exit evidence is unknown, never green.
 The project extension `.pi/extensions/test-status.ts` records matching-session
-reports in the conversation. A confirmed green receipt is visible without
-starting a model turn: finished, `exit: 0`, a recognized `all ok`/`nest ok`
-summary, at least one recognized check, and zero FAIL/WARN/NOT RUN counts.
-Red or incomplete evidence starts a turn; another session's report never does.
-The agent starts a run and stops -- no polling or model call to announce green.
+reports in the conversation and starts a model turn for each of them, green
+included. Another session's report never does. The agent starts a run and
+stops -- no polling. The receipt is what continues the turn.
 A user-supplied report remains the fallback when the watcher is not loaded.
 
-A red or incomplete report starts a turn, and the turn is not the user talking. It is one
+A finished report starts a turn, and the turn is not the user talking. It is one
 machine message about one finished run: read the log and the status file, say
-what they say, and stop. Do not pick the previous conversation back up, do not
+what they say, and continue the work that was waiting on that receipt. Do not
 re-ask a question that is still waiting for an answer, and do not read a green
 run as the user agreeing to anything -- `FAIL: 0` means the check passed and
-nothing else. The turn is over when the run is accounted for: a red run is the
-agent's to isolate (its scenario, alone, as above); a green one that only
-confirms what was already said gets one line, not a new subject.
+nothing else. A red run is isolated (its scenario, alone, as above). A green
+run is the gate it was started for: the GPT check, the commit, or the next slice.
 
 The stamp is `PI_SESSION_ID`, which Pi's own bash tool exports. Grok's
 `run_terminal_command` (package `pi-xai-oauth`,
@@ -246,7 +242,7 @@ summary, at least one reported check, and `FAIL: 0`, `WARN: 0`, `NOT RUN: 0`:
 While a run is going, work on something that cannot invalidate it: do not edit
 files a running suite reads, and start no second run against the same scenarios.
 If there is nothing else to do, say so and stop: the receipt will be recorded,
-and only red or incomplete evidence needs a new model turn.
+and that receipt starts the next turn whether it is green or red.
 
 A scenario written to look at one thing while working on a test is named
 `tests/nest/integration/debug_tmp_test.sh`: it is gitignored on purpose, and it

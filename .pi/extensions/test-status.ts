@@ -10,8 +10,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
  * a pi session started it (PI_SESSION_ID), then the summary line, the counts,
  * the failing scenarios, and the log path. This watches that directory and
  * records a new or changed status file in this session when its stamp matches.
- * A confirmed green receipt is visible but does not start a model turn; a red
- * or incomplete one does. Another session's runs never start a turn here.
+ * Every matching receipt starts a model turn, green included. Another
+ * session's runs never start a turn here.
  * Same mechanism as examples/extensions/file-trigger.ts, on the file the test
  * runner already writes.
  *
@@ -55,16 +55,6 @@ function parseStatus(text: string): { session: string | undefined; body: string 
     session: text.slice("session: ".length, nl).trim(),
     body: text.slice(nl + 1),
   };
-}
-
-// Counts alone are not evidence of success: a failed unit layer can be
-// followed by a green nest, and an unknown reporter can produce zero counts.
-// Require the command's recorded exit and a recognized completed check too.
-function confirmedGreen(body: string): boolean {
-  return /^.+: finished$/m.test(body)
-    && /^exit: 0$/m.test(body)
-    && /^== (all ok|nest ok)$/m.test(body)
-    && /^ok: [1-9]\d*  FAIL: 0  WARN: 0  NOT RUN: 0$/m.test(body);
 }
 
 function sessionIdFrom(ctx: {
@@ -122,7 +112,7 @@ export default function (pi: ExtensionAPI) {
           content: parsed.body,
           display: true,
         },
-        { triggerTurn: !confirmedGreen(parsed.body) },
+        { triggerTurn: true },
       );
     }
     primed = true;
@@ -169,7 +159,7 @@ export default function (pi: ExtensionAPI) {
     if (ctx.hasUI) {
       ctx.ui.notify(
         sessionId
-          ? "test results report here; only red or incomplete results wake the model"
+          ? "test results report here and wake the model"
           : `test runs in ${DIR} report back here`,
         "info",
       );
