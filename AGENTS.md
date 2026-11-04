@@ -145,13 +145,7 @@ Pack code, in this repo:
   loaded `x-mode-hyprbars.so`: overwriting a mapped `.so` corrupts its pages and
   crashes the compositor (`SIGILL`). The nest is where a plugin gets loaded.
 - After every successful edit or completed task, commit in the repo that owns
-  the change. The message says what changed and why. The commit flow is the
-  user's: the `pi-git-commit` extension blocks `git add`/`git commit` in the
-  agent's bash and unlocks the `git_commit` tool only while `/commit` is open, so
-  the agent finishes a task, says it is ready, and waits for `/commit` -- it
-  cannot stage or commit on its own. `/toggle-allow-git` is what allows
-  mutative git in bash for a session, if the user wants the agent to commit
-  without the flow.
+  the change when the user asks. The message says what changed and why.
 
 ## Running the suite from an agent session
 
