@@ -435,6 +435,18 @@ check("own.code", supermap.steal_id_of("SUPER + code:12"), nil)
 check("own.mouse", supermap.steal_id_of("SUPER + mouse:272"), nil)
 check("own.empty", supermap.steal_id_of(nil), nil)
 
+local function ids(set)
+  local out = {}
+  for id in pairs(set) do
+    out[#out + 1] = id
+  end
+  table.sort(out)
+  return table.concat(out, ",")
+end
+check("needed.excludes-own", ids(supermap.needed_steal_ids({ Q = true, A = true, F = true }, {})), "A")
+check("needed.app", ids(supermap.needed_steal_ids({}, { foot = { ctrl_as_super_keys = { Z = true, TAB = true } } })), "Z")
+check("needed.empty", ids(supermap.needed_steal_ids({}, {})), "")
+
 if failures > 0 then
   os.exit(1)
 end

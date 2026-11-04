@@ -2353,21 +2353,7 @@ end
 -- from an app, and a key nothing steals needs no wrap. Iterated on every replan, so
 -- the union is built here rather than kept in a set.
 local function needed_steals()
-  local set = {}
-  local function add(id)
-    if id ~= "Q" and id ~= "TAB" and id ~= "SHIFT+TAB" and id ~= "W" and id ~= "F" then
-      set[id] = true
-    end
-  end
-  for id in pairs(global_steal) do
-    add(id)
-  end
-  for _, e in pairs(apps_cfg) do
-    for id in pairs(e.ctrl_as_super_keys or {}) do
-      add(id)
-    end
-  end
-  return set
+  return supermap.needed_steal_ids(global_steal, apps_cfg)
 end
 
 local function apply_steal_wraps(raw)

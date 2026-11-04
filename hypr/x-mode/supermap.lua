@@ -493,4 +493,25 @@ function M.plan(raw)
   return out
 end
 
+-- Ids that need an Omarchy-key wrap. Q, Tab, W and F are pack binds wrapped at
+-- the source, so they are not wrapped again. The desktop list and every app's
+-- own Always-on list are the only inputs.
+function M.needed_steal_ids(global_steal, apps)
+  local set = {}
+  local function add(id)
+    if id ~= "Q" and id ~= "TAB" and id ~= "SHIFT+TAB" and id ~= "W" and id ~= "F" then
+      set[id] = true
+    end
+  end
+  for id in pairs(global_steal or {}) do
+    add(id)
+  end
+  for _, e in pairs(apps or {}) do
+    for id in pairs(e.ctrl_as_super_keys or {}) do
+      add(id)
+    end
+  end
+  return set
+end
+
 return M
