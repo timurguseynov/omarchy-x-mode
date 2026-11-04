@@ -70,8 +70,13 @@ is in a full run. The run starts one nest per worker (`NEST_JOBS`, default 3;
 workspace 4 and leaves the view where it is. The workspace has to be the one
 on screen: a window whose workspace is not visible is suspended, and the nest
 stops committing. With a number set, the windows are not pinned, because a
-pinned window is drawn on every workspace. A scenario that fails is run once
-more on the same nest, and a failure that comes back is reported.
+pinned window is drawn on every workspace. A scenario that fails is reported once. The nest does not retry it.
+`tests/auto.sh` runs the whole suite and, only when that is red, shrinks the
+nest failures: the failed names together, then each name that fails again by
+itself. A pass at either step is left alone. The original output stays in
+`<receipt>.suite`; the receipt lists only what is still red. A warning, a
+NOT RUN line, or a failure without a scenario name stays red. Start that with
+`bash tests/async.sh run suite bash tests/auto.sh`.
 
 The nest is a window on this desktop. Its class is `aquamarine` (the wayland
 backend's app id). The pack keeps that class, and `Hyprland`, out of same-app

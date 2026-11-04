@@ -129,7 +129,7 @@ case "${1:-}" in
     nohup setsid -w env NEST_JOBS=5 NEST_WORKSPACE=5 \
       NEST_SLOW="$(slow_factor "$(awk '{print $1}' /proc/loadavg)" \
         "$(awk '/^MemAvailable:/ { printf "%.1fG", $2 / 1048576 }' /proc/meminfo)" "$(nproc)")" \
-      "$@" > "$log" 2>&1 &
+      XMODE_TEST_LOG="$log" "$@" > "$log" 2>&1 &
     echo "$!" > "$log.pid"
     nohup setsid -w "$SELF" watch "$label" "$log" >/dev/null 2>&1 &
     printf 'started %s (pid %s) -> %s\n' "$label" "$(cat "$log.pid")" "$log"

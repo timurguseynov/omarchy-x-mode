@@ -74,14 +74,16 @@ Pack code, in this repo:
   "maybe this helps" line in the helper -- if it did not answer the question it was
   written for, it is removed in the same turn. Keep only what turned its own red
   green, or what the report it came from explicitly asked for.
-- A red run is followed by re-running exactly what failed, as its own run:
-  `tests/async.sh run <label> bash tests/nest/run.sh <failed> <failed> ...`. Those
-  names and nothing else -- not the whole suite again, not a filter that happens
-  to match neighbours. That re-run is the isolation, and it answers the only
-  question worth asking first: is this the code or the run? A scenario that
-  passes there was the full run's interaction -- five nests' worth of state and
-  load -- and is left alone. A scenario that fails there again is the real one,
-  and *it* is chased on its own from then on.
+- A red run is followed by re-running exactly what failed. `tests/auto.sh` does
+  that shrink itself: the failed names together, then each name that fails again
+  alone. A pass at either step is left alone. The suite still does not retry, and
+  the original output stays in the sibling `.suite` log. Start it detached with
+  `tests/async.sh run suite bash tests/auto.sh`. A hand re-run, when one is still
+  needed, is exactly the remaining names and nothing else:
+  `tests/async.sh run <label> bash tests/nest/run.sh <failed>`. Not the whole
+  suite again, and not a filter that happens to match neighbours. A scenario that
+  passes in the smaller run was the full run's interaction and is left alone. A
+  scenario that fails alone is the real one.
 - Whatever the `conditions:` line says, the failing scenarios are re-run: it
   decides how the result is read, never whether it is read. A loaded box does not
   make a red line less real; it makes the *run* less conclusive, and the re-run is

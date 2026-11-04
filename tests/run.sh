@@ -25,6 +25,12 @@ if [ -f "$HERE/install_test.sh" ]; then
   bash "$HERE/install_test.sh" || fail=1
 fi
 
+# The shrink after a red nest log. No compositor: a fake runner stands in.
+if [ -f "$HERE/funnel_test.sh" ]; then
+  echo "== funnel"
+  bash "$HERE/funnel_test.sh" || fail=1
+fi
+
 for d in unit qml nest; do
   [ -f "$HERE/$d/run.sh" ] || continue
   echo "== $d"
