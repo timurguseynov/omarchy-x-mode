@@ -35,6 +35,7 @@ local modesync = dofile(X_MODE_DIR .. "modesync.lua")
 local peers = dofile(X_MODE_DIR .. "peers.lua")
 local tiling = dofile(X_MODE_DIR .. "tiling.lua")
 local titlebar = dofile(X_MODE_DIR .. "titlebar.lua")
+local switcher = dofile(X_MODE_DIR .. "switcher.lua")
 
 -- Workspace modes. Omarchy keeps one per workspace -- dwindle, scrolling, its own
 -- floating -- in $XDG_STATE_HOME/omarchy/workspace-layouts, and replays those
@@ -854,31 +855,14 @@ local function switcher_step(step)
   local active = hl.get_active_window()
   local active_class = active and tostring(active.class or "") or ""
   if not switcher_active or #switcher_order == 0 then
-    -- One entry per class (any workspace), using the class's most recent window
-    -- (smallest focus_history_id): a class can have several windows, and taking
-    -- the first one in hl.get_windows() order would sort it by the wrong window.
-    local by_class = {}
-    for _, w in ipairs(as_list(hl.get_windows())) do
-      local cls = tostring(w.class or "")
-      if cls ~= "" then
-        local f = tonumber(w.focus_history_id) or 999999
-        if by_class[cls] == nil or f < by_class[cls].focus then
-          by_class[cls] = { focus = f, addr = tostring(w.address or "") }
-        end
-      end
-    end
-    local entries = {}
-    for cls, e in pairs(by_class) do
-      table.insert(entries, { cls = cls, focus = e.focus, addr = e.addr })
-    end
-    -- Most recently used first (like macOS Cmd+Tab); see mru.sort.
-    mru.sort(entries, switcher_mru)
+    -- One entry per class (any workspace), most recently used first (like macOS
+    -- Cmd+Tab); see switcher.class_entries and mru.sort.
+    local entries = switcher.class_entries(as_list(hl.get_windows()), switcher_mru)
     local classes = {}
-    local tokens = {}
     for _, e in ipairs(entries) do
       table.insert(classes, e.cls)
-      table.insert(tokens, e.cls .. "|" .. e.addr)
     end
+    local tokens = switcher.tokens(entries)
     switcher_order = classes
     switcher_tokens = tokens
     switcher_index = 1
@@ -897,7 +881,7 @@ local function switcher_step(step)
   switcher_index = mru.step(switcher_index, n, step)
   local cls = switcher_order[switcher_index]
   switcher_focus(cls)
-  switcher_write("show " .. cls .. " " .. table.concat(switcher_tokens, " "))
+  switcher_write(switcher.show_line(cls, switcher_tokens))
 end
 
 local function switcher_hide()
@@ -914,7 +898,7 @@ local function switcher_hide()
   switcher_active = false
   switcher_order = {}
   switcher_index = 0
-  switcher_write("hide")
+  switcher_write(switcher.hide_line())
 end
 
 -- A real focus change updates the MRU order. While the switcher is held the
