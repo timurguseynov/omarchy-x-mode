@@ -67,19 +67,6 @@ Item {
     return ""
   }
 
-  function addDesktopIconKey(map, key, icon) {
-    var k = String(key || "").toLowerCase().trim()
-    if (k.slice(-8) === ".desktop")
-      k = k.slice(0, -8)
-    if (k === "")
-      return
-    if (map[k] === undefined)
-      map[k] = icon
-    var seg = k.split(".").pop()
-    if (seg !== "" && seg !== k && map[seg] === undefined)
-      map[seg] = icon
-  }
-
   function hostIconFor(cls) {
     var c = String(cls || "").toLowerCase()
     if (c === "")
@@ -133,37 +120,31 @@ Item {
     return null
   }
 
+  // The fold itself is Logic.buildDesktopIcons, unit tested without a compositor.
+  // What stays here is the Qt part: reading the entries and asking for the command.
   function rebuildDesktopIcons() {
-    var map = {}
-    var apps = {}
-    var hosts = []
     var values = []
     try {
       values = DesktopEntries.applications.values || []
     } catch (e) {
       values = []
     }
+    var entries = []
     for (var i = 0; i < values.length; i++) {
       var e = values[i]
-      var icon = String((e && e.icon) || "")
-      var name = String((e && e.name) || "")
-      var entry = { id: String((e && e.id) || ""), name: name, cmd: root.newWindowActionCommand(e) }
-      if (entry.id !== "") {
-        root.addDesktopIconKey(apps, entry.id, entry)
-        root.addDesktopIconKey(apps, e.startupClass, entry)
-      }
-      if (icon === "")
-        continue
-      root.addDesktopIconKey(map, e.id, icon)
-      root.addDesktopIconKey(map, e.startupClass, icon)
-      var host = Logic.webappHostFromExec(e.execString)
-      if (host !== "")
-        hosts.push({ host: host, icon: icon, id: entry.id, name: name, cmd: entry.cmd })
+      entries.push({
+        id: String((e && e.id) || ""),
+        startupClass: String((e && e.startupClass) || ""),
+        icon: String((e && e.icon) || ""),
+        name: String((e && e.name) || ""),
+        execString: String((e && e.execString) || ""),
+        cmd: root.newWindowActionCommand(e),
+      })
     }
-    hosts.sort(function(a, b) { return b.host.length - a.host.length })
-    root.desktopIconMap = map
-    root.desktopAppMap = apps
-    root.desktopHostIcons = hosts
+    var built = Logic.buildDesktopIcons(entries)
+    root.desktopIconMap = built.icons
+    root.desktopAppMap = built.apps
+    root.desktopHostIcons = built.hosts
   }
 
   // Desktop entry matching a window class: the key map first, then the URL host

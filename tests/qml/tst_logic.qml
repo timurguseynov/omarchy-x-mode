@@ -806,4 +806,51 @@ TestCase {
         var c = Logic.buildDockApps(moved, [])
         verify(Logic.dockAppsSig(c) !== Logic.dockAppsSig(a), "a title change moves the sig")
     }
+
+    // Desktop entries: the packages the dock resolves a window class through. The
+    // scan is a fold over what Qt hands over, and the two rules that were live
+    // bugs are the ".desktop" suffix and the longest web-app host winning.
+    function test_desktopIconKey() {
+        compare(Logic.desktopIconKey("kitty.desktop"), "kitty")
+        compare(Logic.desktopIconKey("  Kitty.DESKTOP "), "kitty")
+        compare(Logic.desktopIconKey("org.gnome.Nautilus"), "org.gnome.nautilus")
+        compare(Logic.desktopIconKey(""), "")
+        compare(Logic.desktopIconKey(null), "")
+    }
+
+    function test_buildDesktopIcons() {
+        const entries = [
+            { id: "kitty.desktop", startupClass: "kitty", icon: "kitty-icon", name: "Kitty", execString: "kitty", cmd: "kitty" },
+            { id: "org.chromium.Chromium.desktop", startupClass: "", icon: "chromium", name: "Chromium", execString: "/usr/bin/chromium --app=https://app.zoom.us/wc/join", cmd: "chromium" },
+            { id: "noicon.desktop", startupClass: "noicon", icon: "", name: "No Icon", execString: "noicon", cmd: "noicon" },
+        ]
+        const built = Logic.buildDesktopIcons(entries)
+        compare(built.icons["kitty"], "kitty-icon")
+        compare(built.icons["kitty-icon"] , undefined)
+        compare(built.icons["org.chromium.chromium"], "chromium", "the id is keyed lowercased")
+        compare(built.icons["chromium"], "chromium", "the last segment is keyed too")
+        compare(built.icons["noicon"], undefined, "an entry without an icon is not keyed")
+        compare(built.apps["kitty"].name, "Kitty")
+        compare(built.apps["kitty"].cmd, "kitty")
+        compare(built.apps["noicon"].name, "No Icon", "an entry without an icon still resolves a name")
+        compare(built.hosts.length, 1, "only the web app has a host")
+        compare(built.hosts[0].host, "app.zoom.us")
+    }
+
+    function test_buildDesktopIcons_longestHostWins() {
+        const entries = [
+            { id: "a.desktop", startupClass: "", icon: "short", name: "A", execString: "x --app=https://zoom.us/", cmd: "a" },
+            { id: "b.desktop", startupClass: "", icon: "long", name: "B", execString: "x --app=https://app.zoom.us/wc/", cmd: "b" },
+        ]
+        const built = Logic.buildDesktopIcons(entries)
+        compare(built.hosts[0].host, "app.zoom.us", "the longer host is first")
+        compare(built.hosts[1].host, "zoom.us")
+    }
+
+    function test_buildDesktopIcons_empty() {
+        const built = Logic.buildDesktopIcons([])
+        compare(Object.keys(built.icons).length, 0)
+        compare(Object.keys(built.apps).length, 0)
+        compare(built.hosts.length, 0)
+    }
 }

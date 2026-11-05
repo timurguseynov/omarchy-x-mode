@@ -1156,3 +1156,51 @@ function dockAppsSig(apps) {
     }
     return sig
 }
+
+// A desktop entry is keyed by its id and by its startup class, both lowercased and
+// without the ".desktop" suffix, plus the id's last segment: a window class says
+// "kitty" while the entry is "kitty.desktop", and a Chromium web app says
+// "chrome-app.zoom.us__wc-join" while the entry is a package id.
+function desktopIconKey(key) {
+  var k = String(key || "").toLowerCase().trim()
+  if (k.slice(-8) === ".desktop")
+    k = k.slice(0, -8)
+  return k
+}
+
+// The whole desktop-entry index, folded once: icon by class, the app (id, name,
+// command) by class, and the web-app hosts longest first so "app.zoom.us" wins
+// over the "zoom.us" suffix of another entry.
+function buildDesktopIcons(entries) {
+  const icons = {}
+  const apps = {}
+  const hosts = []
+  const put = function(map, key, value) {
+    const k = desktopIconKey(key)
+    if (k === "")
+      return
+    if (map[k] === undefined)
+      map[k] = value
+    const seg = k.split(".").pop()
+    if (seg !== "" && seg !== k && map[seg] === undefined)
+      map[seg] = value
+  }
+  for (const e of (entries || [])) {
+    const icon = String((e && e.icon) || "")
+    const name = String((e && e.name) || "")
+    const entry = { id: String((e && e.id) || ""), name: name, cmd: (e && e.cmd) || "" }
+    if (entry.id !== "") {
+      put(apps, entry.id, entry)
+      put(apps, e.startupClass, entry)
+    }
+    if (icon === "")
+      continue
+    put(icons, e.id, icon)
+    put(icons, e.startupClass, icon)
+    const host = webappHostFromExec(e.execString)
+    if (host !== "")
+      hosts.push({ host: host, icon: icon, id: entry.id, name: name, cmd: entry.cmd })
+  }
+  hosts.sort(function(a, b) { return b.host.length - a.host.length })
+  return { icons: icons, apps: apps, hosts: hosts }
+}
