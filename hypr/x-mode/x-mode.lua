@@ -32,6 +32,7 @@ local modes = dofile(X_MODE_DIR .. "modes.lua")
 local values = dofile(X_MODE_DIR .. "values.lua")
 local keyctl = dofile(X_MODE_DIR .. "keys.lua")
 local modesync = dofile(X_MODE_DIR .. "modesync.lua")
+local peers = dofile(X_MODE_DIR .. "peers.lua")
 
 -- Workspace modes. Omarchy keeps one per workspace -- dwindle, scrolling, its own
 -- floating -- in $XDG_STATE_HOME/omarchy/workspace-layouts, and replays those
@@ -2624,33 +2625,30 @@ local function already_together(a, b)
   return a.group == b.group
 end
 
+-- The accessors the peer rule needs, and the compositor's window list. Built per
+-- call on purpose: a window's class and workspace change under a moving desktop,
+-- and a remembered list is how a window joins the wrong kind of tab.
+local function peer_env()
+  return { class = window_class, ws = ws_id, skip = skip_group, refresh = refresh_window }
+end
+
+local function peer_list()
+  return as_list(hl.get_windows())
+end
+
+-- The peer of a window the caller has already refreshed and checked: joining asks
+-- that question twice for the same window, and refreshing it again is work nothing
+-- reads. Everything else keeps using find_peer, which validates on its own.
+local function find_peer_ready(w)
+  return peers.find(w, peer_list(), peer_env())
+end
+
 find_peer = function(w)
   w = refresh_window(w)
   if skip_group(w) then
     return nil
   end
-  local class = window_class(w)
-  local wid = ws_id(w)
-  local windows = as_list(hl.get_windows())
-  if type(windows) ~= "table" then
-    return nil
-  end
-  local fallback = nil
-  for _, other in ipairs(windows) do
-    if other.address ~= w.address and window_class(other) == class and ws_id(other) == wid and not skip_group(other) then
-      local peer = refresh_window(other)
-      if peer ~= nil and peer.group ~= nil then
-        -- Prefer an existing group so a new window joins it instead of
-        -- creating yet another group of the same app.
-        local current = peer.group.current
-        return refresh_window(current) or peer
-      end
-      if fallback == nil then
-        fallback = peer
-      end
-    end
-  end
-  return fallback
+  return find_peer_ready(w)
 end
 
 join_same_app = function(w)
@@ -2663,7 +2661,7 @@ join_same_app = function(w)
   if not in_xmode(w) then
     return
   end
-  local peer = find_peer(w)
+  local peer = find_peer_ready(w)
   if peer == nil then
     return
   end
@@ -2737,7 +2735,10 @@ hl.on("window.open_early", function(w)
   if key == nil then
     return
   end
-  if find_peer(w) ~= nil then
+  -- Only "is there a same-app window" is needed while the window is being mapped:
+  -- no group lookup, no refresh of candidates. peers.exists checks the window
+  -- itself, which is what find_peer's entry did before it looked at the list.
+  if peers.exists(refresh_window(w), peer_list(), peer_env()) then
     hidden_for_join[key] = true
     pcall(function()
       hl.dispatch(hl.dsp.window.set_prop({ prop = "opacity", value = "0", window = w }))
