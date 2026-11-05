@@ -31,6 +31,7 @@ local layout = dofile(X_MODE_DIR .. "layout.lua")
 local modes = dofile(X_MODE_DIR .. "modes.lua")
 local values = dofile(X_MODE_DIR .. "values.lua")
 local keyctl = dofile(X_MODE_DIR .. "keys.lua")
+local modesync = dofile(X_MODE_DIR .. "modesync.lua")
 
 -- Workspace modes. Omarchy keeps one per workspace -- dwindle, scrolling, its own
 -- floating -- in $XDG_STATE_HOME/omarchy/workspace-layouts, and replays those
@@ -67,13 +68,12 @@ end
 
 read_saved_modes()
 
--- Whether the modes can live in Omarchy's own files at all. 4.5 defines
--- o.workspace_mode and replays them; 4.0.x has no such function and replays
--- `hl.workspace_rule(...)`, so a file calling `o.workspace_mode` there fails
--- every config load -- a hard error in the desktop, not a warning. Everything
--- about recording a mode hangs off this one table, and none of it is a local of
--- its own: this file is at Lua's 200-local limit for a function.
-local mode_sync = { shared = modes.can_persist(os.getenv("OMARCHY_PATH")) }
+-- Runtime on/off and every other file the pack keeps for itself. The bar widget
+-- writes `enabled` here, then runs `hyprctl reload`; off skips the rest of this
+-- file so Omarchy's binds, tiling and animations come back, and the plugin stays
+-- loaded. $X_MODE_STATE overrides the directory, so a nested test session keeps
+-- its own state instead of touching the real one.
+local X_MODE_STATE = os.getenv("X_MODE_STATE") or ((os.getenv("HOME") or "") .. "/.local/state/omarchy-x-mode")
 
 -- A list out of a query result. Omarchy's keybindings scan
 -- (`omarchy-menu-keybindings`) dofiles hyprland.lua with a stub `hl` whose every
@@ -85,40 +85,36 @@ local function as_list(v)
   return values.as_list(v)
 end
 
-
--- ---------------------------------------------------------------------------
--- Runtime on/off. The bar widget writes ~/.local/state/omarchy-x-mode/enabled
--- then runs `hyprctl reload`. Off skips the rest of this file so Omarchy's
--- binds, tiling and animations come back; the plugin stays loaded.
--- $X_MODE_STATE overrides the state directory, so a nested test session keeps
--- its own state instead of touching the real one.
--- ---------------------------------------------------------------------------
-
-local X_MODE_STATE = os.getenv("X_MODE_STATE") or ((os.getenv("HOME") or "") .. "/.local/state/omarchy-x-mode")
-
--- The pack's own record of the workspace modes, in the same format Omarchy's
--- files use and read only where hers cannot be replayed: on 4.5 her saved files
--- are already loaded above, and a second record would be a second truth.
-function mode_sync.path()
-  return X_MODE_STATE .. "/workspace-modes.lua"
-end
-
-function mode_sync.persist()
-  if mode_sync.shared then
-    return
-  end
-  os.execute("mkdir -p " .. string.format("%q", X_MODE_STATE))
-  layout.write_atomic(mode_sync.path(), modes.dump(X_MODE_MODES))
-end
-
-if not mode_sync.shared then
-  local file = io.open(mode_sync.path(), "r")
-  if file ~= nil then
+-- Whether the modes can live in Omarchy's own files at all. 4.5 defines
+-- o.workspace_mode and replays them; 4.0.x has no such function and replays
+-- `hl.workspace_rule(...)`, so a file calling `o.workspace_mode` there fails
+-- every config load -- a hard error in the desktop, not a warning.
+local mode_capable = modes.can_persist(os.getenv("OMARCHY_PATH"))
+-- The record and its two homes are modesync.lua. It is built here, before
+-- anything reads a mode: on an Omarchy without a shared store the pack's own file
+-- is restored at construction, and the first consumer -- the mouse follow and the
+-- published mode, further down -- has to see the restored table. The callbacks a
+-- mode change needs are attached later, once they exist.
+local mode_sync = {}
+local mode_ctl = modesync.new({
+  mode_table = X_MODE_MODES,
+  shared = mode_capable,
+  state_dir = X_MODE_STATE,
+  write = layout.write_atomic,
+  read = function(path)
+    local file = io.open(path, "r")
+    if file == nil then
+      return nil
+    end
     local text = file:read("*a")
     file:close()
-    modes.load_text(X_MODE_MODES, text)
-  end
-end
+    return text
+  end,
+  make_dirs = function(dir)
+    os.execute("mkdir -p " .. string.format("%q", dir))
+  end,
+  workspace_dir = workspace_layouts_dir,
+})
 
 local function x_mode_wanted()
   local file = io.open(X_MODE_STATE .. "/enabled", "r")
@@ -3334,75 +3330,46 @@ do
   end
 end
 
--- Omarchy's own file for a workspace, so her bar, her current-layout script and
--- the next login follow the mode. Only where she can replay it: on 4.0.x the
--- call is a config error, and the pack's record is the only one kept.
-function mode_sync.write_workspace(id, mode)
-  if not mode_sync.shared then
-    return
-  end
-  local dir = workspace_layouts_dir()
-  os.execute("mkdir -p " .. string.format("%q", dir))
-  layout.write_atomic(dir .. "/" .. tostring(id) .. ".lua",
-    string.format('o.workspace_mode({ workspace = "%s", mode = "%s" })\n', tostring(id), mode))
-end
-
--- Where the pack hears about a mode change. Two callers: Omarchy's own
--- o.workspace_mode, wrapped below, and the pack's `xmode` script, which on an
--- Omarchy without that function (4.0.x) cannot change a mode any other way.
-function mode_sync.apply_default(mode)
-  modes.set_default(X_MODE_MODES, mode)
-  mode_sync.persist()
-  -- Every workspace without a mode of its own just changed. The windows keep
-  -- their boxes: this is not a placement, only who owns them.
-  apply_all_modes(false)
-  assert_follow_mouse()
-  -- The dock reads the published mode. Changing the default does not move the
-  -- focus, so workspace.active will not publish it.
-  publish_active_mode()
-end
-
-function mode_sync.apply(id, mode)
-  modes.set(X_MODE_MODES, id, mode)
-  mode_sync.persist()
-  if modes.is_xmode(X_MODE_MODES, id) then
+-- The windows: what a mode change does to them, attached once they exist.
+mode_ctl:use({
+  on_enter = function(id)
     enter_xmode(id, true)
-  else
-    leave_xmode(id)
-  end
-  assert_follow_mouse()
-  -- The dock watches the published mode, and switching the mode of the workspace
-  -- already on screen fires no workspace.active: it has to be published here.
-  publish_active_mode()
+  end,
+  on_leave = leave_xmode,
+  apply_all = apply_all_modes,
+  after_change = assert_follow_mouse,
+  publish = function()
+    publish_active_mode()
+  end,
+})
+
+-- The names the rest of this file already used, now one owner each. Kept as a
+-- table rather than a dozen locals: this file is at Lua's 200-local limit.
+mode_sync.shared = mode_capable
+function mode_sync.path()
+  return mode_ctl:path()
+end
+function mode_sync.persist()
+  mode_ctl:persist()
+end
+function mode_sync.write_workspace(id, mode)
+  mode_ctl:write_workspace(id, mode)
+end
+function mode_sync.apply_default(mode)
+  mode_ctl:apply_default(mode)
+end
+function mode_sync.apply(id, mode)
+  mode_ctl:apply(id, mode)
 end
 
 local omarchy_workspace_mode = o.workspace_mode
 
 if type(omarchy_workspace_mode) == "function" then
-  o.workspace_mode = function(spec)
+  o.workspace_mode = mode_ctl:wrap_omarchy(omarchy_workspace_mode, function()
     in_omarchy_mode = true
-    local ok, err = pcall(omarchy_workspace_mode, spec)
+  end, function()
     in_omarchy_mode = false
-    if not ok then
-      error(err, 0)
-    end
-
-    if type(spec) ~= "table" then
-      return
-    end
-
-    if spec.default ~= nil then
-      mode_sync.apply_default(spec.default)
-      return
-    end
-
-    local id = tonumber(spec.workspace)
-    if id == nil or spec.mode == nil then
-      return
-    end
-
-    mode_sync.apply(id, spec.mode)
-  end
+  end)
 end
 
 -- The `xmode` script's way in on an Omarchy that has no o.workspace_mode

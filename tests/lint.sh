@@ -76,6 +76,17 @@ for f in "$HERE/../hypr/x-mode"/*.lua; do
   fi
 done
 
+# A deleted `local` is a nil global: the file still parses, and under Omarchy's
+# keybindings stub it still loads, because the name is only read inside a callback.
+# That is how a missing `local X_MODE_STATE` and a missing `as_list` reached a live
+# session -- "attempt to concatenate a nil value", and a Super-as-Ctrl map that
+# never installed. The check reads the bytecode, where a local never shows up as a
+# global read.
+if ! lua "$HERE/globals.lua" "$HERE/../hypr/x-mode"/*.lua; then
+  echo "  ${RED}FAIL${RESET} a module reads a global it never declares (see above)"
+  fail=1
+fi
+
 json_reads="$(grep -cF 'Logic.readJsonAnswer(text())' "$QMLDIR/Panel.qml")"
 if [ "$json_reads" != 2 ]; then
   echo "  ${RED}FAIL${RESET} Panel.qml: $json_reads of its 2 watched files keep their state on a torn read"
