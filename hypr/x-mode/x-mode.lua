@@ -1726,47 +1726,19 @@ local LEGACY_OPTIONS_PATH = X_MODE_STATE .. "/options.json"
 local LEGACY_APPS_PATH = X_MODE_STATE .. "/apps.json"
 
 local function slurp(path)
-  local file = io.open(path, "r")
-  if file == nil then
-    return nil
-  end
-  local raw = file:read("*a") or ""
-  file:close()
-  if raw:match("^%s*$") then
-    return nil
-  end
-  return raw
+  return settings.slurp(path)
 end
 
 -- The whole settings file. Older installs kept it in the state dir, and before
--- that as options.json/apps.json: fold whichever of those exists into the new
--- file once. A present-but-empty file is returned as it is, not rebuilt: the
--- panel writes by truncating first, so rebuilding here would turn a write that
--- is still in flight into lost settings.
+-- that as options.json/apps.json. Which text wins is settings.read_stored.
 local function read_settings()
-  local file = io.open(SETTINGS_PATH, "r")
-  if file ~= nil then
-    local raw = file:read("*a") or ""
-    file:close()
-    return raw
-  end
-  local raw = slurp(LEGACY_SETTINGS_PATH) or settings.merge(slurp(LEGACY_OPTIONS_PATH), slurp(LEGACY_APPS_PATH))
-  layout.write_atomic(SETTINGS_PATH, raw .. "\n")
-  return raw
+  return settings.read_stored(SETTINGS_PATH, LEGACY_SETTINGS_PATH, LEGACY_OPTIONS_PATH, LEGACY_APPS_PATH, layout.write_atomic)
 end
 
--- The apps object on its own, out of the settings file. Whether the text is a
--- finished document is settings.complete: a prefix is not an answer, and the
--- caller keeps what it already has.
+-- The apps object on its own, out of the settings file. A torn read is not an
+-- answer; settings.current_text keeps the caller on what it already has.
 local function current_settings()
-  local raw = read_settings()
-  if raw ~= nil and not settings.complete(raw) then
-    return nil
-  end
-  if raw == nil then
-    return ""
-  end
-  return raw
+  return settings.current_text(read_settings())
 end
 
 local function apps_raw()

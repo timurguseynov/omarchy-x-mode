@@ -1,6 +1,6 @@
--- Pure parsing for the panel's settings file (and the two files it replaced).
--- No Hyprland and no I/O: reading and writing the file stays in x-mode.lua, so
--- this can be tested with plain lua (tests/unit/settings_test.lua).
+-- Parsing and the settings-file read for the panel. No Hyprland. A blank
+-- legacy file is missing, but a present main file is returned as it is, even
+-- when a write is still truncating it. Tests use a temp directory.
 local M = {}
 
 -- Occupied Super-key ids are canonicalised the same way the bind plan spells
@@ -290,6 +290,47 @@ function M.complete(raw)
     return s ~= ""
   end
   return s:find("}%s*$") ~= nil
+end
+
+-- A missing file and a whitespace-only file are both "nothing".
+function M.slurp(path)
+  local file = io.open(path, "r")
+  if file == nil then
+    return nil
+  end
+  local raw = file:read("*a") or ""
+  file:close()
+  if raw:match("^%s*$") then
+    return nil
+  end
+  return raw
+end
+
+-- The main file wins, including an empty one: the panel truncates before it
+-- writes, and rebuilding from the legacy files would throw that write away.
+-- Only a missing main file is filled from the older locations and published.
+function M.read_stored(path, legacy_settings, legacy_options, legacy_apps, write)
+  local file = io.open(path, "r")
+  if file ~= nil then
+    local raw = file:read("*a") or ""
+    file:close()
+    return raw
+  end
+  local raw = M.slurp(legacy_settings) or M.merge(M.slurp(legacy_options), M.slurp(legacy_apps))
+  write(path, raw .. "\n")
+  return raw
+end
+
+-- A torn document is not an answer. A missing read is an empty document, so
+-- the caller can tell "nothing yet" from "a write is in flight".
+function M.current_text(raw)
+  if raw ~= nil and not M.complete(raw) then
+    return nil
+  end
+  if raw == nil then
+    return ""
+  end
+  return raw
 end
 
 -- Missing means the titlebar is on. Only an explicit false turns it off.

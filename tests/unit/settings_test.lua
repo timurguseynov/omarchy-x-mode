@@ -254,6 +254,43 @@ check("chrome.off", settings.chrome_on({ foot = { chrome = false } }, "foot"), f
 check("chrome.on", settings.chrome_on({ foot = { chrome = true } }, "foot"), true)
 check("chrome.unset", settings.chrome_on({ foot = {} }, "foot"), true)
 
+check("current.nil", settings.current_text(nil), "")
+check("current.empty", settings.current_text(""), nil)
+check("current.object", settings.current_text("{}"), "{}")
+check("current.prefix", settings.current_text('{"a":'), nil)
+
+local dir = os.tmpname()
+os.remove(dir)
+os.execute("mkdir -p '" .. dir .. "'")
+local main = dir .. "/x-mode.json"
+local legacy = dir .. "/settings.json"
+local options = dir .. "/options.json"
+local apps = dir .. "/apps.json"
+local function write_file(path, text)
+  local f = assert(io.open(path, "w"))
+  f:write(text)
+  f:close()
+end
+write_file(legacy, "   \n")
+write_file(options, '{"gaps":true}')
+write_file(apps, '{"foot":{}}')
+check("slurp.blank", settings.slurp(legacy), nil)
+check("slurp.missing", settings.slurp(dir .. "/nope"), nil)
+check("slurp.text", settings.slurp(options), '{"gaps":true}')
+local wrote = nil
+local function spy(path, text)
+  wrote = path .. "\n" .. text
+  return true
+end
+local migrated = settings.read_stored(main, legacy, options, apps, spy)
+check("read.migrates", migrated, '{"options":{"gaps":true},"apps":{"foot":{}}}')
+check("read.wrote", wrote, main .. "\n" .. migrated .. "\n")
+write_file(main, "")
+wrote = nil
+check("read.keeps-empty", settings.read_stored(main, legacy, options, apps, spy), "")
+check("read.empty-no-write", wrote, nil)
+os.execute("rm -rf '" .. dir .. "'")
+
 if failures > 0 then
   os.exit(1)
 end
