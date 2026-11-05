@@ -23,11 +23,17 @@ local sm = dofile(((debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "./"
 --   flag_any(name) -> bool                flag_for(cls, name) -> bool
 --   needed_ids() -> set of ids to wrap
 --   exec_for(id) -> command|nil           exec_ids() -> table     ensure_replay()
---   write(name, text)                     remove(name)
+--   write(name, text)                     remove(name)         (a state-dir name)
+--   remove_path(path)                     (an absolute path, for the scratch files)
 --   read(path) -> text|nil                exec(cmd)             timer(fn, opts)
 --   now() -> seconds                      binds_path            steal_own
+--   token                                 unique per controller instance
 function M.new(env)
-  local self = { env = env, gen = 0, binds = {}, wraps = {}, retry_at = 0 }
+  -- The generation alone is not unique: a reload starts a new controller whose
+  -- counter begins at one again, and the snapshot the previous load left behind
+  -- carries `gen 1` too. The token names this instance; a snapshot has to match
+  -- both parts to be an answer.
+  local self = { env = env, gen = 0, binds = {}, wraps = {}, retry_at = 0, token = env.token }
 
   function self:drop()
     for _, handle in ipairs(self.binds) do
@@ -204,8 +210,14 @@ function M.new(env)
         return
       end
       local raw = self.env.read(path)
+      -- Both captures are needed, so they are taken as a statement: `raw and
+      -- raw:match(...)` truncates to one value, which silently dropped the stamp.
+      local token, stamp
       if raw ~= nil then
-        self:plan(raw, gen)
+        token, stamp = raw:match("@gen (%S+) (%d+)%s*$")
+      end
+      if raw ~= nil and token == tostring(self.token) and stamp == tostring(gen) then
+        self:plan((raw:gsub("@gen %S+ %d+%s*$", "")), gen)
         return
       end
       if tries > 0 then
@@ -214,7 +226,7 @@ function M.new(env)
       end
       -- Twenty seconds without a table: report what is actually bound instead of
       -- leaving the last good numbers in a file the panel and the tests read as
-      -- "the plan is fine".
+      -- "the plan is fine". The attempt is over, and it failed.
       self:write_meta(0, 0)
     end, { timeout = 200, type = "oneshot" })
   end
@@ -228,12 +240,24 @@ function M.new(env)
   function self:apply()
     self.gen = self.gen + 1
     local path = self.env.binds_path
-    self.env.exec("sh -c 'hyprctl binds > \"" .. path .. ".tmp\" 2>/dev/null && mv \"" .. path .. ".tmp\" \"" .. path .. "\"'")
-    -- 200ms a try. `hyprctl binds` writes a table of several hundred lines, and
-    -- the budget has to cover a loaded machine: ten tries (two seconds) ran out
-    -- under a full suite, the read gave up, and no Super-as-Ctrl bind was ever
-    -- made -- which looks exactly like a plan that refused to run. Twenty seconds,
-    -- because a nest under load has been measured taking more than ten.
+    -- The snapshot is stamped with the generation that asked for it, and the
+    -- stamp is written into the same file as the table, before one rename. Every
+    -- temporary path carries that generation too: two attempts can overlap (a
+    -- stuck read is replaced, not waited for), and a shared scratch file would let
+    -- the older `hyprctl` rewrite the newer attempt's data and have it stamped with
+    -- the newer generation.
+    if self.scratch ~= nil then
+      for _, leftover in ipairs(self.scratch) do
+        self.env.remove_path(leftover)
+      end
+    end
+    local tag = tostring(self.token) .. "." .. tostring(self.gen)
+    local raw = path .. "." .. tag .. ".raw"
+    local stamped = path .. "." .. tag .. ".stamped"
+    self.scratch = { raw, stamped }
+    self.env.exec(string.format(
+      "sh -c 'hyprctl binds > \"%s\" 2>/dev/null && { cat \"%s\"; printf \"@gen %s %d\\n\"; } > \"%s\" && mv \"%s\" \"%s\"'",
+      raw, raw, tostring(self.token), self.gen, stamped, stamped, path))
     read_binds(path, 100, self.gen)
     return self.gen
   end

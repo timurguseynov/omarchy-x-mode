@@ -2309,6 +2309,11 @@ local keyctl_ctl = keyctl.new({
   remove = function(name)
     os.remove(X_MODE_STATE .. "/" .. name)
   end,
+  -- The scratch files are already absolute; joining them with the state
+  -- directory again produced /state//state/binds… and nothing was removed.
+  remove_path = function(path)
+    os.remove(path)
+  end,
   read = slurp,
   exec = function(cmd)
     hl.exec_cmd(cmd)
@@ -2317,6 +2322,10 @@ local keyctl_ctl = keyctl.new({
     hl.timer(fn, opts)
   end,
   now = os.time,
+  -- Names this controller instance. A reload starts a new one whose generation
+  -- counter begins at one again, so the snapshot the previous load left behind
+  -- would otherwise look like an answer.
+  token = tostring(os.time()) .. tostring(os.clock()):gsub("%.", ""),
   binds_path = X_MODE_STATE .. "/binds.txt",
   steal_own = STEAL_OWN,
 })

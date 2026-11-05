@@ -5,14 +5,14 @@
 # map stays empty for the rest of the session and Cmd+Z stops reaching every app,
 # with nothing to show for it. The pack has to notice and try again by itself.
 #
-# The failure is injected where it happens: the exec cannot write its temporary
-# file (a directory is in the way), and the table on disk is empty, so the read is
-# not an answer.
+# The failure is injected where it happens: the snapshot's destination is a
+# directory, so nothing can land there and the read never becomes an answer.
+# A directory rather than a blocked temporary path, because the temporary paths
+# carry the generation of the attempt that owns them.
 . "$(dirname "$0")/../../lib.sh"
 
 STATE="$NEST_STATE/state"
 TABLE="$STATE/binds.txt"
-TMP="$STATE/binds.txt.tmp"
 
 generated_all() {
   nest_ctl binds -j | python3 -c "
@@ -29,16 +29,15 @@ printf '%s\n' '{"options":{"keys":{"ctrlAsSuper":true}},"apps":{}}' > "$NEST_SET
 nest_ctl eval 'if x_mode and x_mode.refresh_options then x_mode.refresh_options() end' >/dev/null
 wait_until 8 '[ "$(generated_all)" -gt 0 ]' || fail "no Super-as-Ctrl binds to begin with"
 
-# Block the write and leave an empty table: the reload empties the bind table, and
-# the read that would refill it cannot land.
-rm -rf "$TMP"
-mkdir -p "$TMP"
-: > "$TABLE"
+# Block the write: the reload empties the bind table, and the snapshot that would
+# refill it cannot land, because its destination is not a file.
+rm -rf "$TABLE"
+mkdir -p "$TABLE"
 nest_ctl reload >/dev/null
 sleep 1.5
 assert_eq "$(generated_all)" 0 "the reload with a blocked read leaves no binds"
 
 # The read works again; the trigger is an event the pack already sees.
-rmdir "$TMP"
+rm -rf "$TABLE"
 open_window foot
 wait_until 15 '[ "$(generated_all)" -gt 0 ]' || fail "the Super-as-Ctrl map never came back by itself"
