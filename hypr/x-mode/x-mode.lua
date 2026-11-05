@@ -3244,7 +3244,11 @@ local function assert_follow_mouse()
   -- config is parsed), and there the answer is the default mode: this is the
   -- desktop's own value, and every workspace without a mode of its own follows it.
   local ours = (id == nil and X_MODE_MODES.default == modes.XMODE) or (id ~= nil and modes.is_xmode(X_MODE_MODES, id))
-  if not ours then
+  -- The live value, not a memory of what the pack set: this handler runs on every
+  -- focus change, and Omarchy writes the same setting from her own mode code. A
+  -- failed read answers nil and the value is written anyway.
+  local ok, current = pcall(hl.get_config, "input:follow_mouse")
+  if not values.needs_follow_mouse(ours, ok and current or nil) then
     return
   end
   hl.config({ input = { follow_mouse = 2 } })

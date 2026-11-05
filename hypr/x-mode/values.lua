@@ -88,6 +88,18 @@ function M.hide_key(w)
   return tostring(w.address)
 end
 
+-- Whether the pack has to write follow_mouse again: only on its own workspaces,
+-- and only while the live value is not the pack's 2. Omarchy writes this setting
+-- too, so "we set it once" is not a fact and is never cached. A value that could
+-- not be read (`nil`) is not proof either: the pack writes then, because leaving
+-- Omarchy's 0 in place is the behaviour this exists to prevent.
+function M.needs_follow_mouse(ours, current)
+  if not ours then
+    return false
+  end
+  return tonumber(current) ~= 2
+end
+
 -- A workspace's id, whichever shape Hyprland hands over: a number, a name, or a
 -- table with id or name. A missing workspace stays nil rather than the number 0,
 -- because 0 is a real workspace the pack has rules about.

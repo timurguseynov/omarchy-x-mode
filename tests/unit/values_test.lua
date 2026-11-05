@@ -65,6 +65,17 @@ check("ws.table-id", values.ws_id({ workspace = { id = 3 } }), 3)
 check("ws.table-name", values.ws_id({ workspace = { name = "5" } }), "5")
 check("ws.empty", values.ws_id({ workspace = {} }), nil)
 
+-- Follow mouse: the pack asserts its value on its own workspaces, but Omarchy
+-- writes the same setting, so the decision has to be "is it already 2", not "did
+-- we set it once". An unreadable value is never proof.
+check("mouse.foreign-workspace", values.needs_follow_mouse(false, nil), false)
+check("mouse.unreadable", values.needs_follow_mouse(true, nil), true)
+check("mouse.already", values.needs_follow_mouse(true, 2), false)
+check("mouse.already-string", values.needs_follow_mouse(true, "2"), false)
+check("mouse.changed-by-omarchy", values.needs_follow_mouse(true, 0), true)
+check("mouse.changed-string", values.needs_follow_mouse(true, "0"), true)
+check("mouse.off", values.needs_follow_mouse(true, 1), true)
+
 if failures > 0 then
   os.exit(1)
 end
