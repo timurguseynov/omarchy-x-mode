@@ -47,6 +47,24 @@ check("tag.plain", values.window_tagged({ tags = { "xmode" } }, "xmode"), true)
 check("tag.star", values.window_tagged({ tags = { "xmode*" } }, "xmode"), true)
 check("tag.other", values.window_tagged({ tags = { "other" } }, "xmode"), false)
 
+check("addr.plain", values.addr_sel({ address = "abc" }), "address:abc")
+check("addr.prefixed", values.addr_sel({ address = "address:abc" }), "address:abc")
+check("addr.missing-address", values.addr_sel({}), "address:nil")
+-- Still the old contract: callers hand over a window that has an address.
+check("addr.nil-window", (pcall(values.addr_sel, nil)), false)
+
+check("hide.plain", values.hide_key({ address = "abc" }), "abc")
+check("hide.nil", values.hide_key(nil), nil)
+check("hide.no-address", values.hide_key({ class = "foot" }), nil)
+check("hide.not-a-selector", values.hide_key({ address = "address:abc" }), "address:abc")
+
+check("ws.nil", values.ws_id(nil), nil)
+check("ws.number", values.ws_id({ workspace = 5 }), 5)
+check("ws.string", values.ws_id({ workspace = "special:scratchpad" }), "special:scratchpad")
+check("ws.table-id", values.ws_id({ workspace = { id = 3 } }), 3)
+check("ws.table-name", values.ws_id({ workspace = { name = "5" } }), "5")
+check("ws.empty", values.ws_id({ workspace = {} }), nil)
+
 if failures > 0 then
   os.exit(1)
 end

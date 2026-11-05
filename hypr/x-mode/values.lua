@@ -66,4 +66,46 @@ function M.window_tagged(w, tag)
   return false
 end
 
+-- The selector Hyprland takes for a window: "address:" plus the bare address.
+-- Already-prefixed input is left alone, so this is safe to call twice. Callers
+-- guarantee a window with an address -- this is a straight move of the helper
+-- that was inline in x-mode.lua, guards included or, rather, not included.
+function M.addr_sel(w)
+  local a = tostring(w.address)
+  if a:sub(1, 8) == "address:" then
+    return a
+  end
+  return "address:" .. a
+end
+
+-- The key the pack hides a window under: the address exactly as Hyprland gives
+-- it. No prefix is added and none is stripped -- this is an opaque key, not a
+-- selector, so a value that already reads "address:..." stays as it is.
+function M.hide_key(w)
+  if w == nil or w.address == nil then
+    return nil
+  end
+  return tostring(w.address)
+end
+
+-- A workspace's id, whichever shape Hyprland hands over: a number, a name, or a
+-- table with id or name. A missing workspace stays nil rather than the number 0,
+-- because 0 is a real workspace the pack has rules about.
+function M.ws_id(w)
+  local ws = w and w.workspace
+  if ws == nil then
+    return nil
+  end
+  local ok, id = pcall(function()
+    return ws.id or ws.name
+  end)
+  if ok and id ~= nil then
+    return id
+  end
+  if type(ws) == "number" or type(ws) == "string" then
+    return ws
+  end
+  return nil
+end
+
 return M

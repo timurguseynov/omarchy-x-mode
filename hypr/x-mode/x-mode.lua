@@ -1675,20 +1675,7 @@ local function apply_lock_key()
 end
 
 function ws_id(w)
-  local ws = w and w.workspace
-  if ws == nil then
-    return nil
-  end
-  local ok, id = pcall(function()
-    return ws.id or ws.name
-  end)
-  if ok and id ~= nil then
-    return id
-  end
-  if type(ws) == "number" or type(ws) == "string" then
-    return ws
-  end
-  return nil
+  return values.ws_id(w)
 end
 
 -- The panel's settings, options and per-app chrome in one file:
@@ -2710,11 +2697,7 @@ local function skip_group(w)
 end
 
 local function addr_sel(w)
-  local a = tostring(w.address)
-  if a:sub(1, 8) == "address:" then
-    return a
-  end
-  return "address:" .. a
+  return values.addr_sel(w)
 end
 
 function refresh_window(w)
@@ -2725,10 +2708,7 @@ function refresh_window(w)
 end
 
 local function hide_key(w)
-  if w == nil or w.address == nil then
-    return nil
-  end
-  return tostring(w.address)
+  return values.hide_key(w)
 end
 
 -- After a tab is added the chrome grows upward (hyprbars draws above the

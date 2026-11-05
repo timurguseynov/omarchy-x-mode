@@ -146,10 +146,10 @@ Pack code, in this repo:
   crashes the compositor (`SIGILL`). The nest is where a plugin gets loaded.
 - After every successful edit or completed task, commit in the repo that owns
   the change when the user asks. The message says what changed and why. Do not
-  commit until a fresh GPT check of that exact diff returns accept. Asking for
+  commit until a fresh checker verdict on that exact diff is accept. Asking for
   the commit does not skip the check or replace the verdict. Before that check,
   and without being asked, start `bash tests/async.sh run suite bash tests/auto.sh`
-  and wait for its receipt. Send the diff to GPT only after that receipt is
+  and wait for its receipt. Send the diff to the checker only after that receipt is
   green. A red or incomplete suite is not a commit. Skip the suite when the
   diff is only prose: Markdown and AGENTS.md. Source, tests, scripts, QML, and
   anything the pack runs still need the green receipt first. A mixed diff is
@@ -209,7 +209,7 @@ what they say, and continue the work that was waiting on that receipt. Do not
 re-ask a question that is still waiting for an answer, and do not read a green
 run as the user agreeing to anything -- `FAIL: 0` means the check passed and
 nothing else. A red run is isolated (its scenario, alone, as above). A green
-run is the gate it was started for: the GPT check, the commit, or the next slice.
+run is the gate it was started for: the checker's verdict, the commit, or the next slice.
 
 The stamp is `PI_SESSION_ID`, which Pi's own bash tool exports. Grok's
 `run_terminal_command` (package `pi-xai-oauth`,
