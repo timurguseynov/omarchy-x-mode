@@ -75,13 +75,14 @@ int main() {
         checkNum("cap-top.bottom", fit.y + fit.h, 1096);
     }
 
-    // The floor is applied before the cap, exactly as the config had it: a usable
-    // area smaller than the chrome leaves the capped value, even below one. Pinned
-    // so that changing it is a deliberate separate decision.
+    // A usable area smaller than the chrome cannot produce a negative height: a
+    // resize with one is a request the compositor has to clamp itself, and the
+    // window that comes back is not the frame this function computed. The floor
+    // wins over the cap.
     {
         const SBox tiny{0, 0, 800, 50};
         const SFrameFit fit = XMode::fitAfterChromeGrow({100, 0, 400, 100}, 0, 60, tiny, 12);
-        checkNum("below-one.h", fit.h, 50 - 12 - 12 - 60);
+        check("below-one.h", fit.h >= 1.0, "height below 1 for a usable area smaller than the chrome");
     }
 
     // The height never collapses to nothing while the usable area still has room:

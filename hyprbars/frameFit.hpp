@@ -43,15 +43,17 @@ inline SFrameFit fitAfterChromeGrow(const SBox& old, double oldChrome, double ne
     // This is the arithmetic exactly as the config wrote it, limits and order
     // included. Two things follow from that and are kept on purpose, because a
     // move is not the place to change them:
-    //   * the cap is applied after the floor, so a usable area smaller than the
-    //     chrome leaves a height below 1 (or negative) -- the resize call then
-    //     decides what to do with it;
+    //   * the cap cannot go below the floor: a usable area smaller than the chrome
+    //     used to leave a negative height, which is a resize the compositor has to
+    //     clamp itself, so the frame that comes back is not the one computed here;
     //   * y and h are limited independently, so a box that was already taller than
     //     the usable area keeps its bottom below it instead of moving up.
     double h = std::max(1.0, old.h - grow);
     const double maxH = usable.h - edge - edge - newChrome;
     if (h > maxH)
         h = maxH;
+    if (h < 1.0)
+        h = 1.0;
 
     return {y, h};
 }
