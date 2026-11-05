@@ -68,16 +68,8 @@ Item {
   }
 
   function hostIconFor(cls) {
-    var c = String(cls || "").toLowerCase()
-    if (c === "")
-      return ""
-    var hosts = root.desktopHostIcons
-    // Longest host first: "app.zoom.us" must win over a shorter suffix.
-    for (var i = 0; i < hosts.length; i++) {
-      if (c.indexOf(hosts[i].host) !== -1)
-        return root.resolveIconName(hosts[i].icon)
-    }
-    return ""
+    const h = Logic.hostMatch(cls, root.desktopHostIcons)
+    return h === null ? "" : root.resolveIconName(h.icon)
   }
 
   // Find the largest icon declared in every Chromium extension manifest under
@@ -87,13 +79,11 @@ Item {
   }
 
   function extensionIconFor(cls) {
-    var m = String(cls || "").toLowerCase().match(/^chrome-([a-p]{32})(-|$)/)
-    if (!m)
+    const id = Logic.extensionIdFor(cls)
+    if (id === "")
       return ""
-    var p = root.extensionIcons[m[1]]
-    if (!p)
-      return ""
-    return Util.fileUrl(p)
+    const p = root.extensionIcons[id]
+    return p ? Util.fileUrl(p) : ""
   }
 
   // Command of the desktop entry's "New Window" action, when it has one (e.g.
@@ -150,75 +140,42 @@ Item {
   // Desktop entry matching a window class: the key map first, then the URL host
   // for Chromium web apps (whose class embeds it). Returns { id, name, cmd }.
   function appEntryFor(cls) {
-    var c = String(cls || "").toLowerCase().trim()
-    if (c.slice(-8) === ".desktop")
-      c = c.slice(0, -8)
-    if (c === "")
-      return null
-    var e = root.desktopAppMap[c]
-    if (e === undefined) {
-      var seg = c.split(".").pop()
-      if (seg !== c)
-        e = root.desktopAppMap[seg]
-    }
+    const e = Logic.lookupByClass(root.desktopAppMap, cls)
     if (e !== undefined)
       return e
-    var hs = root.desktopHostIcons
-    for (var i = 0; i < hs.length; i++) {
-      if (c.indexOf(hs[i].host) !== -1)
-        return hs[i]
-    }
-    return null
+    return Logic.hostMatch(cls, root.desktopHostIcons)
   }
 
   // Human-readable app name, from the desktop entry keys used for icons; falls
   // back to the last dotted class segment.
   function appDisplayName(cls) {
-    var e = root.appEntryFor(cls)
-    if (e && e.name)
-      return e.name
-    var raw = String(cls || "").trim()
-    var c = raw.toLowerCase()
-    if (c.slice(-8) === ".desktop") {
-      c = c.slice(0, -8)
-      raw = raw.slice(0, -8)
-    }
-    return Logic.lastSegment(raw) || c
+    const e = root.appEntryFor(cls)
+    return Logic.displayNameFor(cls, e && e.name ? e.name : "")
   }
 
   // True when the app's desktop entry declares it single-instance, so a launch
   // would only focus the running window (nothing new to open as a tab).
   function isSingleInstance(cls) {
-    var c = String(cls || "").toLowerCase().trim()
-    if (c.slice(-8) === ".desktop")
-      c = c.slice(0, -8)
-    if (c === "")
-      return false
-    if (root.singleInstanceApps[c])
-      return true
-    var seg = c.split(".").pop()
-    return seg !== c && !!root.singleInstanceApps[seg]
+    // Truthiness, not `=== true`: the scan writes what it finds, and the old
+    // lookup treated any value as "single instance".
+    return !!Logic.lookupByClass(root.singleInstanceApps, cls)
   }
 
   function desktopIconFor(cls) {
-    var c = String(cls || "").toLowerCase().trim()
-    if (c.slice(-8) === ".desktop")
-      c = c.slice(0, -8)
-    if (c === "")
+    // An empty class has no icon at all, and must not fall through to the host and
+    // extension lookups the way a class with no desktop entry does.
+    if (Logic.classKey(cls) === "")
       return ""
-    var name = root.desktopIconMap[c]
-    if (name === undefined) {
-      var seg = c.split(".").pop()
-      if (seg !== c)
-        name = root.desktopIconMap[seg]
-    }
-    if (name === undefined) {
-      var h = root.hostIconFor(c)
-      if (h !== "")
-        return h
-      return root.extensionIconFor(c)
-    }
-    return root.resolveIconName(name)
+    const name = Logic.lookupByClass(root.desktopIconMap, cls)
+    if (name !== undefined)
+      return root.resolveIconName(name)
+    // Both lookups are given the class as it was written; each normalises it
+    // itself (classKey inside hostMatch and extensionIdFor), which is what makes a
+    // "chrome-<id>.desktop" class still find its extension icon.
+    const h = root.hostIconFor(cls)
+    if (h !== "")
+      return h
+    return root.extensionIconFor(cls)
   }
 
   function iconFor(cls) {

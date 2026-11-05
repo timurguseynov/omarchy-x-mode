@@ -1204,3 +1204,64 @@ function buildDesktopIcons(entries) {
   hosts.sort(function(a, b) { return b.host.length - a.host.length })
   return { icons: icons, apps: apps, hosts: hosts }
 }
+
+// A window class as the desktop-entry maps key it: lowercased, trimmed, and
+// without the ".desktop" suffix a launch reports. Every lookup in IconResolver
+// starts here, and the rule used to be written out at each of them.
+function classKey(cls) {
+  var c = String(cls || "").toLowerCase().trim()
+  if (c.slice(-8) === ".desktop")
+    c = c.slice(0, -8)
+  return c
+}
+
+// The value a class maps to: the whole key first, then its last dotted segment --
+// a window says "kitty" while the entry is "org.example.kitty", and a Chromium web
+// app says "chrome-app.zoom.us__wc-join" while the entry is a package id.
+function lookupByClass(map, cls) {
+  if (!map)
+    return undefined
+  const c = classKey(cls)
+  if (c === "")
+    return undefined
+  if (map[c] !== undefined)
+    return map[c]
+  const seg = c.split(".").pop()
+  if (seg !== c && map[seg] !== undefined)
+    return map[seg]
+  return undefined
+}
+
+// The web-app host a class belongs to. The list comes from buildDesktopIcons,
+// already sorted longest first, so the first containment wins and "app.zoom.us"
+// is not answered by a "zoom.us" entry.
+function hostMatch(cls, hosts) {
+  const c = classKey(cls)
+  if (c === "")
+    return null
+  for (const h of (hosts || [])) {
+    if (c.indexOf(h.host) !== -1)
+      return h
+  }
+  return null
+}
+
+// What to show for a class: the desktop entry's own name, else the last segment of
+// the class as it was written (a dotted id reads worse than its tail).
+function displayNameFor(cls, entryName) {
+  if (entryName)
+    return entryName
+  var raw = String(cls || "").trim()
+  if (raw.toLowerCase().slice(-8) === ".desktop")
+    raw = raw.slice(0, -8)
+  return lastSegment(raw) || classKey(cls)
+}
+
+// The Chromium extension id a window class names: "chrome-<32 letters>" with an
+// optional segment after a dash. The class is normalised first -- a launch can
+// report "chrome-<id>.desktop" or padded -- because the pattern anchors on the id
+// and ".desktop" would otherwise sit where the end of the string has to be.
+function extensionIdFor(cls) {
+  const m = classKey(cls).match(/^chrome-([a-p]{32})(-|$)/)
+  return m ? m[1] : ""
+}

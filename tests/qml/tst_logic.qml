@@ -853,4 +853,60 @@ TestCase {
         compare(Object.keys(built.apps).length, 0)
         compare(built.hosts.length, 0)
     }
+
+    // Every desktop-entry lookup in IconResolver repeats the same three steps:
+    // normalise the class, try the whole key, then the last dotted segment. It is
+    // one rule, so it is one function -- and the segment fallback is the part that
+    // was easy to forget on a new lookup.
+    function test_classKey() {
+        compare(Logic.classKey("Kitty.DESKTOP"), "kitty")
+        compare(Logic.classKey("  Chrome-app.zoom.us "), "chrome-app.zoom.us")
+        compare(Logic.classKey(""), "")
+        compare(Logic.classKey(null), "")
+    }
+
+    function test_lookupByClass() {
+        const map = { "kitty": "a", "zoom.us": "b" }
+        compare(Logic.lookupByClass(map, "kitty"), "a")
+        compare(Logic.lookupByClass(map, "kitty.desktop"), "a", "the suffix is stripped first")
+        compare(Logic.lookupByClass(map, "org.example.kitty"), "a", "the last segment is the fallback")
+        compare(Logic.lookupByClass(map, "nothing"), undefined)
+        compare(Logic.lookupByClass({}, "kitty"), undefined)
+        compare(Logic.lookupByClass(null, "kitty"), undefined)
+    }
+
+    function test_hostMatch() {
+        const hosts = [
+            { host: "app.zoom.us", icon: "long" },
+            { host: "zoom.us", icon: "short" },
+        ]
+        compare(Logic.hostMatch("chrome-app.zoom.us__wc-join", hosts).icon, "long",
+                "the list is longest first, so the first match wins")
+        compare(Logic.hostMatch("kitty", hosts), null)
+        compare(Logic.hostMatch("kitty", []), null)
+        compare(Logic.hostMatch("", hosts), null)
+    }
+
+    function test_displayNameFor() {
+        compare(Logic.displayNameFor("org.zoom.us", "Zoom"), "Zoom", "the entry name wins")
+        compare(Logic.displayNameFor("chrome-app.zoom.us", ""), "us", "the last segment, as before")
+        compare(Logic.displayNameFor("kitty.desktop", ""), "kitty", "the suffix is stripped")
+        compare(Logic.displayNameFor("", ""), "")
+        compare(Logic.displayNameFor(null, ""), "")
+    }
+
+    // The Chromium extension id a class names. The lookup used to be handed the
+    // already-normalised class; a class that still carries ".desktop" or padding
+    // must match just the same, so the normalisation belongs to this rule.
+    function test_extensionIdFor() {
+        const id = "a".repeat(32)
+        compare(Logic.extensionIdFor("chrome-" + id), id)
+        compare(Logic.extensionIdFor("chrome-" + id + "-2"), id, "a suffix after a dash is allowed")
+        compare(Logic.extensionIdFor("chrome-" + id + ".desktop"), id, "the launch suffix is stripped first")
+        compare(Logic.extensionIdFor("  chrome-" + id + "  "), id, "padding is stripped first")
+        compare(Logic.extensionIdFor("kitty"), "")
+        compare(Logic.extensionIdFor(""), "")
+        compare(Logic.extensionIdFor(null), "")
+        compare(Logic.extensionIdFor("chrome-" + "z".repeat(32)), "", "ids are a-p only")
+    }
 }
