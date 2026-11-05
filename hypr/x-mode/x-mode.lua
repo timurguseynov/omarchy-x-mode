@@ -111,7 +111,8 @@ local mode_ctl = modesync.new({
     return text
   end,
   make_dirs = function(dir)
-    os.execute("mkdir -p " .. string.format("%q", dir))
+    local ok, _, code = os.execute("mkdir -p " .. string.format("%q", dir))
+    return ok == true or code == 0
   end,
   workspace_dir = workspace_layouts_dir,
 })
@@ -3233,6 +3234,10 @@ publish_active_mode = function()
   elseif X_MODE_MODES.default ~= nil then
     mode = X_MODE_MODES.default
   end
+  -- Written on every switch, not only when the line changes: the file has other
+  -- owners. The nest's own reset deletes it between scenarios ("a leftover would
+  -- hide the dock"), and a cache here made the pack believe it had published a mode
+  -- the dock could not read -- the dock simply stayed hidden.
   layout.write_atomic(ACTIVE_MODE_PATH, string.format("%s %s\n", tostring(id or 0), mode))
 end
 

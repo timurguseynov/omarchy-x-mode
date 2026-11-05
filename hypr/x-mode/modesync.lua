@@ -31,7 +31,18 @@ local modes = dofile(((debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "
 --   after_change()    follow the mouse, and anything else a change implies
 --   publish()         publish the active mode for the shell
 function M.new(env)
-  local self = { env = env, table = env.mode_table or modes.new(), effects = {} }
+  local self = { env = env, table = env.mode_table or modes.new(), effects = {}, dirs = {} }
+
+  -- `mkdir -p` is a shell fork in the compositor's thread, and a mode change is not
+  -- rare. A directory is made once per Lua lifetime, and only after a creation that
+  -- actually succeeded: a failed one is retried by the next write instead of being
+  -- remembered as done.
+  local function ensure_dir(dir)
+    if self.dirs[dir] then
+      return
+    end
+    self.dirs[dir] = self.env.make_dirs(dir) and true or nil
+  end
 
   function self:path()
     return self.env.state_dir .. "/workspace-modes.lua"
@@ -41,7 +52,7 @@ function M.new(env)
     if self.env.shared then
       return
     end
-    self.env.make_dirs(self.env.state_dir)
+    ensure_dir(self.env.state_dir)
     self.env.write(self:path(), modes.dump(self.table))
   end
 
@@ -98,7 +109,7 @@ function M.new(env)
       return
     end
     local dir = self.env.workspace_dir()
-    self.env.make_dirs(dir)
+    ensure_dir(dir)
     self.env.write(dir .. "/" .. tostring(id) .. ".lua",
       string.format('o.workspace_mode({ workspace = "%s", mode = "%s" })\n', tostring(id), mode))
   end

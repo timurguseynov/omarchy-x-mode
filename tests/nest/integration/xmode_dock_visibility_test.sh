@@ -16,7 +16,7 @@ dock_start
 nest_ctl eval 'o.workspace_mode({ workspace = "1", mode = "xmode" })' >/dev/null
 wait_until 5 'dock_visible' || fail "the dock is not shown on an xmode workspace"
 assert_eq "$(cat "$MODE_FILE" 2>/dev/null | awk '{print $2}')" xmode \
-  "the pack publishes the active workspace's mode"
+  "the pack publishes the active workspace's mode (file: $(cat "$MODE_FILE" 2>/dev/null | tr '\n' '~'), exists: $([ -e "$MODE_FILE" ] && echo yes || echo no))"
 
 # A tiling workspace is Omarchy's: no dock there.
 nest_ctl eval 'o.workspace_mode({ workspace = "1", mode = "dwindle" })' >/dev/null

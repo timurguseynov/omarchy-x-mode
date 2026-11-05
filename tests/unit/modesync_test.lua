@@ -22,7 +22,7 @@ local function env(over)
     order = {},
     dirs = {},
     written = {},
-    make_dirs = function(d) e.dirs[#e.dirs + 1] = d end,
+    make_dirs = function(d) e.dirs[#e.dirs + 1] = d; return e.dirs_ok ~= false end,
     write = function(path, text) e.files[path] = text end,
     read = function(path) return e.files[path] end,
     workspace_dir = function() return "/omarchy/layouts" end,
@@ -56,6 +56,20 @@ ctl:persist()
 check("own.written", e.files["/state/workspace-modes.lua"] ~= nil, true)
 check("own.mkdir", e.dirs[1], "/state")
 check("own.omarchy-file", e.files["/omarchy/layouts/3.lua"], nil)
+
+-- `mkdir -p` is a shell fork: a mode change makes the directory once, not on every
+-- write, and a failed creation is not remembered as done.
+local e_dirs = env()
+local ctl_dirs = modesync.new(e_dirs)
+ctl_dirs:persist()
+ctl_dirs:persist()
+ctl_dirs:persist()
+check("dirs.once", #e_dirs.dirs, 1)
+local e_fail = env({ dirs_ok = false })
+local ctl_fail = modesync.new(e_fail)
+ctl_fail:persist()
+ctl_fail:persist()
+check("dirs.retry-after-failure", #e_fail.dirs, 2)
 
 -- A fresh controller reads that file back, at construction, before any window
 -- callback exists: that is what the early consumers of the record see.
