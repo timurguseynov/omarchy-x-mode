@@ -126,13 +126,14 @@ Pack code, in this repo:
   own, so nothing the pack writes (the state file, the switcher and preview
   command files) reaches the running session. Run it before committing a change
   to `x-mode.lua`, a module, the plugin or an install file.
-- Editing and installing are separate steps: make the change in this repo, run
-  `tests/run.sh`, and only then install. Never hand-edit or copy over the
-  installed files (`~/.config/hypr/x-mode/`, `~/.local/share/hyprbars/`):
-  `install.sh` is the only writer, so its manifest stays right and a test build
-  never lands on the live session half-done. The panel's settings
-  (`~/.config/hypr/x-mode.json`) are the user's and sit next to that directory,
-  not in it.
+- The agent does not install. The repo is the only place it writes: it never runs
+  `install.sh` or `uninstall.sh`, and never hand-edits or copies over the
+  installed files (`~/.config/hypr/x-mode/`, `~/.local/share/hyprbars/`,
+  `~/.config/omarchy/plugins/`). Installing is the user's step, on their timing --
+  say what is ready and stop there; `install.sh` stays the only writer, so its
+  manifest stays right and a build never lands on the live session half-done. The
+  panel's settings (`~/.config/hypr/x-mode.json`) are the user's and sit next to
+  that directory, not in it.
 - Panel copy is one caption line. A SwitchRow or LinkRow description is 30
   characters or less: the settings card is 360px and elides anything longer.
   Put the rest in the README, not in the row.
