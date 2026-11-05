@@ -37,6 +37,7 @@ local tiling = dofile(X_MODE_DIR .. "tiling.lua")
 local titlebar = dofile(X_MODE_DIR .. "titlebar.lua")
 local switcher = dofile(X_MODE_DIR .. "switcher.lua")
 local rules = dofile(X_MODE_DIR .. "rules.lua")
+local grouping = dofile(X_MODE_DIR .. "grouping.lua")
 
 -- Workspace modes. Omarchy keeps one per workspace -- dwindle, scrolling, its own
 -- floating -- in $XDG_STATE_HOME/omarchy/workspace-layouts, and replays those
@@ -2360,40 +2361,42 @@ apply_workspace_keys()
 apply_lock_key()
 apply_reopen_tab()
 
-local function skip_group(w)
-  if w == nil or w.pinned or w.hidden then
-    return true
-  end
-  local class = window_class(w)
-  if apps_off[class] then
-    return true
-  end
-  -- Nested compositor toplevels share one class, so same-app grouping would
-  -- put every nest in one tab. The titlebar stays. hyprbars.groupable refuses
-  -- the same classes; this also covers the size fallback below, which runs
-  -- when the plugin is not loaded yet.
-  if group.never_group(class) then
-    return true
-  end
-  if class == "" or class:find("portal", 1, true) or class:find("polkit", 1, true) or class:find("titlebar", 1, true) then
-    return true
-  end
-  -- Hyprland's own popup classification (override-redirect, modal, X11
-  -- MENU/DROPDOWN/COMBO/TOOLTIP, transients, xdg children). Size is not a
-  -- signal: a small document is still a document.
-  local p = bars()
-  if p and p.groupable then
-    if not p.groupable(w) then
-      return true
-    end
-  else
-    -- Plugin not loaded yet: keep the old size floor as a last resort.
+-- The tab decisions are grouping.lua's; this file supplies what only the
+-- compositor knows: the class, the app settings, and the plugin's own popup
+-- classification (with the old size floor when the plugin is not loaded yet).
+local grouping_env = {
+  class_of = function(w)
+    return window_class(w)
+  end,
+  chrome_off = function(cls)
+    return apps_off[cls] == true
+  end,
+  never_group = function(cls)
+    return group.never_group(cls)
+  end,
+  groupable = nil,
+  too_small = function(w)
     local ww, wh = vec(w.size)
-    if ww > 0 and wh > 0 and (ww < GROUP_MIN_W or wh < GROUP_MIN_H) then
-      return true
-    end
-  end
-  return false
+    return ww > 0 and wh > 0 and (ww < GROUP_MIN_W or wh < GROUP_MIN_H)
+  end,
+  owns_workspace = function(w)
+    return in_xmode(w)
+  end,
+  dragging = function()
+    return dragging()
+  end,
+  drag_owns = function(w)
+    return drag_owns(w)
+  end,
+  refresh = function(w)
+    return refresh_window(w)
+  end,
+}
+
+local function skip_group(w)
+  local p = bars()
+  grouping_env.groupable = (p and p.groupable) or nil
+  return grouping.skip(w, grouping_env)
 end
 
 local function addr_sel(w)
@@ -2456,10 +2459,7 @@ end
 local function already_together(a, b)
   a = refresh_window(a)
   b = refresh_window(b)
-  if a == nil or b == nil or a.group == nil or b.group == nil then
-    return false
-  end
-  return a.group == b.group
+  return grouping.same_group(a, b)
 end
 
 -- The accessors the peer rule needs, and the compositor's window list. Built per
@@ -2490,29 +2490,24 @@ end
 
 join_same_app = function(w)
   w = refresh_window(w)
-  if skip_group(w) then
-    return
+  -- The decision order is grouping.lua's (skip, leave, none, same, wait, join);
+  -- the moves below are this file's.
+  local peer = nil
+  if not skip_group(w) and in_xmode(w) then
+    peer = find_peer_ready(w)
   end
-  -- Tabs are the pack's, and the pack is only on its own workspaces: a window on
-  -- a workspace Omarchy tiles, scrolls or floats itself stays a window.
-  if not in_xmode(w) then
-    return
-  end
-  local peer = find_peer_ready(w)
-  if peer == nil then
-    return
-  end
-  if already_together(w, peer) then
-    return
-  end
-  -- Grouping moves the group and grows the chrome. If either window is the one
-  -- being dragged, wait until the drag (and its snap) has finished, otherwise
-  -- the new tab steals the snap or hides the preview.
-  if dragging() and (drag_owns(w) or drag_owns(peer)) then
+  local plan = grouping.join_plan(w, peer, grouping_env)
+  if plan == "wait" then
+    -- Grouping moves the group and grows the chrome. If either window is the one
+    -- being dragged, wait until the drag (and its snap) has finished, otherwise
+    -- the new tab steals the snap or hides the preview.
     local key = hide_key(w)
     if key ~= nil then
       pending_join[key] = true
     end
+    return
+  end
+  if plan ~= "join" then
     return
   end
   local px, py = vec(peer.at)
