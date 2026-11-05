@@ -248,6 +248,12 @@ check("complete.prefix", settings.complete('  {"a":1'), false)
 check("complete.not-object", settings.complete("not json"), true)
 check("complete.padded", settings.complete(' {"a":1}\n'), true)
 
+check("chrome.missing", settings.chrome_on({}, "foot"), true)
+check("chrome.absent-table", settings.chrome_on(nil, "foot"), true)
+check("chrome.off", settings.chrome_on({ foot = { chrome = false } }, "foot"), false)
+check("chrome.on", settings.chrome_on({ foot = { chrome = true } }, "foot"), true)
+check("chrome.unset", settings.chrome_on({ foot = {} }, "foot"), true)
+
 if failures > 0 then
   os.exit(1)
 end

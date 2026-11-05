@@ -1788,11 +1788,7 @@ local function load_apps()
 end
 
 local function chrome_on(cls)
-  local e = apps_cfg[cls]
-  if e == nil then
-    return true
-  end
-  return e.chrome ~= false
+  return settings.chrome_on(apps_cfg, cls)
 end
 
 apps_cfg = load_apps()

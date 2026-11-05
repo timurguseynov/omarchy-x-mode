@@ -292,4 +292,13 @@ function M.complete(raw)
   return s:find("}%s*$") ~= nil
 end
 
+-- Missing means the titlebar is on. Only an explicit false turns it off.
+function M.chrome_on(apps, cls)
+  local e = (apps or {})[cls]
+  if e == nil then
+    return true
+  end
+  return e.chrome ~= false
+end
+
 return M
