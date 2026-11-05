@@ -30,6 +30,7 @@ local textkeys = dofile(X_MODE_DIR .. "textkeys.lua")
 local layout = dofile(X_MODE_DIR .. "layout.lua")
 local modes = dofile(X_MODE_DIR .. "modes.lua")
 local values = dofile(X_MODE_DIR .. "values.lua")
+local keyctl = dofile(X_MODE_DIR .. "keys.lua")
 
 -- Workspace modes. Omarchy keeps one per workspace -- dwindle, scrolling, its own
 -- floating -- in $XDG_STATE_HOME/omarchy/workspace-layouts, and replays those
@@ -725,7 +726,7 @@ local apply_super_ctrl
 -- the bare letter -- holding Cmd+D in an editor selected once and then wrote "d".
 -- The pair is what Omarchy's clipboard and the text chords below send by hand for
 -- the same stuck/repeating synthetic key (hyprland discussion 14099). A key held
--- down is the bind's business, not the app's: see `repeating` in bind_super_ctrl.
+-- down is the bind's business, not the app's: see `repeating` in keys.lua.
 --
 -- The key goes as a keycode, not as a name: `send_shortcut` resolves a name by
 -- looking the keysym up in the *active* layout, so on a Cyrillic layout Ctrl+T
@@ -2174,29 +2175,9 @@ end
 -- it up. Reading it inline would block the parse on the compositor's own IPC.
 -- The text form is read, not -j: a keycode bind (Omarchy's workspaces) has no
 -- name there for the JSON to print.
-local super_ctrl_binds = {}
--- Bumped on every replan so a read that lands late cannot bind a stale table
--- over a newer one.
-local super_ctrl_gen = 0
-
-local function drop_super_ctrl()
-  for _, kb in ipairs(super_ctrl_binds) do
-    pcall(function()
-      kb:unbind()
-    end)
-  end
-  super_ctrl_binds = {}
-end
-
--- Hand the key to the app as Ctrl+key and consume it; any other app gets the
--- key exactly as before.
-local function super_ctrl_key(key, shift)
-  local w = hl.get_active_window()
-  if w == nil or not key_flag("ctrl_as_super", window_class(w)) then
-    return { pass_event = true }
-  end
-  send_ctrl(key, shift, w)
-end
+-- The installed map, the wraps and the generation counter live in keyctl
+-- (hypr/x-mode/keys.lua): the ownership model is testable there with a fake
+-- binder, and this file only supplies the compositor.
 
 -- Pack-owned Super binds (Q, Tab, W, F): their own handler already asks the
 -- steal list, so they need no wrap -- only the key has to count as occupied and
@@ -2208,8 +2189,6 @@ local STEAL_OWN = { Q = true, TAB = true, F = true, W = true }
 for id in pairs(STEAL_OWN) do
   pack_keys[id] = true
 end
--- [id] = { keys, originals, handle } for wraps we installed on Omarchy keys.
-local steal_wraps = {}
 -- What the pack can replay of Omarchy's own binds: the command Omarchy wrote
 -- (`omarchy_menu toggle ...`), read out of her files, since hyprctl prints
 -- `__lua` for anything she bound as a Lua value and the behaviour is in her Lua
@@ -2281,20 +2260,6 @@ local function restore_orig(keys, orig)
   end
 end
 
-local function drop_steal_wrap(id)
-  local wrap = steal_wraps[id]
-  if wrap == nil then
-    return
-  end
-  pcall(function()
-    wrap.handle:unbind()
-  end)
-  for _, orig in ipairs(wrap.originals) do
-    restore_orig(wrap.keys, orig)
-  end
-  steal_wraps[id] = nil
-end
-
 -- Ids that need an Omarchy-key wrap: stolen somewhere, and not a pack bind
 -- already wrapped at the source (Q, Tab, W, F). "Somewhere" is the desktop's list
 -- plus every app's own Always on list -- an Always off list only takes a key away
@@ -2304,178 +2269,64 @@ local function needed_steals()
   return supermap.needed_steal_ids(global_steal, apps_cfg)
 end
 
-local function apply_steal_wraps(raw)
-  local needed = needed_steals()
-  for id in pairs(steal_wraps) do
-    if not needed[id] then
-      drop_steal_wrap(id)
-    end
-  end
-  if next(needed) == nil then
-    return
-  end
-  local by_id = {}
-  for _, e in ipairs(supermap.stealable(raw, STEAL_OWN, omarchy_exec)) do
-    by_id[e.id] = e
-  end
-  for id in pairs(needed) do
-    if steal_wraps[id] == nil then
-      local e = by_id[id]
-      if e ~= nil and not e.wrapped then
-        local keys = steal_bind_string(e.key, e.shift)
-        local originals = e.binds
-        if omarchy_exec[id] then
-          originals = { { dispatcher = "exec", arg = omarchy_exec[id], description = e.description } }
-        end
-        hl.unbind(keys)
-        local code = supermap.key_code(e.key)
-        if code ~= nil then
-          local ck = e.shift and ("SUPER + SHIFT + code:" .. tostring(code)) or ("SUPER + code:" .. tostring(code))
-          hl.unbind(ck)
-        end
-        local key, shift = e.key, e.shift
-        local ok, kb = pcall(hl.bind, keys, function()
-          local w = hl.get_active_window()
-          if w ~= nil and key_stolen(window_class(w), key, shift) then
-            send_ctrl(key, shift, w)
-            return
-          end
-          for _, orig in ipairs(originals) do
-            replay_orig(orig)
-          end
-        end, { description = supermap.steal_desc(id, e.description) })
-        if ok and kb then
-          steal_wraps[id] = { keys = keys, originals = originals, handle = kb }
-        end
-      end
-    end
-  end
-end
-
-local function write_occupied(raw)
-  -- Built before the file is opened, and only written when it built: opening
-  -- with "w" truncates first, so a build that died left an empty occupied.json
-  -- and the panel's list of keys to replace simply vanished -- a bug that reads
-  -- as "the panel lost its rows", not as a write that failed.
-  local ok, json = pcall(function()
-    return supermap.occupied_json(supermap.stealable(raw, STEAL_OWN, omarchy_exec))
-  end)
-  if not ok or type(json) ~= "string" then
-    -- Say why, next to the file the panel reads: a silent failure here is a
-    -- panel that quietly shows nothing.
-    layout.write_atomic(X_MODE_STATE .. "/occupied.error", tostring(json) .. "\n")
-    return
-  end
-  layout.write_atomic(X_MODE_STATE .. "/occupied.json", json .. "\n")
-  os.remove(X_MODE_STATE .. "/occupied.error")
-end
-
--- What the plan produced, next to the files the panel and the tests read. The
--- bind table itself is the nest's most contended socket -- the compositor, the
--- harness's own IPC proxy and this read all go through it -- so "did the plan
--- make binds" has to be answerable without asking it again. Written on every pass,
--- including the ones that bind nothing: a file that only a successful plan
--- rewrites keeps the last good numbers through a map that has been dropped, which
--- is how a dead Super as Ctrl looked healthy.
-local function write_super_ctrl(planned, bound, keys)
-  layout.write_atomic(X_MODE_STATE .. "/super-ctrl.json",
-    string.format('{"planned":%d,"bound":%d,"keys":%d}\n', planned, bound, keys))
-end
-
-local function bind_super_ctrl(raw, gen)
-  if gen ~= super_ctrl_gen then
-    return
-  end
-  -- A bind table that did not land is not an answer: the writers that feed this
-  -- (hyprctl, the panel's settings write) truncate before they write, so a read can
-  -- catch half of one. Reading that as "nothing is occupied" blanked the panel's
-  -- list, and reading the flags out of a torn settings file read as "Super as Ctrl
-  -- is off" -- which, with the drop below, took the whole map away until the next
-  -- reload: Cmd+Z stopped reaching every app.
-  local valid = (raw or ""):find("modmask:%s*%d") ~= nil
-  if valid then
-    ensure_omarchy_replay()
-    write_occupied(raw)
-    apply_steal_wraps(raw)
-  end
-  if not key_flag_any("ctrl_as_super") then
-    -- The user turned it off: the installed map has to go.
-    drop_super_ctrl()
-    write_super_ctrl(0, 0, 0)
-    return
-  end
-  local plan = valid and supermap.plan(raw) or {}
-  if #plan == 0 then
-    -- On, but nothing planned: keep the map that is installed and let the next
-    -- read try again, rather than dropping 32 binds to install none.
-    return
-  end
-  -- A new plan replaces the last one instead of adding to it: the request that
-  -- triggered it may have arrived while an earlier plan was already installed.
-  drop_super_ctrl()
-  local planned, bound = 0, 0
-  for _, b in ipairs(plan) do
-    -- The Shortcuts row owns Cmd+Shift+T once any app asks for it. A plan built
-    -- from a snapshot taken before that bind landed still thinks the key is free,
-    -- and a second bind would send the chord twice.
-    if not (b.shift and b.key == "T" and key_flag_any("reopen_tab")) then
-      local keys = b.shift and ("SUPER + SHIFT + " .. b.key) or ("SUPER + " .. b.key)
-      -- `repeating`: a key that stays down keeps sending the chord, the way holding
-      -- Cmd+D on a Mac keeps adding the next occurrence. The repeat has to be the
-      -- bind's: `send_chord` hands over a whole chord and nothing held, so the app
-      -- has no key of its own to repeat (and could only type the bare letter with).
-      local ok, kb = pcall(hl.bind, keys, function()
-        return super_ctrl_key(b.key, b.shift)
-      end, { description = supermap.PREFIX .. (b.shift and " SHIFT" or "") .. " " .. b.key, repeating = true })
-      planned = planned + 1
-      if ok and kb then
-        bound = bound + 1
-        super_ctrl_binds[#super_ctrl_binds + 1] = kb
-      end
-    end
-  end
-  write_super_ctrl(planned, bound, #super_ctrl_binds)
-end
-
--- Poll for the file: the exec that writes it has not landed when the timer is
--- set, and a missing file must not read as "nothing is bound".
-local function super_ctrl_read(path, tries, gen)
-  hl.timer(function()
-    if gen ~= super_ctrl_gen then
-      return
-    end
-    local raw = slurp(path)
-    if raw ~= nil then
-      bind_super_ctrl(raw, gen)
-      return
-    end
-    if tries > 0 then
-      super_ctrl_read(path, tries - 1, gen)
-      return
-    end
-    -- Twenty seconds without a table: report what is actually bound instead of
-    -- leaving the last good numbers in a file the panel and the tests read as
-    -- "the plan is fine".
-    write_super_ctrl(0, 0, #super_ctrl_binds)
-  end, { timeout = 200, type = "oneshot" })
-end
+-- Everything the ownership model needs from the compositor, the settings and the
+-- state directory. keyctl (keys.lua) decides what to bind and what to drop; this
+-- table is the only place those decisions reach Hyprland.
+local keyctl_ctl = keyctl.new({
+  bind = function(bind_keys, fn, opts)
+    local ok, handle = pcall(hl.bind, bind_keys, fn, opts)
+    return ok, handle
+  end,
+  unbind = function(bind_keys)
+    hl.unbind(bind_keys)
+  end,
+  release = function(handle)
+    pcall(function()
+      handle:unbind()
+    end)
+  end,
+  restore = restore_orig,
+  replay = replay_orig,
+  active_window = function()
+    return hl.get_active_window()
+  end,
+  window_class = window_class,
+  key_stolen = function(cls, key, shift)
+    return key_stolen(cls, key, shift)
+  end,
+  send_ctrl = send_ctrl,
+  flag_any = key_flag_any,
+  flag_for = function(cls, name)
+    return key_flag(name, cls)
+  end,
+  needed_ids = needed_steals,
+  exec_for = function(id)
+    return (omarchy_exec or {})[id]
+  end,
+  exec_ids = function()
+    return omarchy_exec or {}
+  end,
+  ensure_replay = ensure_omarchy_replay,
+  write = function(name, text)
+    layout.write_atomic(X_MODE_STATE .. "/" .. name, text)
+  end,
+  remove = function(name)
+    os.remove(X_MODE_STATE .. "/" .. name)
+  end,
+  read = slurp,
+  exec = function(cmd)
+    hl.exec_cmd(cmd)
+  end,
+  timer = function(fn, opts)
+    hl.timer(fn, opts)
+  end,
+  now = os.time,
+  binds_path = X_MODE_STATE .. "/binds.txt",
+  steal_own = STEAL_OWN,
+})
 
 apply_super_ctrl = function()
-  -- The binds already installed stay until the new plan replaces them
-  -- (bind_super_ctrl drops them right before it binds), and the file on disk is
-  -- left alone until a fresh one has been written: a read that never lands -- an
-  -- exec that fails, a machine that is busy -- then leaves the last good plan and
-  -- the last good table in place instead of none of either. Clearing both first
-  -- is what made "no binds" possible with a perfectly good table on disk.
-  super_ctrl_gen = super_ctrl_gen + 1
-  local path = X_MODE_STATE .. "/binds.txt"
-  hl.exec_cmd("sh -c 'hyprctl binds > \"" .. path .. ".tmp\" 2>/dev/null && mv \"" .. path .. ".tmp\" \"" .. path .. "\"'")
-  -- 200ms a try. `hyprctl binds` writes a table of several hundred lines, and the
-  -- budget has to cover a loaded machine: ten tries (two seconds) ran out under a
-  -- full suite, the read gave up, and no Super-as-Ctrl bind was ever made -- which
-  -- looks exactly like a plan that refused to run. Twenty seconds, because a nest
-  -- under load has been measured taking more than ten.
-  super_ctrl_read(path, 100, super_ctrl_gen)
+  keyctl_ctl:apply()
 end
 
 apply_super_ctrl()
@@ -2493,17 +2344,8 @@ apply_super_ctrl()
 -- Globals on purpose: the main chunk of this file is at Lua's limit of 200 locals,
 -- and two more is all it took to make the whole config fail to parse (the bar never
 -- came up and every nest died at bring-up). `luac -p` is in tests/lint.sh now.
-super_ctrl_retry_at = 0
 function super_ctrl_self_heal()
-  if #super_ctrl_binds > 0 or not key_flag_any("ctrl_as_super") then
-    return
-  end
-  local now = os.time()
-  if now < super_ctrl_retry_at then
-    return
-  end
-  super_ctrl_retry_at = now + 5
-  apply_super_ctrl()
+  keyctl_ctl:self_heal()
 end
 
 -- Workspace switching on F1..F10 instead of Super+1..0. Off is Omarchy's layout:
