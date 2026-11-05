@@ -60,7 +60,8 @@ local function declared_globals(path)
 end
 
 local function listing(path)
-  local pipe = io.popen("luac -l " .. string.format("%q", path) .. " 2>&1")
+  -- `-p` as well: bare `luac -l` also compiles, and drops a luac.out in the cwd.
+  local pipe = io.popen("luac -p -l " .. string.format("%q", path) .. " 2>&1")
   if pipe == nil then
     return nil, "could not run luac"
   end
