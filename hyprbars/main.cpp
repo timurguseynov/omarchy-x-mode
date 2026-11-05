@@ -27,6 +27,7 @@
 #include "dragSession.hpp"
 #include "globals.hpp"
 #include "snap.hpp"
+#include "frameFit.hpp"
 
 #include <hyprland/src/config/lua/objects/LuaWindow.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
@@ -459,6 +460,40 @@ static int luaChromeHeight(lua_State* L) {
     return 1;
 }
 
+// Where the content belongs after the chrome changed: the plugin's own chrome
+// height, edge and usable area, so the config never has to guess them from the
+// desktop's general:gaps_out (a No gaps workspace uses 0 and 1 there while its
+// rules still report the desktop's 10 and 2, and measuring the fit with those cut
+// 22px off a snapped box).
+//
+// Returns the new y and height, or nothing when the window has no monitor. The
+// config still dispatches the move and the resize: this is the arithmetic and the
+// policy, not the placement.
+static int luaFitAfterChrome(lua_State* L) {
+    PHLWINDOW w = nullptr;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1))
+        w = Config::Lua::Bindings::Internal::windowFromLuaSelectorOrObject(L, 1, "hyprbars.fit_after_chrome");
+    if (!w) {
+        lua_pushnil(L);
+        return 1;
+    }
+    const double oldY = luaL_checknumber(L, 2);
+    const double oldH = luaL_checknumber(L, 3);
+    const double oldChrome = luaL_optnumber(L, 4, 0);
+    PHLMONITOR mon = w->m_monitor.lock();
+    if (!mon) {
+        lua_pushnil(L);
+        return 1;
+    }
+    const CBox area = Snap::usable(mon);
+    const XMode::SFrameFit fit = XMode::fitAfterChromeGrow(
+        {.x = 0, .y = oldY, .w = 0, .h = oldH}, oldChrome, Snap::chromeH(w),
+        {.x = area.x, .y = area.y, .w = area.w, .h = area.h}, Snap::edge(w));
+    lua_pushnumber(L, fit.y);
+    lua_pushnumber(L, fit.h);
+    return 2;
+}
+
 // The outer edge of a window's frame, gap plus border, as its workspace defines
 // it (Snap::edge). Lua measures a group's shift and its fit with this, because
 // the desktop's general:gaps_out is not what a No gaps workspace uses.
@@ -812,6 +847,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "usable", ::luaUsable);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "bar_top", ::luaBarTop);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "chrome_height", ::luaChromeHeight);
+        HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "fit_after_chrome", ::luaFitAfterChrome);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "edge", ::luaEdge);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "cycle", ::luaCycle);
         HyprlandAPI::addLuaFunction(PHANDLE, "hyprbars", "fit", ::luaFit);

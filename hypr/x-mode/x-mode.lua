@@ -2561,10 +2561,16 @@ local function hide_key(w)
 end
 
 -- After a tab is added the chrome grows upward (hyprbars draws above the
--- window box). Keep the visual top put by placing content at
--- old_y + chrome growth, and shrink the height so the bottom edge stays put.
--- Targets are absolute from the pre-join geometry so repeated calls are
--- idempotent (a plain delta nudge + keep_pos left maximized windows under
+-- window box). Keep the visual top put by placing content at the old top plus the
+-- chrome growth, and shrink the height so the bottom edge stays put.
+--
+-- The arithmetic is the plugin's (hyprbars/frameFit.hpp, exposed as
+-- fit_after_chrome): it needs the window's own chrome height, edge and usable
+-- area, which only the plugin knows. Measuring that fit here from the desktop's
+-- general:gaps_out cut 22px off a snapped box and pushed it 11px down when a tab
+-- joined, because a No gaps workspace's rules say 0 and 1 while the desktop still
+-- reports 10 and 2. Targets are absolute from the pre-join geometry, so repeated
+-- calls are idempotent (a plain delta nudge + keep_pos left maximized windows under
 -- the top bar; a full clamp_window pinned them to the top).
 -- Must live below refresh_window: a local used before its declaration is nil.
 local function absorb_chrome_growth(w, old_x, old_y, old_w, old_h, old_chrome)
@@ -2575,36 +2581,16 @@ local function absorb_chrome_growth(w, old_x, old_y, old_w, old_h, old_chrome)
   if not (w.floating and w.mapped) then
     return
   end
-  local mon = w.monitor
-  if mon == nil then
+  local p = bars()
+  if p == nil or p.fit_after_chrome == nil then
     return
   end
-  local _, uy, _, uh = layout.usable(mon)
-  if uy == nil then
+  local ny, nh = p.fit_after_chrome(w, old_y, old_h, old_chrome or 0)
+  if ny == nil or nh == nil then
     return
   end
   local x, y = vec(w.at)
   local ww, wh = vec(w.size)
-  local new_chrome = layout.chrome_h(w)
-  local grow = math.max(new_chrome - (old_chrome or 0), 0)
-  -- The window's own edge, from the plugin: on a No gaps workspace the gap and
-  -- border are the workspace rule's 0 and 1, while GAP_OUT()/BORDER() still
-  -- report the desktop's 10 and 2. Measuring the fit with those cut 22px off a
-  -- snapped box and pushed it 11px down when a tab joined.
-  local edge = layout.edge(w)
-  if edge == nil then
-    edge = GAP_OUT() + BORDER()
-  end
-  local ny = old_y + grow
-  local min_top = uy + edge + new_chrome
-  if ny < min_top then
-    ny = min_top
-  end
-  local nh = math.max(1, old_h - grow)
-  local max_h = uh - edge - edge - new_chrome
-  if nh > max_h then
-    nh = max_h
-  end
   if math.abs(wh - nh) >= 1 or math.abs(ww - old_w) >= 1 then
     hl.dispatch(hl.dsp.window.resize({ x = old_w, y = nh, relative = false, window = w }))
     -- Resize is centered: re-assert the preserved visual top afterwards.
