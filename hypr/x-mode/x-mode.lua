@@ -36,6 +36,7 @@ local peers = dofile(X_MODE_DIR .. "peers.lua")
 local tiling = dofile(X_MODE_DIR .. "tiling.lua")
 local titlebar = dofile(X_MODE_DIR .. "titlebar.lua")
 local switcher = dofile(X_MODE_DIR .. "switcher.lua")
+local rules = dofile(X_MODE_DIR .. "rules.lua")
 
 -- Workspace modes. Omarchy keeps one per workspace -- dwindle, scrolling, its own
 -- floating -- in $XDG_STATE_HOME/omarchy/workspace-layouts, and replays those
@@ -1661,10 +1662,6 @@ local function apply_ctrl_c_shift()
   end
 end
 
-local nobar_applied = {}
-local always_applied = {}
-local compact_applied = {}
-
 local function set_rule(name, cls, effect, on)
   -- The stored key is lowercased, but Hyprland matches a rule's class as a
   -- case-sensitive RE2 full match, so the pattern carries the case-insensitive
@@ -1681,35 +1678,16 @@ local function set_rule(name, cls, effect, on)
   end)
 end
 
+-- The chrome rules the app settings drive (no titlebar, always-tabbar, compact
+-- tabs) are rules.lua's bookkeeping: what is new, what is gone, what is unchanged.
+-- set_rule is the only way it reaches the compositor.
+local app_rules = rules.new({ rule = set_rule })
+
 local function apply_apps()
   apps_cfg = load_apps()
   sync_apps_off()
   apply_ctrl_c_shift()
-  local wanted_nobar, wanted_always, wanted_compact = settings.desired_rules(apps_cfg)
-  local add_nobar, drop_nobar = settings.rule_diff(wanted_nobar, nobar_applied)
-  local add_always, drop_always = settings.rule_diff(wanted_always, always_applied)
-  local add_compact, drop_compact = settings.rule_diff(wanted_compact, compact_applied)
-  for _, cls in ipairs(add_nobar) do
-    set_rule("x-mode-nobar-", cls, "hyprbars:no_bar", true)
-  end
-  for _, cls in ipairs(drop_nobar) do
-    set_rule("x-mode-nobar-", cls, "hyprbars:no_bar", false)
-  end
-  for _, cls in ipairs(add_always) do
-    set_rule("x-mode-always-tabbar-", cls, "hyprbars:always_tabbar", true)
-  end
-  for _, cls in ipairs(drop_always) do
-    set_rule("x-mode-always-tabbar-", cls, "hyprbars:always_tabbar", false)
-  end
-  for _, cls in ipairs(add_compact) do
-    set_rule("x-mode-compact-tabs-", cls, "hyprbars:compact_tabs", true)
-  end
-  for _, cls in ipairs(drop_compact) do
-    set_rule("x-mode-compact-tabs-", cls, "hyprbars:compact_tabs", false)
-  end
-  nobar_applied = wanted_nobar
-  always_applied = wanted_always
-  compact_applied = wanted_compact
+  app_rules:apps(apps_cfg)
 end
 
 local function ungroup_where(pred)
@@ -1893,36 +1871,38 @@ local function each_workspace(fn)
   end
 end
 
+-- The gap rules are rules.lua's bookkeeping too; what has to stay here is the list
+-- of workspaces, which only the compositor knows.
+app_rules:use({
+  gap_rule = function(id)
+    no_gap_rule(id)
+  end,
+  gap_clear = function(id)
+    clear_gap_rule(id)
+  end,
+  want_no_gap = function(id)
+    return want_no_gap(id)
+  end,
+})
+
 local function sync_gap_rules()
+  local ids = {}
   local seen = {}
   each_workspace(function(ws)
     local id = tonumber(ws and ws.id)
-    if id == nil or id < 1 then
-      return
-    end
-    seen[id] = true
-    if want_no_gap(id) then
-      no_gap_rule(id)
-    else
-      clear_gap_rule(id)
+    if id ~= nil and id >= 1 and not seen[id] then
+      seen[id] = true
+      ids[#ids + 1] = id
     end
   end)
   for id, _ in pairs(X_MODE_MODES.workspaces) do
     local n = tonumber(id)
     if n ~= nil and n >= 1 and not seen[n] then
       seen[n] = true
-      if want_no_gap(n) then
-        no_gap_rule(n)
-      else
-        clear_gap_rule(n)
-      end
+      ids[#ids + 1] = n
     end
   end
-  for id, _ in pairs(gap_rules) do
-    if not seen[id] then
-      clear_gap_rule(id)
-    end
-  end
+  app_rules:gaps(ids)
 end
 
 local function xmode_hits(hits)
@@ -2966,7 +2946,9 @@ end
 -- stacked. On a load the boxes are already the pack's and nothing moves.
 local function enter_xmode(id, place)
   if no_gaps then
-    no_gap_rule(id)
+    -- Through the module: a rule created here has to be in the registry, or the
+    -- rule of a workspace that later disappears is never removed.
+    app_rules:gap_open(id)
   end
   for _, win in ipairs(windows_on(id)) do
     if win.mapped and not win.hidden then
@@ -2992,8 +2974,9 @@ end
 -- the tag, and the window is tiled by whatever mode took the workspace over.
 local function leave_xmode(id)
   -- Drop the no-gap rule before the windows tile, or dwindle lays them out
-  -- with the gaps this workspace just left behind.
-  clear_gap_rule(id)
+  -- with the gaps this workspace just left behind. Through the module, so the
+  -- registry and the compositor agree.
+  app_rules:gap_close(id)
   for _, win in ipairs(windows_on(id)) do
     if window_tagged(win, XMODE_TAG) then
       if win.group ~= nil then
@@ -3138,7 +3121,7 @@ apply_active_mode()
 hl.on("workspace.created", function(ws)
   local id = ws and tonumber(ws.id)
   if want_no_gap(id) then
-    no_gap_rule(id)
+    app_rules:gap_open(id)
   end
 end)
 
