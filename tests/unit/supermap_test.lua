@@ -454,6 +454,44 @@ check("replay.dispatch", supermap.replay_command({ dispatcher = "workspace", arg
 check("replay.lua", supermap.replay_command({ dispatcher = "__lua", arg = "x" }), nil)
 check("replay.none", supermap.replay_command({}), nil)
 
+-- The reconciliation compares what the pack wanted with what the table holds, and
+-- it has to see the pack's own binds -- the ones occupied_list deliberately hides.
+local TABLE = table.concat({
+  "bind", "\tmodmask: 64", "\tsubmap: ", "\tkey: R", "\tkeycode: 0",
+  "\tdescription: x-mode-super-ctrl R", "\tdispatcher: __lua", "",
+  "bind", "\tmodmask: 65", "\tsubmap: ", "\tkey: T", "\tkeycode: 0",
+  "\tdescription: x-mode-super-ctrl SHIFT T", "\tdispatcher: __lua", "",
+  "bind", "\tmodmask: 64", "\tsubmap: ", "\tkey: L", "\tkeycode: 0",
+  "\tdescription: Lock", "\tdispatcher: exec", "",
+}, "\n")
+local gen = supermap.generated_list(TABLE)
+check("generated.count", #gen, 2)
+check("generated.plain", gen[1].id, "R")
+check("generated.shift", gen[2].id, "SHIFT+T")
+local foreign = 0
+for _, e in ipairs(gen) do
+  if (e.description or ""):find("Lock", 1, true) then foreign = foreign + 1 end
+end
+check("generated.skips-foreign", foreign, 0)
+
+-- A bind of ours inside a submap is not the one the reconciliation means: the pack
+-- never binds into a submap, so such an entry is somebody else's copy.
+local SUBMAP = table.concat({
+  "bind", "\tmodmask: 64", "\tsubmap: resize", "\tkey: R", "\tkeycode: 0",
+  "\tdescription: x-mode-super-ctrl R", "\tdispatcher: __lua", "",
+}, "\n")
+check("generated.skips-submap", #supermap.generated_list(SUBMAP), 0)
+
+-- A wrap is part of the map too, and it is told apart from a generated bind.
+local WRAP = table.concat({
+  "bind", "\tmodmask: 64", "\tsubmap: ", "\tkey: Z", "\tkeycode: 0",
+  "\tdescription: x-mode-super-steal Z Undo", "\tdispatcher: __lua", "",
+}, "\n")
+local wraps = supermap.generated_list(WRAP)
+check("generated.steal-kind", #wraps, 1)
+check("generated.steal-id", wraps[1].id, "Z")
+check("generated.steal-is-steal", wraps[1].kind, "steal")
+
 if failures > 0 then
   os.exit(1)
 end

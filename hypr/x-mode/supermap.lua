@@ -493,6 +493,40 @@ function M.plan(raw)
   return out
 end
 
+-- The binds this pack generated, as { id = "R" } / { id = "SHIFT+T" } entries.
+-- occupied_list deliberately hides them (it answers "what does the desktop own"), and
+-- the reconciliation needs exactly the opposite view: its own map, chord by chord.
+function M.generated_list(raw)
+  local out = {}
+  for block in ((raw or "") .. "\n\n"):gmatch("(.-)\n\n") do
+    local f = fields(block)
+    local desc = f.description or ""
+    -- Only what the pack generated and wrapped: a submap bind is somebody else's,
+    -- and the reconciliation compares identity, so the kind is kept.
+    local kind = nil
+    if desc:sub(1, #M.PREFIX) == M.PREFIX then
+      kind = "generated"
+    elseif desc:sub(1, #M.STEAL_PREFIX) == M.STEAL_PREFIX then
+      kind = "steal"
+    end
+    if kind ~= nil and (f.submap or "") == "" then
+      local mask = tonumber(f.modmask or "") or 0
+      local shift = nil
+      if mask == SUPER then
+        shift = false
+      elseif mask == SUPER + SHIFT then
+        shift = true
+      end
+      local name = key_name(f.key or "")
+      local canon = name and (KEY_CANON[name:lower()] or name) or nil
+      if shift ~= nil and canon ~= nil then
+        out[#out + 1] = { id = M.key_id(canon, shift), kind = kind, description = desc, modmask = mask }
+      end
+    end
+  end
+  return out
+end
+
 -- Ids that need an Omarchy-key wrap. Q, Tab, W and F are pack binds wrapped at
 -- the source, so they are not wrapped again. The desktop list and every app's
 -- own Always-on list are the only inputs.

@@ -18,6 +18,13 @@ if [ -f "$HERE/harness_test.sh" ]; then
   bash "$HERE/harness_test.sh" || fail=1
 fi
 
+# The runtime names Lua, C++ and QML share as string literals. A rename on one side
+# is silent otherwise: the writer writes a file nobody reads.
+if [ -f "$HERE/interface_test.sh" ]; then
+  echo "== interface"
+  bash "$HERE/interface_test.sh" || fail=1
+fi
+
 # Test receipts are visible without waking the model on green, but unknown or
 # failed commands must still ask for attention. Plain Node, no model or nest.
 echo "== test-status"

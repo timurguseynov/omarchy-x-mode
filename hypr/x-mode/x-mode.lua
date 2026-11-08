@@ -101,7 +101,6 @@ local mode_capable = modes.can_persist(os.getenv("OMARCHY_PATH"))
 -- is restored at construction, and the first consumer -- the mouse follow and the
 -- published mode, further down -- has to see the restored table. The callbacks a
 -- mode change needs are attached later, once they exist.
-local mode_sync = {}
 local mode_ctl = modesync.new({
   mode_table = X_MODE_MODES,
   shared = mode_capable,
@@ -443,16 +442,24 @@ local GROUP_MIN_H       = cfg_int("plugin:hyprbars:x_mode_group_min_height", 300
 -- float_gaps and the dock inset both derive from the live gap and border, so
 -- the panel's "No gaps" option recomputes them instead of leaving the values
 -- captured at load.
+-- The float box both the general geometry and a workspace's no-gap rule need.
+-- hyprbars draws its titlebar above the window box, so the top gap carries it; the
+-- other sides are the edge alone. One function because the two boxes must agree:
+-- the snap zones are measured against them.
+local function float_box(edge)
+  return {
+    top = TITLEBAR + edge,
+    left = edge,
+    right = edge,
+    bottom = edge,
+  }
+end
+
 local function apply_gap_geometry()
   local edge = GAP_OUT() + BORDER()
   hl.config({
     general = {
-      float_gaps = {
-        top = TITLEBAR + edge,
-        left = edge,
-        right = edge,
-        bottom = edge,
-      },
+      float_gaps = float_box(edge),
     },
     plugin = {
       hyprbars = {
@@ -1834,12 +1841,7 @@ local function no_gap_rule(id)
     gaps_in = 0,
     gaps_out = 0,
     border_size = edge,
-    float_gaps = {
-      top = TITLEBAR + edge,
-      left = edge,
-      right = edge,
-      bottom = edge,
-    },
+    float_gaps = float_box(edge),
   })
   if ok and rule ~= nil then
     gap_rules[id] = rule
@@ -2084,10 +2086,6 @@ local function ensure_omarchy_replay()
   end
 end
 
-local function steal_bind_string(key, shift)
-  return supermap.bind_string(key, shift)
-end
-
 local function replay_orig(orig)
   local cmd = supermap.replay_command(orig)
   if cmd ~= nil then
@@ -2173,7 +2171,10 @@ local keyctl_ctl = keyctl.new({
     hl.exec_cmd(cmd)
   end,
   timer = function(fn, opts)
-    hl.timer(fn, opts)
+    -- The handle matters: the repeat timer of the reconciliation is disabled
+    -- through it, and a handle that is dropped here makes that impossible -- the
+    -- timer then keeps firing and a second one is created on the next install.
+    return hl.timer(fn, opts)
   end,
   now = os.time,
   -- Names this controller instance. A reload starts a new one whose generation
@@ -3197,25 +3198,6 @@ mode_ctl:use({
   end,
 })
 
--- The names the rest of this file already used, now one owner each. Kept as a
--- table rather than a dozen locals: this file is at Lua's 200-local limit.
-mode_sync.shared = mode_capable
-function mode_sync.path()
-  return mode_ctl:path()
-end
-function mode_sync.persist()
-  mode_ctl:persist()
-end
-function mode_sync.write_workspace(id, mode)
-  mode_ctl:write_workspace(id, mode)
-end
-function mode_sync.apply_default(mode)
-  mode_ctl:apply_default(mode)
-end
-function mode_sync.apply(id, mode)
-  mode_ctl:apply(id, mode)
-end
-
 local omarchy_workspace_mode = o.workspace_mode
 
 if type(omarchy_workspace_mode) == "function" then
@@ -3234,7 +3216,7 @@ x_mode.set_mode = function(workspace, mode)
   if id == nil or type(mode) ~= "string" or mode == "" then
     return false
   end
-  mode_sync.apply(id, mode)
+  mode_ctl:apply(id, mode)
   return true
 end
 
@@ -3242,7 +3224,7 @@ x_mode.set_default_mode = function(mode)
   if type(mode) ~= "string" or mode == "" then
     return false
   end
-  mode_sync.apply_default(mode)
+  mode_ctl:apply_default(mode)
   return true
 end
 
@@ -3272,13 +3254,13 @@ function x_mode.claim_arranged()
     if id ~= nil and id >= 1 and not seen[id] then
       seen[id] = true
       if not modes.is_xmode(X_MODE_MODES, id) then
-        mode_sync.write_workspace(id, modes.XMODE)
+        mode_ctl:write_workspace(id, modes.XMODE)
         modes.set(X_MODE_MODES, id, modes.XMODE)
       end
       enter_xmode(id, false)
     end
   end
-  mode_sync.persist()
+  mode_ctl:persist()
   publish_active_mode()
 end
 

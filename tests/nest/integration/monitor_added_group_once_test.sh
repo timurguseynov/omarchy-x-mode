@@ -60,10 +60,7 @@ done <<<"$(foot_xs)"
 assert_eq "$n" 2 "both tabs were off-screen together"
 
 nest_ctl output create headless HEADLESS-1 >/dev/null 2>&1
-for i in $(seq 1 40); do
-  nest_ctl monitors -j | grep -q '"name": "HEADLESS-1"' && break
-  sleep 0.1
-done
+wait_until 4 '[ "$(monitor_id HEADLESS-1)" != "none" ]' || fail "the second output did not come up"
 settle
 sleep 0.3
 

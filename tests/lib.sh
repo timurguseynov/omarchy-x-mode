@@ -1071,6 +1071,44 @@ for c in json.load(sys.stdin):
         break"
 }
 
+# A monitor's index by name, or "none". Scenarios that place a window on a second
+# output have to talk about it by identity: an index is what the client list
+# reports, and "positive number" is not an answer.
+monitor_id() { # NAME
+  nest_ctl monitors -j | python3 -c '
+import json, sys
+m = next((x for x in json.load(sys.stdin) if x.get("name") == "'"$1"'"), None)
+print(m["id"] if m else "none")
+'
+}
+
+# A monitor's logical box, as WxH: `monitors -j` reports physical pixels, and every
+# coordinate the pack uses is logical.
+monitor_logical() { # NAME
+  nest_ctl monitors -j | python3 -c '
+import json, sys
+m = next((x for x in json.load(sys.stdin) if x.get("name") == "'"$1"'"), None)
+if not m:
+    print("none")
+else:
+    print("%dx%d" % (round(m["width"] / m["scale"]), round(m["height"] / m["scale"])))
+'
+}
+
+# The monitor index of a class's visible window, or "none". A hidden tab proves
+# nothing about geometry, which is why `hidden` is filtered here and not by callers.
+client_monitor() { # CLASS
+  nest_ctl clients -j | python3 -c '
+import json, sys
+for c in json.load(sys.stdin):
+    if c.get("class") == "'"$1"'" and c.get("mapped") and not c.get("hidden"):
+        print(c.get("monitor"))
+        break
+else:
+    print("none")
+'
+}
+
 # How many binds Hyprland has for a key and modifier mask. Mod1 is 8, Control
 # is 4, Mod4 (Super) is 64. A modified keybind cannot be driven from a test
 # (see the README), so the bind table is where those contracts are pinned.

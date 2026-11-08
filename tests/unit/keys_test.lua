@@ -107,7 +107,10 @@ check("plan.every-bind-repeats", (function()
   end
   return true
 end)(), true)
-check("plan.meta-writes-planned", e.written["super-ctrl.json"] ~= nil, true)
+local meta = e.written["super-ctrl.json"] or ""
+check("plan.meta-writes-planned", meta ~= "", true)
+check("plan.meta-state-pending", meta:find('"state":"pending"', 1, true) ~= nil, true)
+check("plan.meta-no-observation", meta:find('"observed":null', 1, true) ~= nil, true)
 check("plan.occupied-written", e.written["occupied.json"] ~= nil, true)
 
 -- A key press on an installed bind goes to the app as Ctrl when the flag is on.
@@ -131,7 +134,8 @@ e.flag.ctrl_as_super = false
 e.sent = {}
 ctl:plan(RAW, ctl.gen)
 check("off.released-all", e.released, #e.bound)
-check("off.meta-zero", e.written["super-ctrl.json"], '{"planned":0,"bound":0,"keys":0}\n')
+check("off.meta-zero", e.written["super-ctrl.json"],
+  '{"planned":0,"bound":0,"keys":0,"observed":null,"state":"off"}\n')
 check("off.no-new-sends", #e.sent, 0)
 
 -- A late plan from an older generation is dropped without binding anything.
@@ -180,6 +184,19 @@ e7.exec = function(cmd) execs = execs + 1; last_exec = cmd end
 ctl7:apply()
 check("fresh.exec-once", execs, 1)
 check("fresh.exec-stamps-generation", last_exec:find("@gen t1 1", 1, true) ~= nil, true)
+
+-- A read that never lands is "unknown", not "no binds": an earlier plan's binds may
+-- still be in the table, and a zero would read as a healthy empty map.
+local e_ex = env({ read = function() return nil end })
+local ctl_ex = keys.new(e_ex)
+ctl_ex:apply()
+for _ = 1, 101 do
+  local timer = table.remove(e_ex.timers, 1)
+  if timer then timer() end
+end
+local exhausted = e_ex.written["super-ctrl.json"] or ""
+check("exhausted.meta-state", exhausted:find('"state":"unknown"', 1, true) ~= nil, true)
+check("exhausted.meta-no-observation", exhausted:find('"observed":null', 1, true) ~= nil, true)
 
 -- The file that lands carries an older generation: not an answer, so no binds.
 e7.read = function() return RAW .. "\n@gen t1 0\n" end
@@ -232,9 +249,12 @@ local clock8 = 0
 e8.exec = function() execs8 = execs8 + 1 end
 e8.now = function() return clock8 end
 ctl8:apply()
+-- A stuck read is replaced rather than waited for: that is the recovery the nest
+-- scenario guards, and a replacement clears the request state first.
 clock8 = 6
 check("recover.heal-fires", ctl8:self_heal(), true)
 check("recover.second-exec", execs8, 2)
+check("recover.previous-read-dropped", ctl8.applying, true)
 
 -- A wrap replays the original action for an app that does not steal the key.
 local e9 = env({
